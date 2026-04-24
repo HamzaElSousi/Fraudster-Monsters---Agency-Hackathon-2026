@@ -11,6 +11,8 @@ import duckdb
 
 _conn = None
 _loaded_tables: set[str] = set()
+_conn_lock = threading.Lock()
+_table_lock = threading.Lock()
 
 # Key tables to preload at startup (schema, table) in priority order
 _PRELOAD_TABLES = [
@@ -25,15 +27,18 @@ _PRELOAD_TABLES = [
 
 # Result cache: key → (timestamp, result)
 _cache: dict[str, tuple[float, object]] = {}
+_cache_lock = threading.Lock()
 _CACHE_TTL = 600  # 10 minutes
 
 
 def cached(key: str, fn, *args):
     now = time.time()
-    if key in _cache and now - _cache[key][0] < _CACHE_TTL:
-        return _cache[key][1]
+    with _cache_lock:
+        if key in _cache and now - _cache[key][0] < _CACHE_TTL:
+            return _cache[key][1]
     result = fn(*args)
-    _cache[key] = (now, result)
+    with _cache_lock:
+        _cache[key] = (now, result)
     return result
 
 
@@ -68,24 +73,28 @@ def _ensure_table(schema: str, table: str) -> str:
     tname = _tname(schema, table)
     if tname in _loaded_tables:
         return tname
-    db = get_conn()
-    # Check if table already exists in the .duckdb file
-    exists = db.execute(
-        "SELECT COUNT(*) FROM information_schema.tables WHERE table_name = ?", [tname]
-    ).fetchone()[0]
-    if exists:
+    with _table_lock:
+        # Re-check inside lock to avoid double-load
+        if tname in _loaded_tables:
+            return tname
+        db = get_conn()
+        # Check if table already exists in the .duckdb file
+        exists = db.execute(
+            "SELECT COUNT(*) FROM information_schema.tables WHERE table_name = ?", [tname]
+        ).fetchone()[0]
+        if exists:
+            _loaded_tables.add(tname)
+            return tname
+        # Load from JSONL
+        p = _path(schema, table)
+        if not os.path.exists(p):
+            raise FileNotFoundError(f"JSONL not found: {p}")
+        t0 = time.time()
+        print(f"[DuckDB] Loading {tname} ...", flush=True)
+        db.execute(f"CREATE TABLE IF NOT EXISTS {tname} AS SELECT * FROM read_json_auto('{p}', format=newline_delimited)")
         _loaded_tables.add(tname)
+        print(f"[DuckDB] {tname} ready ({time.time()-t0:.1f}s)", flush=True)
         return tname
-    # Load from JSONL
-    p = _path(schema, table)
-    if not os.path.exists(p):
-        raise FileNotFoundError(f"JSONL not found: {p}")
-    t0 = time.time()
-    print(f"[DuckDB] Loading {tname} ...", flush=True)
-    db.execute(f"CREATE TABLE {tname} AS SELECT * FROM read_json_auto('{p}', format=newline_delimited)")
-    _loaded_tables.add(tname)
-    print(f"[DuckDB] {tname} ready ({time.time()-t0:.1f}s)", flush=True)
-    return tname
 
 
 def _read(schema: str, table: str) -> str:
@@ -281,7 +290,9 @@ def get_loop_graph_live(limit: int = 50) -> dict:
         bn_list = "','".join(list(bns)[:300])
         node_sql = f"""
             SELECT
-                bn, legal_name as name,
+                bn,
+                bn as id,
+                legal_name as name,
                 TRY_CAST(revenue AS DOUBLE) as revenue,
                 TRY_CAST(circular_outflow AS DOUBLE) as circular_outflow,
                 loops_count,
@@ -297,6 +308,16 @@ def get_loop_graph_live(limit: int = 50) -> dict:
             WHERE bn IN ('{bn_list}')
         """
         nodes = query(node_sql)
+        # Add fallback stub nodes for BNs not found in loop_charity_financials
+        found_bns = {n["bn"] for n in nodes}
+        for bn in bns:
+            if bn not in found_bns:
+                nodes.append({
+                    "bn": bn, "id": bn,
+                    "name": bn,
+                    "revenue": 0, "circular_outflow": 0,
+                    "loops_count": 1, "risk": "low",
+                })
 
     for l in loop_rows:
         path = l.get("path_bns") or []
@@ -535,23 +556,35 @@ def get_alerts_live(min_flags: int = 2, limit: int = 20) -> list[dict]:
             SELECT bn, MAX(fiscal_year) as last_year
             FROM {ident}
             GROUP BY bn
+        ),
+        best_govt_year AS (
+            SELECT
+                g.bn,
+                g.legal_name,
+                TRY_CAST(g.total_govt AS DOUBLE) as total_govt_funding,
+                TRY_CAST(g.govt_share_of_rev AS DOUBLE) as govt_share_pct,
+                ROW_NUMBER() OVER (
+                    PARTITION BY g.bn
+                    ORDER BY TRY_CAST(g.total_govt AS DOUBLE) DESC NULLS LAST
+                ) as rn
+            FROM {gov} g
+            WHERE TRY_CAST(g.govt_share_of_rev AS DOUBLE) >= 70.0
+              AND TRY_CAST(g.total_govt AS DOUBLE) >= 100000
+              AND g.legal_name NOT LIKE '%GOVERNMENT%'
+              AND g.legal_name NOT LIKE '%PROVINCE%'
+              AND g.legal_name NOT LIKE '%MINISTRY%'
         )
         SELECT
-            g.bn,
-            g.legal_name,
-            TRY_CAST(g.total_govt AS DOUBLE) as total_govt_funding,
-            TRY_CAST(g.govt_share_of_rev AS DOUBLE) as govt_share_pct,
+            b.bn,
+            b.legal_name,
+            b.total_govt_funding,
+            b.govt_share_pct,
             lf.last_year as last_filing_year
-        FROM {gov} g
-        JOIN last_filing lf ON lf.bn = g.bn
-        WHERE TRY_CAST(g.govt_share_of_rev AS DOUBLE) >= 70.0
-          AND TRY_CAST(g.total_govt AS DOUBLE) >= 100000
+        FROM best_govt_year b
+        JOIN last_filing lf ON lf.bn = b.bn
+        WHERE b.rn = 1
           AND lf.last_year <= 2022
-          AND g.legal_name NOT LIKE '%GOVERNMENT%'
-          AND g.legal_name NOT LIKE '%PROVINCE%'
-          AND g.legal_name NOT LIKE '%MINISTRY%'
-        QUALIFY ROW_NUMBER() OVER (PARTITION BY g.bn ORDER BY TRY_CAST(g.total_govt AS DOUBLE) DESC) = 1
-        ORDER BY TRY_CAST(g.total_govt AS DOUBLE) DESC
+        ORDER BY b.total_govt_funding DESC
         LIMIT 500
     """
     zombies = query(zombie_sql)
@@ -586,10 +619,15 @@ def get_alerts_live(min_flags: int = 2, limit: int = 20) -> list[dict]:
     except Exception as e:
         print(f"[DuckDB] alerts gov_bns error: {e}")
 
-    # Step 4: Python-side join and flag counting
+    # Step 4: Python-side join and flag counting; deduplicate by 9-char BN prefix
+    seen_bn9: set[str] = set()
     results = []
     for z in zombies:
         bn9 = (z.get("bn") or "")[:9]
+        if bn9 in seen_bn9:
+            continue
+        seen_bn9.add(bn9)
+
         zombie_flag = 1
         loop_flag = 1 if bn9 in loop_bns_set else 0
         governance_flag = 1 if bn9 in gov_bns_set else 0
@@ -605,7 +643,7 @@ def get_alerts_live(min_flags: int = 2, limit: int = 20) -> list[dict]:
             flags.append("governance")
 
         results.append({
-            "bn": z.get("bn", ""),
+            "bn": bn9,
             "canonical_name": z.get("legal_name", ""),
             "total_govt_funding": float(z.get("total_govt_funding") or 0),
             "govt_share_pct": round(float(z.get("govt_share_pct") or 0), 1),

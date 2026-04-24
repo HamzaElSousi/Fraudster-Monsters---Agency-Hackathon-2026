@@ -132,7 +132,8 @@ export default function Governance() {
             : parseFloat(dir.total_controlled_funding || 0);
 
           const positions = (dir.positions || []);
-          const posLabel = Array.isArray(positions) ? positions.join(', ') : String(positions);
+          const posArr = Array.isArray(positions) ? positions : String(positions).split(',').map(s => s.trim());
+          const posLabel = posArr.slice(0, 3).join(', ') + (posArr.length > 3 ? ` +${posArr.length - 3} more` : '');
 
           return (
             <div key={i} className="data-table-container" style={{ animation: `fadeInUp 0.4s ease-out ${i * 80}ms both` }}>
@@ -183,7 +184,7 @@ export default function Governance() {
                   {(dir.risk_flags || []).length > 0 && (
                     <div style={{ marginBottom: 16, display: 'flex', flexDirection: 'column', gap: 6 }}>
                       {(dir.risk_flags || []).map((flag, fi) => (
-                        <div key={fi} className="risk-flag">
+                        <div key={flag} className="risk-flag">
                           <span className="risk-flag-icon">⚠️</span>
                           <span>{flag}</span>
                         </div>
@@ -202,7 +203,7 @@ export default function Governance() {
                     </thead>
                     <tbody>
                       {(dir.organizations || []).map((org, oi) => (
-                        <tr key={oi}>
+                        <tr key={org.bn_root || oi}>
                           <td>
                             <div
                               title={org.name}

@@ -23,7 +23,7 @@ Try asking me about:
   ],
 };
 
-function renderDataCard(item, dataType, index, msgId, expandedCards, toggleCard, navigate) {
+function DataCard({ item, dataType, index, msgId, expandedCards, toggleCard, navigate }) {
   const cardKey = `${msgId}-${index}`;
   const isExpanded = expandedCards.has(cardKey);
 
@@ -74,7 +74,7 @@ function renderDataCard(item, dataType, index, msgId, expandedCards, toggleCard,
       <div style={{ marginTop: 12, paddingTop: 12, borderTop: '1px solid var(--border-primary)' }}>
         <div style={{ fontSize: 11, color: 'var(--text-muted)', marginBottom: 6 }}>Organizations:</div>
         {(item.organizations || []).slice(0, 4).map((org, i) => (
-          <div key={i} style={{ fontSize: 11, padding: '3px 0', color: 'var(--text-secondary)' }}>
+          <div key={org.bn_root || i} style={{ fontSize: 11, padding: '3px 0', color: 'var(--text-secondary)' }}>
             • {org.name || org.bn_root} — {formatCurrency(parseFloat(org.fed_funding || 0))}
           </div>
         ))}
@@ -242,7 +242,7 @@ export default function Chat() {
                   {msg.data.length} result{msg.data.length !== 1 ? 's' : ''} — click to expand
                 </div>
                 {msg.data.slice(0, 8).map((item, idx) =>
-                  renderDataCard(item, msg.data_type, idx, msg.id ?? i, expandedCards, toggleCard, navigate)
+                  <DataCard key={`${msg.id ?? i}-${idx}`} item={item} dataType={msg.data_type} index={idx} msgId={msg.id ?? i} expandedCards={expandedCards} toggleCard={toggleCard} navigate={navigate} />
                 )}
               </div>
             )}

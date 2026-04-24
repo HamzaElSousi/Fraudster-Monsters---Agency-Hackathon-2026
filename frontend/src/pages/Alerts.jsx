@@ -193,7 +193,7 @@ export default function Alerts() {
                         const meta = FLAG_META[flagKey] || FLAG_META.zombie;
                         return (
                           <span
-                            key={fi}
+                            key={flagKey}
                             style={{
                               display: 'inline-flex', alignItems: 'center', gap: 4,
                               padding: '2px 8px',
@@ -247,7 +247,7 @@ export default function Alerts() {
                         const meta = FLAG_META[flagKey] || FLAG_META.zombie;
                         return (
                           <div
-                            key={fi}
+                            key={flagKey}
                             style={{
                               padding: '14px 16px',
                               background: meta.bg,

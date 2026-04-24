@@ -85,6 +85,7 @@ export default function FundingLoops() {
   const [highlightBns, setHighlightBns] = useState(null); // Set<string> | null
   const [searchTerm, setSearchTerm]     = useState('');
   const fgRef = useRef();
+  const hasZoomedRef = useRef(false); // fire zoomToFit only once on initial load
 
   // ── Data loading ───────────────────────────────────────────────────────────
   useEffect(() => {
@@ -94,7 +95,7 @@ export default function FundingLoops() {
     ])
       .then(([gData, lData]) => {
         setGraphData(gData);
-        setLoopsData(Array.isArray(lData) ? lData : (lData?.loops ?? []));
+        setLoopsData(Array.isArray(lData) ? lData : (lData?.results ?? lData?.loops ?? []));
       })
       .catch(console.error)
       .finally(() => setLoading(false));
@@ -102,17 +103,23 @@ export default function FundingLoops() {
 
   // ── Physics tuning after graph data mounts ─────────────────────────────────
   useEffect(() => {
-    if (!fgRef.current || !graphData) return;
+    if (!fgRef.current || !graphData || !graphData.nodes || graphData.nodes.length === 0) return;
+    hasZoomedRef.current = false; // reset so new data triggers zoomToFit
     const fg = fgRef.current;
-    fg.d3Force('charge').strength(-350);
-    fg.d3Force('link').distance(160);
-    fg.d3ReheatSimulation();
+    if (fg && fg.d3Force) {
+      fg.d3Force('charge')?.strength(-600);
+      fg.d3Force('link')?.distance(200);
+      fg.d3Force('x', null);
+      fg.d3Force('y', null);
+      fg.d3ReheatSimulation?.();
+    }
   }, [graphData]);
 
-  // ── Auto-fit once simulation settles ──────────────────────────────────────
+  // ── Auto-fit once on initial load only ────────────────────────────────────
   const handleEngineStop = useCallback(() => {
-    if (fgRef.current) {
-      fgRef.current.zoomToFit(600, 60);
+    if (fgRef.current && !hasZoomedRef.current) {
+      hasZoomedRef.current = true;
+      fgRef.current.zoomToFit(800, 80);
     }
   }, []);
 
@@ -228,7 +235,7 @@ export default function FundingLoops() {
   // ── Formatted graph for ForceGraph2D ──────────────────────────────────────
   const formattedGraph = graphData
     ? {
-        nodes: graphData.nodes || [],
+        nodes: (graphData.nodes || []).map(n => ({ ...n, id: n.bn || n.id || n.name })),
         links: (graphData.links || []).map(l => ({
           ...l,
           source: String(l.source),
@@ -480,7 +487,7 @@ export default function FundingLoops() {
 
                     return (
                       <tr
-                        key={i}
+                        key={loop.id || i}
                         onClick={() => handleLoopRowClick(loop)}
                         style={{ cursor: 'pointer' }}
                         title="Click to highlight this loop in graph view"
@@ -687,7 +694,7 @@ export default function FundingLoops() {
 
                 return (
                   <div
-                    key={i}
+                    key={loop.id || i}
                     onClick={() => handleLoopRowClick(loop)}
                     style={{
                       padding: '10px 12px',
