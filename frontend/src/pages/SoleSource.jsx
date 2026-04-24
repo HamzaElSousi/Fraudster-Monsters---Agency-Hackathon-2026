@@ -5,6 +5,7 @@ export default function SoleSource() {
   const [data, setData] = useState(null);
   const [loading, setLoading] = useState(true);
   const [minRatio, setMinRatio] = useState(3);
+  const [search, setSearch] = useState('');
 
   useEffect(() => {
     setLoading(true);
@@ -16,6 +17,12 @@ export default function SoleSource() {
 
   const contracts = data?.results || [];
   const stats = data?.stats || {};
+
+  const filtered = (contracts).filter(s =>
+    !search
+    || s.vendor?.toLowerCase().includes(search.toLowerCase())
+    || s.department?.toLowerCase().includes(search.toLowerCase())
+  );
 
   return (
     <div className="animate-in">
@@ -45,7 +52,7 @@ export default function SoleSource() {
             </div>
           </div>
           <div style={{ textAlign: 'center' }}>
-            <div style={{ fontSize: 11, color: 'var(--text-muted)' }}>10×+ Growth</div>
+            <div style={{ fontSize: 11, color: 'var(--text-muted)' }}>10x+ Growth</div>
             <div style={{ fontSize: 22, fontWeight: 800, color: 'var(--status-critical)' }}>
               {(stats.contracts_over_10x || 203).toLocaleString()}
             </div>
@@ -60,7 +67,7 @@ export default function SoleSource() {
       </div>
 
       {/* Controls */}
-      <div style={{ display: 'flex', alignItems: 'center', gap: 16, marginBottom: 20 }}>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 16, marginBottom: 20, flexWrap: 'wrap' }}>
         <label style={{ fontSize: 13, color: 'var(--text-secondary)' }}>
           Min Amendment Ratio:
           <select
@@ -73,24 +80,57 @@ export default function SoleSource() {
               fontSize: 13, outline: 'none',
             }}
           >
-            <option value={2}>2× or more</option>
-            <option value={3}>3× or more</option>
-            <option value={5}>5× or more</option>
-            <option value={10}>10× or more (extreme)</option>
+            <option value={2}>2x or more</option>
+            <option value={3}>3x or more</option>
+            <option value={5}>5x or more</option>
+            <option value={10}>10x or more (extreme)</option>
           </select>
         </label>
-        <span style={{ fontSize: 12, color: 'var(--text-muted)' }}>{contracts.length} contracts shown</span>
+
+        {/* Search input */}
+        <div style={{ position: 'relative' }}>
+          <span style={{
+            position: 'absolute', left: 12, top: '50%', transform: 'translateY(-50%)',
+            color: 'var(--text-muted)', pointerEvents: 'none', fontSize: 13,
+          }}>
+            🔍
+          </span>
+          <input
+            type="text"
+            placeholder="Search vendor or department..."
+            value={search}
+            onChange={(e) => setSearch(e.target.value)}
+            style={{
+              background: 'var(--bg-tertiary)',
+              border: '1px solid var(--border-primary)',
+              borderRadius: 'var(--radius-md)',
+              color: 'var(--text-primary)',
+              padding: '8px 12px 8px 36px',
+              fontSize: 13,
+              outline: 'none',
+              width: 220,
+            }}
+          />
+        </div>
+
+        <span style={{ fontSize: 12, color: 'var(--text-muted)', marginLeft: 'auto' }}>
+          Showing {filtered.length} of {contracts.length} contracts
+        </span>
       </div>
 
       {/* Table */}
       <div className="data-table-container">
         <div className="data-table-header">
-          <span className="data-table-title">📋 Sole-Source Contracts with Amendment Creep ({contracts.length})</span>
+          <span className="data-table-title">📋 Sole-Source Contracts with Amendment Creep ({filtered.length})</span>
           <span className="badge info">{data?.query_mode || 'loading'}</span>
         </div>
         {loading ? (
           <div style={{ padding: 40, textAlign: 'center', color: 'var(--text-muted)' }}>
             Loading sole-source analysis...
+          </div>
+        ) : filtered.length === 0 ? (
+          <div style={{ padding: '40px 24px', textAlign: 'center', color: 'var(--text-muted)', fontSize: 14 }}>
+            No contracts match your current filters.
           </div>
         ) : (
           <table className="data-table">
@@ -107,7 +147,7 @@ export default function SoleSource() {
               </tr>
             </thead>
             <tbody>
-              {contracts.map((c, i) => {
+              {filtered.map((c, i) => {
                 const ratio = c.amendment_ratio || 1;
                 const ratioColor = ratio >= 10 ? 'var(--status-critical)' : ratio >= 5 ? 'var(--accent-amber)' : 'var(--text-secondary)';
                 return (
@@ -126,7 +166,7 @@ export default function SoleSource() {
                       <span className="funding-amount small">{formatCurrency(c.original_amount)}</span>
                       {c.original_amount < 50000 && c.original_amount >= 45000 && (
                         <div style={{ fontSize: 10, color: 'var(--accent-amber)', marginTop: 2, fontWeight: 600 }}>
-                          ⚠ Near threshold
+                          Near threshold
                         </div>
                       )}
                     </td>
@@ -143,7 +183,7 @@ export default function SoleSource() {
                         fontSize: 14, color: ratioColor,
                         border: `1px solid ${ratioColor}40`,
                       }}>
-                        {ratio.toFixed(1)}×
+                        {ratio.toFixed(1)}x
                       </div>
                     </td>
                     <td>

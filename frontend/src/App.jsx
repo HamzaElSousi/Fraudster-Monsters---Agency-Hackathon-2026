@@ -1,3 +1,4 @@
+import { useState, useEffect } from 'react';
 import { BrowserRouter, Routes, Route, NavLink, useLocation } from 'react-router-dom';
 import Dashboard from './pages/Dashboard';
 import Zombies from './pages/Zombies';
@@ -9,6 +10,15 @@ import Chat from './pages/Chat';
 import './index.css';
 
 function Sidebar() {
+  const [alertCount, setAlertCount] = useState(null);
+
+  useEffect(() => {
+    fetch('http://localhost:8000/api/alerts?min_flags=2&limit=100')
+      .then(r => r.json())
+      .then(d => setAlertCount(d.count || 0))
+      .catch(() => setAlertCount(null));
+  }, []);
+
   return (
     <aside className="sidebar">
       <div className="sidebar-header">
@@ -32,7 +42,15 @@ function Sidebar() {
         <NavLink to="/alerts" className={({ isActive }) => `nav-link ${isActive ? 'active' : ''}`}>
           <span className="nav-link-icon">🚨</span>
           Multi-Flag Alerts
-          <span className="nav-link-badge" style={{ background: 'var(--status-critical)' }}>4</span>
+          <span
+            className="nav-link-badge"
+            style={{
+              background: 'var(--status-critical)',
+              animation: alertCount > 0 ? 'pulse-glow 2s infinite' : 'none',
+            }}
+          >
+            {alertCount !== null ? alertCount.toLocaleString() : '…'}
+          </span>
         </NavLink>
         <NavLink to="/zombies" className={({ isActive }) => `nav-link ${isActive ? 'active' : ''}`}>
           <span className="nav-link-icon">🧟</span>
@@ -64,7 +82,7 @@ function Sidebar() {
 
       <div className="sidebar-footer">
         <div className="sidebar-mode-badge mock">
-          ⚡ Demo Mode
+          ⚡ Live Data
         </div>
         <div style={{ marginTop: 8, fontSize: 11, lineHeight: 1.4 }}>
           23M+ records · 4 datasets<br />

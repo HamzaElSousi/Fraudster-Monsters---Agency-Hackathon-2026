@@ -5,9 +5,36 @@ No PostgreSQL required. Set DATA_DIR env var to the extracted data directory.
 
 import os
 import json
+import time
+import threading
 import duckdb
 
 _conn = None
+_loaded_tables: set[str] = set()
+
+# Key tables to preload at startup (schema, table) in priority order
+_PRELOAD_TABLES = [
+    ("cra", "loops"),
+    ("cra", "loop_charity_financials"),
+    ("ab", "ab_sole_source"),
+    ("cra", "govt_funding_by_charity"),
+    ("cra", "cra_identification"),
+    ("cra", "cra_directors"),
+    ("fed", "grants_contributions"),
+]
+
+# Result cache: key → (timestamp, result)
+_cache: dict[str, tuple[float, object]] = {}
+_CACHE_TTL = 600  # 10 minutes
+
+
+def cached(key: str, fn, *args):
+    now = time.time()
+    if key in _cache and now - _cache[key][0] < _CACHE_TTL:
+        return _cache[key][1]
+    result = fn(*args)
+    _cache[key] = (now, result)
+    return result
 
 
 def _base() -> str:
@@ -19,7 +46,7 @@ def get_conn() -> duckdb.DuckDBPyConnection:
     if _conn is None:
         db_path = os.path.join(_base(), "hackathon.duckdb")
         _conn = duckdb.connect(db_path)
-        _conn.execute("SET threads=4; SET memory_limit='2GB';")
+        _conn.execute("SET threads=4; SET memory_limit='3GB';")
     return _conn
 
 
@@ -32,9 +59,42 @@ def _available(schema: str, table: str) -> bool:
     return os.path.exists(p) and os.path.getsize(p) > 1000
 
 
-def _read(schema: str, table: str) -> str:
+def _tname(schema: str, table: str) -> str:
+    return f"{schema}__{table}"
+
+
+def _ensure_table(schema: str, table: str) -> str:
+    """Load JSONL into a persistent DuckDB table if not already loaded. Returns table name."""
+    tname = _tname(schema, table)
+    if tname in _loaded_tables:
+        return tname
+    db = get_conn()
+    # Check if table already exists in the .duckdb file
+    exists = db.execute(
+        "SELECT COUNT(*) FROM information_schema.tables WHERE table_name = ?", [tname]
+    ).fetchone()[0]
+    if exists:
+        _loaded_tables.add(tname)
+        return tname
+    # Load from JSONL
     p = _path(schema, table)
-    return f"read_json_auto('{p}', format=newline_delimited)"
+    if not os.path.exists(p):
+        raise FileNotFoundError(f"JSONL not found: {p}")
+    t0 = time.time()
+    print(f"[DuckDB] Loading {tname} ...", flush=True)
+    db.execute(f"CREATE TABLE {tname} AS SELECT * FROM read_json_auto('{p}', format=newline_delimited)")
+    _loaded_tables.add(tname)
+    print(f"[DuckDB] {tname} ready ({time.time()-t0:.1f}s)", flush=True)
+    return tname
+
+
+def _read(schema: str, table: str) -> str:
+    """Return table name if preloaded, else fall back to read_json_auto."""
+    try:
+        return _ensure_table(schema, table)
+    except Exception:
+        p = _path(schema, table)
+        return f"read_json_auto('{p}', format=newline_delimited)"
 
 
 def query(sql: str) -> list[dict]:
@@ -46,6 +106,21 @@ def query(sql: str) -> list[dict]:
     except Exception as e:
         print(f"[DuckDB] Query error: {e}")
         return []
+
+
+def preload_tables_background():
+    """Load all key JSONL files into DuckDB tables in a background thread."""
+    def _load():
+        for schema, table in _PRELOAD_TABLES:
+            if not _available(schema, table):
+                continue
+            try:
+                _ensure_table(schema, table)
+            except Exception as e:
+                print(f"[DuckDB] Preload failed for {schema}/{table}: {e}")
+        print("[DuckDB] All tables preloaded — queries will be fast", flush=True)
+    t = threading.Thread(target=_load, daemon=True, name="duckdb-preload")
+    t.start()
 
 
 # ── Name cache for BN → charity name resolution ───────────────────────────────
@@ -444,6 +519,111 @@ def get_sole_source_stats_live() -> dict:
             "total_at_risk": float(r.get("total_value") or 0),
         }
     return {}
+
+
+# ── Multi-Flag Alerts (cross-challenge) ──────────────────────────────────────
+def get_alerts_live(min_flags: int = 2, limit: int = 20) -> list[dict]:
+    """Cross-challenge intersection using Python-side joins to avoid DuckDB type issues."""
+    gov = _read("cra", "govt_funding_by_charity")
+    ident = _read("cra", "cra_identification")
+    loops = _read("cra", "loops")
+    dirs = _read("cra", "cra_directors")
+
+    # Step 1: Get zombie BNs (high govt-dependency, stopped filing)
+    zombie_sql = f"""
+        WITH last_filing AS (
+            SELECT bn, MAX(fiscal_year) as last_year
+            FROM {ident}
+            GROUP BY bn
+        )
+        SELECT
+            g.bn,
+            g.legal_name,
+            TRY_CAST(g.total_govt AS DOUBLE) as total_govt_funding,
+            TRY_CAST(g.govt_share_of_rev AS DOUBLE) as govt_share_pct,
+            lf.last_year as last_filing_year
+        FROM {gov} g
+        JOIN last_filing lf ON lf.bn = g.bn
+        WHERE TRY_CAST(g.govt_share_of_rev AS DOUBLE) >= 70.0
+          AND TRY_CAST(g.total_govt AS DOUBLE) >= 100000
+          AND lf.last_year <= 2022
+          AND g.legal_name NOT LIKE '%GOVERNMENT%'
+          AND g.legal_name NOT LIKE '%PROVINCE%'
+          AND g.legal_name NOT LIKE '%MINISTRY%'
+        QUALIFY ROW_NUMBER() OVER (PARTITION BY g.bn ORDER BY TRY_CAST(g.total_govt AS DOUBLE) DESC) = 1
+        ORDER BY TRY_CAST(g.total_govt AS DOUBLE) DESC
+        LIMIT 500
+    """
+    zombies = query(zombie_sql)
+    if not zombies:
+        return []
+
+    # Step 2: Get loop BNs as a Python set (9-char prefixes)
+    loop_bns_set: set[str] = set()
+    try:
+        loop_rows = query(f"SELECT path_bns FROM {loops} LIMIT 10000")
+        for row in loop_rows:
+            path = row.get("path_bns") or []
+            if isinstance(path, list):
+                loop_bns_set.update(bn[:9] for bn in path if bn)
+            elif isinstance(path, str):
+                loop_bns_set.update(bn.strip()[:9] for bn in path.split(',') if bn.strip())
+    except Exception as e:
+        print(f"[DuckDB] alerts loop_bns error: {e}")
+
+    # Step 3: Get multi-board director BNs as a Python set
+    gov_bns_set: set[str] = set()
+    try:
+        gov_rows = query(f"""
+            SELECT DISTINCT LEFT(bn, 9) as bn_root
+            FROM {dirs}
+            WHERE last_name IS NOT NULL AND first_name IS NOT NULL
+              AND LENGTH(last_name) > 1 AND LENGTH(first_name) > 1
+            GROUP BY last_name, first_name, LEFT(bn, 9)
+            HAVING COUNT(DISTINCT LEFT(bn, 9)) >= 1
+        """)
+        gov_bns_set = {r["bn_root"][:9] for r in gov_rows if r.get("bn_root")}
+    except Exception as e:
+        print(f"[DuckDB] alerts gov_bns error: {e}")
+
+    # Step 4: Python-side join and flag counting
+    results = []
+    for z in zombies:
+        bn9 = (z.get("bn") or "")[:9]
+        zombie_flag = 1
+        loop_flag = 1 if bn9 in loop_bns_set else 0
+        governance_flag = 1 if bn9 in gov_bns_set else 0
+        alarm_count = zombie_flag + loop_flag + governance_flag
+
+        if alarm_count < min_flags:
+            continue
+
+        flags = ["zombie"]
+        if loop_flag:
+            flags.append("loop")
+        if governance_flag:
+            flags.append("governance")
+
+        results.append({
+            "bn": z.get("bn", ""),
+            "canonical_name": z.get("legal_name", ""),
+            "total_govt_funding": float(z.get("total_govt_funding") or 0),
+            "govt_share_pct": round(float(z.get("govt_share_pct") or 0), 1),
+            "last_filing_year": str(z.get("last_filing_year", "")),
+            "zombie_flag": zombie_flag,
+            "loop_flag": loop_flag,
+            "governance_flag": governance_flag,
+            "alarm_count": alarm_count,
+            "flags": flags,
+            "risk_summary": (
+                f"{round(float(z.get('govt_share_pct') or 0), 1)}% govt revenue | "
+                f"ceased filing {z.get('last_filing_year', 'unknown')} | "
+                + " + ".join(flags)
+            ),
+        })
+
+    results.sort(key=lambda x: (-x["alarm_count"], -x["total_govt_funding"]))
+    return results[:limit]
 
 
 # ── Stats ─────────────────────────────────────────────────────────────────────

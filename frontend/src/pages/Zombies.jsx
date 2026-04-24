@@ -5,6 +5,8 @@ export default function Zombies() {
   const [data, setData] = useState(null);
   const [loading, setLoading] = useState(true);
   const [minFunding, setMinFunding] = useState(100000);
+  const [search, setSearch] = useState('');
+  const [riskFilter, setRiskFilter] = useState('all');
 
   useEffect(() => {
     setLoading(true);
@@ -15,6 +17,15 @@ export default function Zombies() {
   }, [minFunding]);
 
   const zombies = data?.results || [];
+
+  const filtered = zombies.filter(z => {
+    const matchSearch = !search
+      || z.canonical_name?.toLowerCase().includes(search.toLowerCase())
+      || z.primary_bn?.includes(search);
+    const matchRisk = riskFilter === 'all' || z.risk_level === riskFilter;
+    return matchSearch && matchRisk;
+  });
+
   const totalLost = zombies.reduce((sum, z) => sum + (z.total_public_funding || 0), 0);
 
   return (
@@ -46,7 +57,7 @@ export default function Zombies() {
       </div>
 
       {/* Controls */}
-      <div style={{ display: 'flex', alignItems: 'center', gap: 16, marginBottom: 20 }}>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 16, marginBottom: 20, flexWrap: 'wrap' }}>
         <label style={{ fontSize: 13, color: 'var(--text-secondary)' }}>
           Min Funding:
           <select
@@ -65,17 +76,71 @@ export default function Zombies() {
             <option value={1000000}>$1M+</option>
           </select>
         </label>
+
+        {/* Risk level filter */}
+        <label style={{ fontSize: 13, color: 'var(--text-secondary)' }}>
+          Risk Level:
+          <select
+            value={riskFilter}
+            onChange={(e) => setRiskFilter(e.target.value)}
+            style={{
+              marginLeft: 8, padding: '6px 12px',
+              background: 'var(--bg-tertiary)', border: '1px solid var(--border-primary)',
+              borderRadius: 'var(--radius-sm)', color: 'var(--text-primary)',
+              fontSize: 13, outline: 'none',
+            }}
+          >
+            <option value="all">All levels</option>
+            <option value="critical">Critical</option>
+            <option value="high">High</option>
+            <option value="medium">Medium</option>
+          </select>
+        </label>
+
+        {/* Search input */}
+        <div style={{ position: 'relative' }}>
+          <span style={{
+            position: 'absolute', left: 12, top: '50%', transform: 'translateY(-50%)',
+            color: 'var(--text-muted)', pointerEvents: 'none', fontSize: 13,
+          }}>
+            🔍
+          </span>
+          <input
+            type="text"
+            placeholder="Search name or BN..."
+            value={search}
+            onChange={(e) => setSearch(e.target.value)}
+            style={{
+              background: 'var(--bg-tertiary)',
+              border: '1px solid var(--border-primary)',
+              borderRadius: 'var(--radius-md)',
+              color: 'var(--text-primary)',
+              padding: '8px 12px 8px 36px',
+              fontSize: 13,
+              outline: 'none',
+              width: 220,
+            }}
+          />
+        </div>
+
+        <span style={{ fontSize: 12, color: 'var(--text-muted)', marginLeft: 'auto' }}>
+          Showing {filtered.length} of {zombies.length} organizations
+        </span>
       </div>
 
       {/* Table */}
       <div className="data-table-container">
         <div className="data-table-header">
-          <span className="data-table-title">🧟 Zombie Recipients ({zombies.length})</span>
+          <span className="data-table-title">🧟 Zombie Recipients ({filtered.length})</span>
           <span className="badge info">{data?.query_mode || 'loading'}</span>
         </div>
         {loading ? (
           <div style={{ padding: 40, textAlign: 'center', color: 'var(--text-muted)' }}>
             Loading zombie recipients...
+          </div>
+        ) : filtered.length === 0 ? (
+          <div style={{ padding: '40px 24px', textAlign: 'center', color: 'var(--text-muted)', fontSize: 14 }}>
+            No organizations match your current filters.
           </div>
         ) : (
           <table className="data-table">
@@ -92,7 +157,7 @@ export default function Zombies() {
               </tr>
             </thead>
             <tbody>
-              {zombies.map((z) => (
+              {filtered.map((z) => (
                 <tr key={z.id}>
                   <td>
                     <div style={{ fontWeight: 600, fontSize: 14 }}>{z.canonical_name}</div>
@@ -127,7 +192,7 @@ export default function Zombies() {
                         borderRadius: 3, overflow: 'hidden',
                       }}>
                         <div style={{
-                          width: `${z.govt_revenue_pct || 0}%`, height: '100%',
+                          width: `${Math.min(z.govt_revenue_pct || 0, 100)}%`, height: '100%',
                           background: (z.govt_revenue_pct || 0) > 80 ? 'var(--status-critical)' : (z.govt_revenue_pct || 0) > 60 ? 'var(--accent-amber)' : 'var(--accent-emerald)',
                           borderRadius: 3,
                         }} />

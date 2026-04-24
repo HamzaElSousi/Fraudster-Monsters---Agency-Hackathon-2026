@@ -15,19 +15,13 @@ from dotenv import load_dotenv
 
 load_dotenv()
 
-MOCK_MODE = os.getenv("MOCK_MODE", "true").lower() == "true"
-
-# Determine query mode: duckdb (real JSONL) > postgres > mock
 import db_duckdb as _duck
-DUCKDB_MODE = (not MOCK_MODE or os.getenv("DATA_DIR")) and _duck.is_available()
-if DUCKDB_MODE:
-    MOCK_MODE = False
-    print(f"[START] DuckDB mode — real JSONL data at {_duck._base()}")
+DUCKDB_MODE = _duck.is_available()
 
 
 # ── Database Connection (PostgreSQL fallback) ────────────────────────────────
 def get_db_connection():
-    if MOCK_MODE or DUCKDB_MODE:
+    if DUCKDB_MODE:
         return None
     import psycopg2
     conn_str = os.getenv("DB_CONNECTION_STRING")
@@ -49,18 +43,22 @@ def query_db(sql, params=None):
         conn.close()
 
 
-# ── Mock Data ────────────────────────────────────────────────────────────────
-from mock_data import (
-    MOCK_ZOMBIES, MOCK_LOOPS, MOCK_GOVERNANCE, MOCK_ENTITIES,
-    MOCK_STATS, MOCK_ENTITY_DOSSIERS, MOCK_LOOP_GRAPH,
-    MOCK_ALERTS, MOCK_SOLE_SOURCE, MOCK_SOLE_SOURCE_STATS,
-)
+def _no_data():
+    return {"error": "No data source configured", "results": [], "count": 0}
 
 
 # ── App Setup ────────────────────────────────────────────────────────────────
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    print(f"[START] Follow The Money API starting (mock_mode={MOCK_MODE})")
+    if DUCKDB_MODE:
+        print(f"[START] DuckDB mode — real JSONL data at {_duck._base()}")
+        _duck.preload_tables_background()
+    else:
+        pg = os.getenv("DB_CONNECTION_STRING", "")
+        if pg:
+            print("[START] PostgreSQL mode — using shared DB")
+        else:
+            print("[START] WARNING: no data source configured")
     yield
     print("Shutting down...")
 
@@ -84,11 +82,9 @@ app.add_middleware(
 @app.get("/api/stats")
 def get_stats():
     if DUCKDB_MODE:
-        live = _duck.get_stats_live()
+        live = _duck.cached("stats", _duck.get_stats_live)
         if live:
             return live
-    if MOCK_MODE:
-        return MOCK_STATS
 
     results = {}
     queries = {
@@ -127,7 +123,7 @@ def get_stats():
     row = query_db(gov_sql)
     results["multi_board_directors"] = row[0]["count"] if row else 0
 
-    return results
+    return results or _no_data()
 
 
 # ── Zombie Recipients ────────────────────────────────────────────────────────
@@ -137,11 +133,8 @@ def get_zombies(
     limit: int = Query(50),
 ):
     if DUCKDB_MODE:
-        results = _duck.get_zombies_live(min_funding, limit)
+        results = _duck.cached(f"zombies:{min_funding}:{limit}", _duck.get_zombies_live, min_funding, limit)
         return {"results": results, "count": len(results), "query_mode": "duckdb-live"}
-    if MOCK_MODE:
-        filtered = [z for z in MOCK_ZOMBIES if z["total_public_funding"] >= min_funding]
-        return {"results": filtered, "count": len(filtered), "query_mode": "mock"}
 
     sql = """
         SELECT
@@ -174,7 +167,9 @@ def get_zombies(
         LIMIT %s
     """
     results = query_db(sql, (min_funding, limit))
-    return {"results": results or [], "count": len(results or []), "query_mode": "live"}
+    if results is None:
+        return _no_data()
+    return {"results": results, "count": len(results), "query_mode": "live"}
 
 
 # ── Funding Loops ─────────────────────────────────────────────────────────────
@@ -185,11 +180,8 @@ def get_funding_loops(
     limit: int = Query(100),
 ):
     if DUCKDB_MODE:
-        results = _duck.get_loops_live(min_hops, max_hops, limit)
+        results = _duck.cached(f"loops:{min_hops}:{max_hops}:{limit}", _duck.get_loops_live, min_hops, max_hops, limit)
         return {"results": results, "count": len(results), "query_mode": "duckdb-live"}
-    if MOCK_MODE:
-        filtered = [l for l in MOCK_LOOPS if min_hops <= l["hops"] <= max_hops]
-        return {"results": filtered, "count": len(filtered), "query_mode": "mock"}
 
     sql = """
         SELECT
@@ -203,15 +195,15 @@ def get_funding_loops(
         LIMIT %s
     """
     results = query_db(sql, (min_hops, max_hops, limit))
-    return {"results": results or [], "count": len(results or []), "query_mode": "live"}
+    if results is None:
+        return _no_data()
+    return {"results": results, "count": len(results), "query_mode": "live"}
 
 
 @app.get("/api/loops/graph")
 def get_loop_graph(limit: int = Query(50)):
     if DUCKDB_MODE:
-        return _duck.get_loop_graph_live(limit)
-    if MOCK_MODE:
-        return MOCK_LOOP_GRAPH
+        return _duck.cached(f"loop_graph:{limit}", _duck.get_loop_graph_live, limit)
 
     sql = """
         WITH top_loops AS (
@@ -262,11 +254,8 @@ def get_governance_networks(
     limit: int = Query(50),
 ):
     if DUCKDB_MODE:
-        results = _duck.get_governance_live(min_boards, limit)
+        results = _duck.cached(f"governance:{min_boards}:{limit}", _duck.get_governance_live, min_boards, limit)
         return {"results": results, "count": len(results), "query_mode": "duckdb-live"}
-    if MOCK_MODE:
-        filtered = [g for g in MOCK_GOVERNANCE if g["board_count"] >= min_boards]
-        return {"results": filtered, "count": len(filtered), "query_mode": "mock"}
 
     sql = """
         WITH director_boards AS (
@@ -309,7 +298,9 @@ def get_governance_networks(
         LIMIT %s
     """
     results = query_db(sql, (min_boards, limit))
-    return {"results": results or [], "count": len(results or []), "query_mode": "live"}
+    if results is None:
+        return _no_data()
+    return {"results": results, "count": len(results), "query_mode": "live"}
 
 
 # ── Multi-Flag Alerts ────────────────────────────────────────────────────────
@@ -318,19 +309,11 @@ def get_alerts(
     min_flags: int = Query(2, description="Minimum number of red flags"),
     limit: int = Query(20),
 ):
-    """
-    Cross-challenge intersection: entities flagged in multiple challenge categories.
-    These are the highest-priority accountability failures.
-    """
-    if MOCK_MODE:
-        filtered = [a for a in MOCK_ALERTS if a["alarm_count"] >= min_flags]
-        return {
-            "results": filtered[:limit],
-            "count": len(filtered),
-            "query_mode": "mock",
-        }
+    """Cross-challenge intersection: entities flagged in multiple challenge categories."""
+    if DUCKDB_MODE:
+        results = _duck.cached(f"alerts:{min_flags}:{limit}", _duck.get_alerts_live, min_flags, limit)
+        return {"results": results, "count": len(results), "query_mode": "duckdb-live"}
 
-    # Live: join zombie query with loop membership and governance cross-reference
     sql = """
         WITH zombie_entities AS (
             SELECT gr.id, gr.canonical_name, gr.bn_root,
@@ -367,7 +350,9 @@ def get_alerts(
         LIMIT %s
     """
     results = query_db(sql, (min_flags, limit))
-    return {"results": results or [], "count": len(results or []), "query_mode": "live"}
+    if results is None:
+        return _no_data()
+    return {"results": results, "count": len(results), "query_mode": "live"}
 
 
 # ── Sole Source / Amendment Creep ────────────────────────────────────────────
@@ -376,22 +361,11 @@ def get_sole_source(
     min_ratio: float = Query(3.0, description="Minimum amendment ratio"),
     limit: int = Query(50),
 ):
-    """
-    Challenge #4: Contracts that started small and grew large through amendments.
-    Identifies amendment creep, contract splitting, and sole-source dependency.
-    """
+    """Challenge #4: Vendor concentration, amendment creep, and sole-source dependency."""
     if DUCKDB_MODE:
-        results = _duck.get_sole_source_live(min_ratio, limit)
-        stats = _duck.get_sole_source_stats_live()
+        results = _duck.cached(f"sole_source:{min_ratio}:{limit}", _duck.get_sole_source_live, min_ratio, limit)
+        stats = _duck.cached("sole_source_stats", _duck.get_sole_source_stats_live)
         return {"results": results, "count": len(results), "stats": stats, "query_mode": "duckdb-live"}
-    if MOCK_MODE:
-        filtered = [s for s in MOCK_SOLE_SOURCE if s["amendment_ratio"] >= min_ratio]
-        return {
-            "results": filtered,
-            "count": len(filtered),
-            "stats": MOCK_SOLE_SOURCE_STATS,
-            "query_mode": "mock",
-        }
 
     sql = """
         SELECT
@@ -414,12 +388,9 @@ def get_sole_source(
         LIMIT %s
     """
     results = query_db(sql, (min_ratio, limit))
-    return {
-        "results": results or [],
-        "count": len(results or []),
-        "stats": {},
-        "query_mode": "live",
-    }
+    if results is None:
+        return _no_data()
+    return {"results": results, "count": len(results), "stats": {}, "query_mode": "live"}
 
 
 # ── Entity Search & Dossier ──────────────────────────────────────────────────
@@ -428,11 +399,6 @@ def search_entities(
     q: str = Query(...),
     limit: int = Query(20),
 ):
-    if MOCK_MODE:
-        filtered = [e for e in MOCK_ENTITIES if q.lower() in e["canonical_name"].lower()
-                     or q in (e.get("bn_root") or "")]
-        return {"results": filtered[:limit], "count": len(filtered)}
-
     sql = """
         SELECT
             id, canonical_name, entity_type, bn_root,
@@ -447,17 +413,13 @@ def search_entities(
         LIMIT %s
     """
     results = query_db(sql, (q, q, limit))
-    return {"results": results or [], "count": len(results or [])}
+    if results is None:
+        return {"results": [], "count": 0}
+    return {"results": results, "count": len(results)}
 
 
 @app.get("/api/entities/{entity_id}")
 def get_entity_dossier(entity_id: int):
-    if MOCK_MODE:
-        dossier = MOCK_ENTITY_DOSSIERS.get(entity_id)
-        if not dossier:
-            raise HTTPException(404, "Entity not found")
-        return dossier
-
     sql = """
         SELECT
             gr.*,
@@ -526,7 +488,6 @@ RESPONSE: Always return valid JSON matching this schema exactly:
 async def llm_enhanced_query(message: str) -> dict:
     msg_lower = message.lower()
 
-    # Detect intent and fetch matching data
     data_type = "help"
     data_results = []
     context_data = {"stats": get_stats()}
@@ -559,19 +520,58 @@ async def llm_enhanced_query(message: str) -> dict:
     elif any(w in msg_lower for w in ["overview", "summary", "total", "how much", "stats"]):
         data_type = "stats"
     else:
-        # General question — provide all context
         context_data["zombies"] = get_zombies(min_funding=500000, limit=3)["results"]
         context_data["loops"] = get_funding_loops(limit=3)["results"]
 
+    # Build human-readable key findings summary
+    key_findings = []
+    if "zombies" in context_data:
+        for z in (context_data["zombies"] or [])[:3]:
+            name = z.get("canonical_name") or z.get("legal_name", "Unknown")
+            amt = z.get("total_public_funding") or z.get("total_govt_funding") or 0
+            pct = z.get("govt_revenue_pct") or z.get("govt_share_pct") or 0
+            year = z.get("last_filing_year", "unknown")
+            key_findings.append(f"- ZOMBIE: {name} received ${float(amt):,.0f} ({float(pct):.1f}% govt revenue), last filed {year}")
+    if "loops" in context_data:
+        for l in (context_data["loops"] or [])[:3]:
+            flow = l.get("total_flow") or 0
+            hops = l.get("hops") or "?"
+            path = l.get("path_display") or ""
+            key_findings.append(f"- LOOP: {hops}-hop circular flow of ${float(flow):,.0f} → {path[:80]}")
+    if "governance" in context_data:
+        for g in (context_data["governance"] or [])[:3]:
+            name = f"{g.get('first_name','')} {g.get('last_name','')}".strip()
+            boards = g.get("board_count", 0)
+            funding = g.get("total_controlled_funding") or 0
+            key_findings.append(f"- GOVERNANCE: {name} sits on {boards} boards controlling ${float(funding):,.0f}")
+    if "sole_source" in context_data:
+        for s in (context_data["sole_source"] or [])[:3]:
+            vendor = s.get("vendor", "Unknown")
+            dept = s.get("department", "")
+            total = s.get("total_amount") or 0
+            count = s.get("contract_count") or 1
+            key_findings.append(f"- SOLE SOURCE: {vendor} ({dept}): {count} contracts, ${float(total):,.0f} total — no competitive bid")
+    if "alerts" in context_data:
+        for a in (context_data["alerts"] or [])[:3]:
+            name = a.get("canonical_name", "Unknown")
+            funding = a.get("total_govt_funding") or 0
+            alarm_count = a.get("alarm_count", 1)
+            flags = ", ".join(a.get("flags") or [])
+            last_year = a.get("last_filing_year", "unknown")
+            key_findings.append(f"- MULTI-FLAG ALERT ({alarm_count} flags): {name} — ${float(funding):,.0f} govt funding, last filed {last_year}, flagged for: {flags}")
+
+    findings_text = "\n".join(key_findings) if key_findings else "No specific findings pre-loaded."
+
     user_content = (
         f"User question: {message}\n\n"
-        f"Data context:\n{json.dumps(context_data, indent=2, default=str)}\n\n"
-        "Return your analysis as JSON with keys: answer, data_type, follow_up."
+        f"TOP FINDINGS FROM THE DATABASE:\n{findings_text}\n\n"
+        f"Full data context (JSON):\n{json.dumps(context_data, indent=2, default=str)}\n\n"
+        "Instructions: Lead with the most alarming specific finding. Name real organizations and dollar amounts. "
+        "Be the investigative journalist uncovering the story. Return JSON with keys: answer, data_type, follow_up."
     )
 
     raw = await _call_llm(_build_system_prompt(), user_content)
 
-    # Extract JSON — handle LLM wrapping it in markdown fences
     text = raw.strip()
     if "```" in text:
         import re
@@ -628,7 +628,7 @@ async def _call_bedrock(system: str, user_content: str) -> str:
         modelId=model_id,
         system=[{"text": system}],
         messages=[{"role": "user", "content": [{"text": user_content}]}],
-        inferenceConfig={"maxTokens": 1024, "temperature": 0.7},
+        inferenceConfig={"maxTokens": 1800, "temperature": 0.7},
     )
 
     return response["output"]["message"]["content"][0]["text"]
@@ -642,7 +642,7 @@ async def _call_anthropic(system: str, user_content: str, api_key: str) -> str:
 
     response = await client.messages.create(
         model=model,
-        max_tokens=1024,
+        max_tokens=1800,
         system=system,
         messages=[{"role": "user", "content": user_content}],
     )
@@ -651,49 +651,49 @@ async def _call_anthropic(system: str, user_content: str, api_key: str) -> str:
 
 
 def template_query(message: str) -> dict:
-    """Fallback template matching when no AI key is configured."""
+    """Fallback when no AI key is configured."""
     msg = message.lower()
 
     if any(w in msg for w in ["zombie", "dissolved", "ceased", "revoked", "dead"]):
         data = get_zombies(min_funding=100000, limit=20)
         return {
-            "answer": f"I found **{data['count']} zombie recipients** — organizations that received significant public funding and then had their charitable status revoked or annulled. The top recipients collectively received millions in government funding before ceasing operations.",
+            "answer": f"I found **{data['count']} zombie recipients** — organizations that received significant public funding and then had their charitable status revoked or annulled.",
             "data_type": "zombies",
             "data": data["results"][:10],
-            "sql_hint": "Queried entity_golden_records for revoked/annulled status with federal or Alberta funding > $100K",
+            "sql_hint": "Queried govt_funding_by_charity for high govt-dependency orgs that stopped filing",
             "follow_up": ["Show me the top 5 by funding amount", "Which ones were in Alberta?", "What was their last filing year?"],
         }
     elif any(w in msg for w in ["loop", "circular", "cycle", "round-trip", "gifting circle"]):
         data = get_funding_loops(min_hops=2, max_hops=6, limit=20)
         return {
-            "answer": f"I detected **{data['count']} funding loops** in the charity sector. These are circular gift flows where money moves from Charity A → B → C → back to A. Some loops involve millions of dollars cycling through 2-6 organizations.",
+            "answer": f"I detected **{data['count']} funding loops** in the charity sector. These are circular gift flows where money moves from Charity A → B → C → back to A.",
             "data_type": "loops",
             "data": data["results"][:10],
-            "sql_hint": "Queried cra.loops table with SCC decomposition and Johnson's algorithm results",
+            "sql_hint": "Queried cra.loops table with SCC decomposition results",
             "follow_up": ["Show me the largest loop by dollar amount", "Which charities appear in multiple loops?", "Are any loops same-year transactions?"],
         }
     elif any(w in msg for w in ["director", "board", "governance", "related part", "network", "control"]):
         data = get_governance_networks(min_boards=3, limit=20)
         return {
-            "answer": f"I found **{data['count']} individuals** who sit on 3+ charity boards simultaneously. Some of these directors control organizations that fund each other, creating potential conflicts of interest.",
+            "answer": f"I found **{data['count']} individuals** who sit on 3+ charity boards simultaneously. Some control organizations that fund each other, creating potential conflicts of interest.",
             "data_type": "governance",
             "data": data["results"][:10],
-            "sql_hint": "Cross-referenced cra.cra_directors with entity_golden_records for multi-board directors",
+            "sql_hint": "Cross-referenced cra_directors with loop_charity_financials for multi-board directors",
             "follow_up": ["Who controls the most funding?", "Do any of these directors' organizations fund each other?", "Show me the governance network graph"],
         }
     elif any(w in msg for w in ["sole source", "no-bid", "amendment", "contract", "vendor"]):
         data = get_sole_source(min_ratio=3.0, limit=20)
         return {
-            "answer": f"**Sole-source contract analysis**: Alberta's dataset contains **{data['stats'].get('total_sole_source_contracts', 15533):,} sole-source contracts**. I've identified {data['stats'].get('contracts_over_5x', 847)} contracts where the amended value grew 5× or more beyond the original award — a pattern consistent with amendment creep.",
+            "answer": f"**Sole-source contract analysis**: Alberta's dataset contains **{data['stats'].get('total_sole_source_contracts', 15533):,} sole-source contracts**. I've identified patterns of vendor concentration and near-threshold contract splitting.",
             "data_type": "sole_source",
             "data": data["results"][:10],
-            "sql_hint": "Queried ab.ab_sole_source for amendment ratio and threshold proximity",
+            "sql_hint": "Queried ab_sole_source for vendor concentration and threshold proximity",
             "follow_up": ["Show me contracts near the $50K competitive threshold", "Which departments rely most on sole-source?", "Find contract splitting patterns"],
         }
     elif any(w in msg for w in ["alert", "flag", "critical", "worst", "multi", "intersection"]):
         data = get_alerts(min_flags=2, limit=20)
         return {
-            "answer": f"**Multi-flag alert analysis**: I found **{data['count']} entities** flagged across multiple challenge categories simultaneously. These represent the highest-priority accountability failures — zombie recipients who also appear in funding loops, or directors who control both loop participants and revoked charities.",
+            "answer": f"**Multi-flag alert analysis**: I found **{data['count']} entities** flagged across multiple challenge categories simultaneously — the highest-priority accountability failures.",
             "data_type": "alerts",
             "data": data["results"][:10],
             "sql_hint": "Cross-joined zombie, loop membership, and governance flags",
@@ -702,10 +702,10 @@ def template_query(message: str) -> dict:
     elif any(w in msg for w in ["how much", "total", "spending", "overview", "summary"]):
         stats = get_stats()
         return {
-            "answer": f"**Platform Overview**: Tracking {stats.get('total_entities', 'N/A'):,} organizations across CRA charity filings ({stats.get('total_charities', 'N/A'):,} charities), {stats.get('total_fed_grants', 'N/A'):,} federal grants, and {stats.get('total_ab_grants', 'N/A'):,} Alberta grant payments. We've identified {stats.get('zombie_count', 'N/A')} zombie recipients and {stats.get('total_funding_loops', 'N/A'):,} funding loops.",
+            "answer": f"**Platform Overview**: Tracking {stats.get('total_entities', 'N/A'):,} organizations across CRA charity filings, {stats.get('total_fed_grants', 'N/A'):,} federal grants, and {stats.get('total_ab_grants', 'N/A'):,} Alberta grant payments.",
             "data_type": "stats",
             "data": stats,
-            "sql_hint": "Aggregated counts across all four schemas",
+            "sql_hint": "Aggregated counts across all four datasets",
             "follow_up": ["Show me zombies", "Explore funding loops", "Show multi-flag alerts"],
         }
     else:
@@ -722,7 +722,7 @@ def template_query(message: str) -> dict:
 @app.get("/api/health")
 def health():
     has_ai = bool(os.getenv("AWS_ACCESS_KEY_ID") or os.getenv("ANTHROPIC_API_KEY"))
-    mode = "duckdb-live" if DUCKDB_MODE else ("mock" if MOCK_MODE else "postgres")
+    mode = "duckdb-live" if DUCKDB_MODE else "postgres"
     return {
         "status": "healthy",
         "query_mode": mode,
