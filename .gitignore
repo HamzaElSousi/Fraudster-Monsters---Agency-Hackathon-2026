@@ -1,0 +1,24 @@
+# Python
+__pycache__/
+*.pyc
+*.pyo
+.venv/
+venv/
+env/
+
+# Environment
+.env
+.env.public
+.env.local
+
+# Node
+node_modules/
+dist/
+.next/
+
+# Hackathon data repo (has its own git)
+hackathon-data/
+
+# OS
+.DS_Store
+Thumbs.db
