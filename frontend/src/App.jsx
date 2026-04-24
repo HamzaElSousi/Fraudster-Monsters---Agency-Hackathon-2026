@@ -11,12 +11,18 @@ import './index.css';
 
 function Sidebar() {
   const [alertCount, setAlertCount] = useState(null);
+  const [navStats, setNavStats] = useState(null);
 
   useEffect(() => {
     fetch('http://localhost:8000/api/alerts?min_flags=2&limit=100')
       .then(r => r.json())
       .then(d => setAlertCount(d.count || 0))
       .catch(() => setAlertCount(null));
+
+    fetch('http://localhost:8000/api/stats')
+      .then(r => r.json())
+      .then(setNavStats)
+      .catch(() => {});
   }, []);
 
   return (
@@ -55,22 +61,22 @@ function Sidebar() {
         <NavLink to="/zombies" className={({ isActive }) => `nav-link ${isActive ? 'active' : ''}`}>
           <span className="nav-link-icon">🧟</span>
           Zombie Recipients
-          <span className="nav-link-badge">347</span>
+          <span className="nav-link-badge">{navStats?.zombie_count ?? '…'}</span>
         </NavLink>
         <NavLink to="/loops" className={({ isActive }) => `nav-link ${isActive ? 'active' : ''}`}>
           <span className="nav-link-icon">🔄</span>
           Funding Loops
-          <span className="nav-link-badge">5,808</span>
+          <span className="nav-link-badge">{navStats?.total_funding_loops != null ? navStats.total_funding_loops.toLocaleString() : '…'}</span>
         </NavLink>
         <NavLink to="/governance" className={({ isActive }) => `nav-link ${isActive ? 'active' : ''}`}>
           <span className="nav-link-icon">🕸️</span>
           Governance Networks
-          <span className="nav-link-badge">2,841</span>
+          <span className="nav-link-badge">{navStats?.multi_board_directors != null ? navStats.multi_board_directors.toLocaleString() : '…'}</span>
         </NavLink>
         <NavLink to="/sole-source" className={({ isActive }) => `nav-link ${isActive ? 'active' : ''}`}>
           <span className="nav-link-icon">📋</span>
           Sole Source
-          <span className="nav-link-badge">15K</span>
+          <span className="nav-link-badge">{navStats?.total_sole_source != null ? (navStats.total_sole_source >= 1000 ? Math.round(navStats.total_sole_source / 1000) + 'K' : navStats.total_sole_source) : '…'}</span>
         </NavLink>
 
         <div className="sidebar-section-label">AI Assistant</div>
@@ -85,7 +91,7 @@ function Sidebar() {
           ⚡ Live Data
         </div>
         <div style={{ marginTop: 8, fontSize: 11, lineHeight: 1.4 }}>
-          23M+ records · 4 datasets<br />
+          {navStats ? `${((navStats.total_fed_grants || 0) + (navStats.total_sole_source || 0) + (navStats.total_charities || 0)).toLocaleString()} records` : '…'} · 4 datasets<br />
           CRA · Federal · Alberta · Entity Resolution
         </div>
       </div>

@@ -2,6 +2,14 @@ import { useState, useEffect, useRef, useCallback } from 'react';
 import { fetchLoopGraph, fetchLoops, formatCurrency } from '../api';
 import ForceGraph2D from 'react-force-graph-2d';
 
+function debounce(fn, delay) {
+  let timer;
+  return function (...args) {
+    clearTimeout(timer);
+    timer = setTimeout(() => fn.apply(this, args), delay);
+  };
+}
+
 // ── Hop count → badge class mapping ─────────────────────────────────────────
 function hopBadgeClass(hops) {
   if (hops <= 2) return 'badge low';
@@ -222,15 +230,18 @@ export default function FundingLoops() {
       : 'rgba(99, 102, 241, 0.08)';
   }, [highlightBns]);
 
-  // ── Node click ────────────────────────────────────────────────────────────
-  const handleNodeClick = useCallback((node) => {
-    setSelectedNode(node);
-    setHighlightBns(null);
-    if (fgRef.current) {
-      fgRef.current.centerAt(node.x, node.y, 500);
-      fgRef.current.zoom(3, 500);
-    }
-  }, []);
+  // ── Node click — debounced 200ms so physics jitter doesn't fire multiple times
+  const handleNodeClick = useCallback(
+    debounce((node) => {
+      setSelectedNode(node);
+      setHighlightBns(null);
+      if (fgRef.current) {
+        fgRef.current.centerAt(node.x, node.y, 500);
+        fgRef.current.zoom(2.5, 500);
+      }
+    }, 200),
+    []
+  );
 
   // ── Formatted graph for ForceGraph2D ──────────────────────────────────────
   const formattedGraph = graphData
@@ -279,8 +290,8 @@ export default function FundingLoops() {
   }, []);
 
   // ── Stat counts from data ──────────────────────────────────────────────────
-  const totalLoopsCount    = loopsData.length || graphData?.total_loops    || 5808;
-  const totalCharitiesCount = graphData?.total_charities || graphData?.nodes?.length || 1501;
+  const totalLoopsCount    = loopsData.length || graphData?.total_loops    || null;
+  const totalCharitiesCount = graphData?.total_charities || graphData?.nodes?.length || null;
 
   // ── Top 5 loops from graphData for sidebar ────────────────────────────────
   const topLoops = [...(graphData?.loops || [])]
@@ -326,13 +337,13 @@ export default function FundingLoops() {
           <div style={{ textAlign: 'center' }}>
             <div style={{ fontSize: 11, color: 'var(--text-muted)', marginBottom: 2 }}>Loops Detected</div>
             <div style={{ fontSize: 22, fontWeight: 800, color: 'var(--accent-purple)', fontFamily: 'var(--font-mono)' }}>
-              {Number(totalLoopsCount).toLocaleString()}
+              {totalLoopsCount != null ? Number(totalLoopsCount).toLocaleString() : '…'}
             </div>
           </div>
           <div style={{ textAlign: 'center' }}>
             <div style={{ fontSize: 11, color: 'var(--text-muted)', marginBottom: 2 }}>Charities Involved</div>
             <div style={{ fontSize: 22, fontWeight: 800, color: 'var(--accent-purple)', fontFamily: 'var(--font-mono)' }}>
-              {Number(totalCharitiesCount).toLocaleString()}
+              {totalCharitiesCount != null ? Number(totalCharitiesCount).toLocaleString() : '…'}
             </div>
           </div>
         </div>

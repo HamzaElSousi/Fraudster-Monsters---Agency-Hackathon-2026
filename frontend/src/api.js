@@ -75,7 +75,7 @@ export function formatCurrency(amount) {
 }
 
 export function formatNumber(num) {
-  if (num == null) return '0';
+  if (num == null) return '—';
   return Number(num).toLocaleString();
 }
 

@@ -5,6 +5,7 @@ import { fetchStats, formatCurrency, formatNumber } from '../api';
 export default function Dashboard() {
   const [stats, setStats] = useState(null);
   const [loading, setLoading] = useState(true);
+  const [error, setError] = useState(null);
   const navigate = useNavigate();
 
   useEffect(() => {
@@ -12,22 +13,22 @@ export default function Dashboard() {
       .then(setStats)
       .catch((err) => {
         console.error('Stats error:', err);
-        // Fallback to hardcoded stats if API is down
-        setStats({
-          total_entities: 851300,
-          total_funding_loops: 5808,
-          total_fed_grants: 1275521,
-          total_ab_grants: 1986676,
-          total_sole_source: 15533,
-          total_charities: 85000,
-          zombie_count: 347,
-          multi_board_directors: 2841,
-          total_public_funding: 89_400_000_000,
-          at_risk_funding: 3_200_000_000,
-        });
+        setError('Backend unavailable — start the server with bash start.sh');
       })
       .finally(() => setLoading(false));
   }, []);
+
+  if (error) {
+    return (
+      <div style={{ padding: '40px 32px', textAlign: 'center' }}>
+        <div style={{ fontSize: 48, marginBottom: 16 }}>⚠️</div>
+        <div style={{ fontSize: 18, fontWeight: 600, color: 'var(--status-critical)', marginBottom: 8 }}>
+          Backend Unavailable
+        </div>
+        <div style={{ fontSize: 14, color: 'var(--text-muted)' }}>{error}</div>
+      </div>
+    );
+  }
 
   if (loading) {
     return (
@@ -106,7 +107,7 @@ export default function Dashboard() {
             Total Public Funding Tracked
           </div>
           <div style={{ fontSize: 42, fontWeight: 900, letterSpacing: '-0.03em', lineHeight: 1, background: 'var(--gradient-primary)', WebkitBackgroundClip: 'text', WebkitTextFillColor: 'transparent' }}>
-            {formatCurrency(stats?.total_public_funding || 89_400_000_000)}
+            {stats?.total_public_funding ? formatCurrency(stats.total_public_funding) : '—'}
           </div>
           <div style={{ fontSize: 14, color: 'var(--text-secondary)', marginTop: 8 }}>
             Across CRA T3010, Federal Grants & Contributions, and Alberta Open Data
@@ -127,7 +128,7 @@ export default function Dashboard() {
             At-Risk Funding
           </div>
           <div style={{ fontSize: 28, fontWeight: 800, color: 'var(--status-critical)' }}>
-            {formatCurrency(stats?.at_risk_funding || 3_200_000_000)}
+            {stats?.at_risk_funding ? formatCurrency(stats.at_risk_funding) : '—'}
           </div>
           <div style={{ fontSize: 12, color: 'var(--text-muted)', marginTop: 2 }}>
             Linked to flagged entities
@@ -168,8 +169,8 @@ export default function Dashboard() {
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(280px, 1fr))', gap: 12 }}>
           {[
             { icon: '🧟', title: 'Zombie Recipients', desc: 'Organizations that received $6M+ then vanished', path: '/zombies', color: 'var(--status-critical)' },
-            { icon: '🔄', title: 'Largest Funding Loop', desc: '$12.4M cycling through 4 charities', path: '/loops', color: 'var(--accent-purple)' },
-            { icon: '🕸️', title: 'Top Power Broker', desc: 'Director sits on 7 funded charity boards — $21.6M controlled', path: '/governance', color: 'var(--accent-cyan)' },
+            { icon: '🔄', title: 'Largest Funding Loop', desc: 'Circular gift patterns cycling through multiple charities', path: '/loops', color: 'var(--accent-purple)' },
+            { icon: '🕸️', title: 'Top Power Broker', desc: 'Director on multiple funded charity boards — conflicts of interest mapped', path: '/governance', color: 'var(--accent-cyan)' },
             { icon: '🤖', title: 'Ask AI', desc: '"Show me organizations in Alberta that dissolved after receiving funding"', path: '/chat', color: 'var(--accent-indigo)' },
           ].map((item, i) => (
             <div

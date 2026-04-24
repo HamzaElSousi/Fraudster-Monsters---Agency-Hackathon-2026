@@ -310,14 +310,28 @@ def get_loop_graph_live(limit: int = 50) -> dict:
         nodes = query(node_sql)
         # Add fallback stub nodes for BNs not found in loop_charity_financials
         found_bns = {n["bn"] for n in nodes}
-        for bn in bns:
-            if bn not in found_bns:
-                nodes.append({
-                    "bn": bn, "id": bn,
-                    "name": bn,
-                    "revenue": 0, "circular_outflow": 0,
-                    "loops_count": 1, "risk": "low",
-                })
+        stub_bns = [bn for bn in bns if bn not in found_bns]
+        # Try to resolve stub BN names from cra_identification
+        stub_name_map: dict[str, str] = {}
+        if stub_bns:
+            try:
+                ident = _read("cra", "cra_identification")
+                stub_bn_list = "','".join(stub_bns[:200])
+                name_rows = query(f"""
+                    SELECT bn, legal_name FROM {ident}
+                    WHERE bn IN ('{stub_bn_list}')
+                    QUALIFY ROW_NUMBER() OVER (PARTITION BY bn ORDER BY fiscal_year DESC) = 1
+                """)
+                stub_name_map = {r["bn"]: r["legal_name"] for r in name_rows if r.get("legal_name")}
+            except Exception:
+                pass
+        for bn in stub_bns:
+            nodes.append({
+                "bn": bn, "id": bn,
+                "name": stub_name_map.get(bn, bn[:9] + "…"),
+                "revenue": 0, "circular_outflow": 0,
+                "loops_count": 1, "risk": "low",
+            })
 
     for l in loop_rows:
         path = l.get("path_bns") or []
@@ -527,19 +541,21 @@ def get_sole_source_stats_live() -> dict:
         WHERE TRY_CAST(amount AS DOUBLE) > 0
     """
     rows = query(sql)
-    if rows:
-        r = rows[0]
-        return {
-            "total_sole_source_contracts": int(r.get("total_contracts") or 0),
-            "total_original_value": float(r.get("total_value") or 0),
-            "total_amended_value": float(r.get("total_value") or 0),
-            "avg_amendment_ratio": 1.0,
-            "contracts_over_5x": 0,
-            "contracts_over_10x": 0,
-            "contracts_near_threshold": int(r.get("near_threshold") or 0),
-            "total_at_risk": float(r.get("total_value") or 0),
-        }
-    return {}
+    if not rows:
+        return {}
+    r = rows[0]
+    total_contracts = int(r.get("total_contracts") or 0)
+    total_value = float(r.get("total_value") or 0)
+    return {
+        "total_sole_source_contracts": total_contracts,
+        "total_original_value": total_value,
+        "total_amended_value": total_value,
+        "avg_amendment_ratio": 1.0,
+        "contracts_over_5x": 0,
+        "contracts_over_10x": 0,
+        "contracts_near_threshold": int(r.get("near_threshold") or 0),
+        "total_at_risk": total_value,
+    }
 
 
 # ── Multi-Flag Alerts (cross-challenge) ──────────────────────────────────────
@@ -668,7 +684,7 @@ def get_alerts_live(min_flags: int = 2, limit: int = 20) -> list[dict]:
 def get_stats_live() -> dict:
     try:
         loops_count = query(f"SELECT COUNT(*) as n FROM {_read('cra', 'loops')}")
-        loop_n = loops_count[0]["n"] if loops_count else 5808
+        loop_n = loops_count[0]["n"] if loops_count else 0
 
         dirs = query(f"""
             SELECT COUNT(*) as n FROM (
@@ -679,32 +695,63 @@ def get_stats_live() -> dict:
                 HAVING COUNT(DISTINCT LEFT(bn, 9)) >= 3
             )
         """)
-        dir_n = dirs[0]["n"] if dirs else 2841
+        dir_n = dirs[0]["n"] if dirs else 0
 
         charity_n = query(f"SELECT COUNT(DISTINCT bn) as n FROM {_read('cra', 'cra_identification')}")
-        charity_count = charity_n[0]["n"] if charity_n else 85000
+        charity_count = charity_n[0]["n"] if charity_n else 0
 
         sole_n = query(f"SELECT COUNT(*) as n FROM {_read('ab', 'ab_sole_source')}")
-        sole_count = sole_n[0]["n"] if sole_n else 15533
+        sole_count = sole_n[0]["n"] if sole_n else 0
 
-        # Use known counts for tables still loading
-        fed_n = 1_275_521
+        fed_n = 0
         if _available("fed", "grants_contributions"):
             r = query(f"SELECT COUNT(*) as n FROM {_read('fed', 'grants_contributions')}")
             if r:
                 fed_n = r[0]["n"]
 
+        # Compute zombie count + at-risk funding using same criteria as get_zombies_live
+        gov_tbl = _read("cra", "govt_funding_by_charity")
+        ident_tbl = _read("cra", "cra_identification")
+        zombie_r = query(f"""
+            WITH best AS (
+                SELECT g.bn, TRY_CAST(g.total_govt AS DOUBLE) as total_govt,
+                       ROW_NUMBER() OVER (PARTITION BY g.bn ORDER BY TRY_CAST(g.total_govt AS DOUBLE) DESC NULLS LAST) as rn
+                FROM {gov_tbl} g
+                WHERE TRY_CAST(g.govt_share_of_rev AS DOUBLE) >= 70.0
+                  AND TRY_CAST(g.total_govt AS DOUBLE) >= 100000
+                  AND g.legal_name NOT LIKE '%GOVERNMENT%'
+            ),
+            lf AS (SELECT bn, MAX(fiscal_year) as last_year FROM {ident_tbl} GROUP BY bn)
+            SELECT COUNT(*) as n, SUM(b.total_govt) as at_risk
+            FROM best b JOIN lf ON lf.bn = b.bn
+            WHERE b.rn = 1 AND lf.last_year <= 2022
+        """)
+        zombie_n = int(zombie_r[0]["n"]) if zombie_r else 0
+        at_risk = float(zombie_r[0]["at_risk"] or 0) if zombie_r else 0.0
+
+        # Compute total tracked public funding from govt_funding_by_charity
+        # (best year per charity to avoid double-counting multi-year rows)
+        funding_r = query(f"""
+            SELECT SUM(total_govt) as total FROM (
+                SELECT bn, MAX(TRY_CAST(total_govt AS DOUBLE)) as total_govt
+                FROM {gov_tbl}
+                WHERE TRY_CAST(total_govt AS DOUBLE) > 0
+                GROUP BY bn
+            )
+        """)
+        total_public = float(funding_r[0]["total"] or 0) if funding_r else 0.0
+
         return {
-            "total_entities": 851300,
+            "total_entities": charity_count + sole_count,
             "total_funding_loops": loop_n,
             "total_fed_grants": fed_n,
-            "total_ab_grants": 1_986_676,
+            "total_ab_grants": sole_count,
             "total_sole_source": sole_count,
             "total_charities": charity_count,
-            "zombie_count": 347,
+            "zombie_count": zombie_n,
             "multi_board_directors": dir_n,
-            "total_public_funding": 89_400_000_000,
-            "at_risk_funding": 3_200_000_000,
+            "total_public_funding": total_public,
+            "at_risk_funding": at_risk,
         }
     except Exception as e:
         print(f"[DuckDB] stats error: {e}")

@@ -1,27 +1,38 @@
 import { useState, useRef, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { sendChatMessage, formatCurrency } from '../api';
+import { sendChatMessage, formatCurrency, fetchStats } from '../api';
 
-const WELCOME_MESSAGE = {
-  role: 'assistant',
-  id: 0,
-  content: `Welcome to the **Follow The Money** AI Investigator! 🔍
+function buildWelcomeMessage(stats) {
+  const fedGrants = stats?.total_fed_grants ?? 0;
+  const abGrants = stats?.total_ab_grants ?? 0;
+  const charities = stats?.total_charities ?? 0;
+  const soleSource = stats?.total_sole_source ?? 0;
+  const total = fedGrants + abGrants + charities + soleSource;
+  const recordStr = total > 1_000_000
+    ? `${(total / 1_000_000).toFixed(1)}M+`
+    : total > 0 ? total.toLocaleString() : '23M+';
 
-I can help you explore government spending accountability across **23 million records** from CRA T3010 charity filings, Federal Grants & Contributions, and Alberta Open Data.
+  return {
+    role: 'assistant',
+    id: 0,
+    content: `Welcome to the **Follow The Money** AI Investigator! 🔍
+
+I can help you explore government spending accountability across **${recordStr} records** from CRA T3010 charity filings, Federal Grants & Contributions, and Alberta Open Data.
 
 Try asking me about:
 • **Zombie recipients** — organizations that vanished after receiving funding
 • **Funding loops** — circular money flows between charities
 • **Governance networks** — directors controlling multiple funded entities
 • **Spending overview** — total funding across all datasets`,
-  data_type: 'help',
-  follow_up: [
-    'Show me zombie recipients',
-    'Find funding loops',
-    'Show governance networks',
-    'Give me an overview',
-  ],
-};
+    data_type: 'help',
+    follow_up: [
+      'Show me zombie recipients',
+      'Find funding loops',
+      'Show governance networks',
+      'Give me an overview',
+    ],
+  };
+}
 
 function DataCard({ item, dataType, index, msgId, expandedCards, toggleCard, navigate }) {
   const cardKey = `${msgId}-${index}`;
@@ -165,7 +176,7 @@ function DataCard({ item, dataType, index, msgId, expandedCards, toggleCard, nav
 
 export default function Chat() {
   const navigate = useNavigate();
-  const [messages, setMessages] = useState([WELCOME_MESSAGE]);
+  const [messages, setMessages] = useState([buildWelcomeMessage(null)]);
   const [input, setInput] = useState('');
   const [isLoading, setIsLoading] = useState(false);
   const [expandedCards, setExpandedCards] = useState(new Set());
@@ -178,6 +189,19 @@ export default function Chat() {
       return next;
     });
   };
+
+  useEffect(() => {
+    fetchStats()
+      .then(stats => {
+        setMessages(prev => {
+          if (prev.length === 1 && prev[0].id === 0) {
+            return [buildWelcomeMessage(stats)];
+          }
+          return prev;
+        });
+      })
+      .catch(() => {});
+  }, []);
 
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
@@ -271,7 +295,7 @@ export default function Chat() {
           <div className="chat-message assistant">
             <div style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
               <span style={{ animation: 'pulse-glow 1.5s infinite' }}>🔍</span>
-              <span style={{ color: 'var(--text-muted)' }}>Analyzing 23M+ records...</span>
+              <span style={{ color: 'var(--text-muted)' }}>Analyzing records...</span>
             </div>
           </div>
         )}
