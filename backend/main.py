@@ -17,10 +17,17 @@ load_dotenv()
 
 MOCK_MODE = os.getenv("MOCK_MODE", "true").lower() == "true"
 
+# Determine query mode: duckdb (real JSONL) > postgres > mock
+import db_duckdb as _duck
+DUCKDB_MODE = (not MOCK_MODE or os.getenv("DATA_DIR")) and _duck.is_available()
+if DUCKDB_MODE:
+    MOCK_MODE = False
+    print(f"[START] DuckDB mode — real JSONL data at {_duck._base()}")
 
-# ── Database Connection ──────────────────────────────────────────────────────
+
+# ── Database Connection (PostgreSQL fallback) ────────────────────────────────
 def get_db_connection():
-    if MOCK_MODE:
+    if MOCK_MODE or DUCKDB_MODE:
         return None
     import psycopg2
     conn_str = os.getenv("DB_CONNECTION_STRING")
@@ -76,6 +83,10 @@ app.add_middleware(
 # ── Dashboard Stats ──────────────────────────────────────────────────────────
 @app.get("/api/stats")
 def get_stats():
+    if DUCKDB_MODE:
+        live = _duck.get_stats_live()
+        if live:
+            return live
     if MOCK_MODE:
         return MOCK_STATS
 
@@ -125,6 +136,9 @@ def get_zombies(
     min_funding: float = Query(100000),
     limit: int = Query(50),
 ):
+    if DUCKDB_MODE:
+        results = _duck.get_zombies_live(min_funding, limit)
+        return {"results": results, "count": len(results), "query_mode": "duckdb-live"}
     if MOCK_MODE:
         filtered = [z for z in MOCK_ZOMBIES if z["total_public_funding"] >= min_funding]
         return {"results": filtered, "count": len(filtered), "query_mode": "mock"}
@@ -170,6 +184,9 @@ def get_funding_loops(
     max_hops: int = Query(6),
     limit: int = Query(100),
 ):
+    if DUCKDB_MODE:
+        results = _duck.get_loops_live(min_hops, max_hops, limit)
+        return {"results": results, "count": len(results), "query_mode": "duckdb-live"}
     if MOCK_MODE:
         filtered = [l for l in MOCK_LOOPS if min_hops <= l["hops"] <= max_hops]
         return {"results": filtered, "count": len(filtered), "query_mode": "mock"}
@@ -191,6 +208,8 @@ def get_funding_loops(
 
 @app.get("/api/loops/graph")
 def get_loop_graph(limit: int = Query(50)):
+    if DUCKDB_MODE:
+        return _duck.get_loop_graph_live(limit)
     if MOCK_MODE:
         return MOCK_LOOP_GRAPH
 
@@ -242,6 +261,9 @@ def get_governance_networks(
     min_boards: int = Query(3),
     limit: int = Query(50),
 ):
+    if DUCKDB_MODE:
+        results = _duck.get_governance_live(min_boards, limit)
+        return {"results": results, "count": len(results), "query_mode": "duckdb-live"}
     if MOCK_MODE:
         filtered = [g for g in MOCK_GOVERNANCE if g["board_count"] >= min_boards]
         return {"results": filtered, "count": len(filtered), "query_mode": "mock"}
@@ -358,6 +380,10 @@ def get_sole_source(
     Challenge #4: Contracts that started small and grew large through amendments.
     Identifies amendment creep, contract splitting, and sole-source dependency.
     """
+    if DUCKDB_MODE:
+        results = _duck.get_sole_source_live(min_ratio, limit)
+        stats = _duck.get_sole_source_stats_live()
+        return {"results": results, "count": len(results), "stats": stats, "query_mode": "duckdb-live"}
     if MOCK_MODE:
         filtered = [s for s in MOCK_SOLE_SOURCE if s["amendment_ratio"] >= min_ratio]
         return {
@@ -696,9 +722,10 @@ def template_query(message: str) -> dict:
 @app.get("/api/health")
 def health():
     has_ai = bool(os.getenv("AWS_ACCESS_KEY_ID") or os.getenv("ANTHROPIC_API_KEY"))
+    mode = "duckdb-live" if DUCKDB_MODE else ("mock" if MOCK_MODE else "postgres")
     return {
         "status": "healthy",
-        "mock_mode": MOCK_MODE,
+        "query_mode": mode,
         "ai_enabled": has_ai,
         "timestamp": datetime.utcnow().isoformat(),
         "version": "1.0.0",
