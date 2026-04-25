@@ -831,3 +831,226 @@ body {
 .page-governance {
   background: radial-gradient(ellipse at top left, rgba(34, 211, 238, 0.06) 0%, transparent 50%);
 }
+
+/* ── FundingLoops: Stats Bar ── */
+.loops-stats-bar {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 1px;
+  background: var(--border-primary);
+  border: 1px solid var(--border-primary);
+  border-radius: var(--radius-lg);
+  overflow: hidden;
+}
+.loops-stat-item {
+  background: var(--bg-card);
+  padding: 16px 20px;
+  text-align: center;
+}
+.loops-stat-value {
+  font-size: 28px;
+  font-weight: 800;
+  font-family: var(--font-mono);
+  letter-spacing: -0.02em;
+  line-height: 1;
+  margin-bottom: 4px;
+}
+.loops-stat-label {
+  font-size: 11px;
+  color: var(--text-muted);
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  font-weight: 600;
+}
+
+/* ── FundingLoops: Filter Panel ── */
+.filter-panel {
+  width: 220px;
+  flex-shrink: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0;
+  background: var(--bg-card);
+  border: 1px solid var(--border-primary);
+  border-radius: var(--radius-lg);
+  overflow: hidden;
+  position: sticky;
+  top: 80px;
+  max-height: calc(100vh - 120px);
+  overflow-y: auto;
+}
+.filter-panel-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 14px 16px;
+  border-bottom: 1px solid var(--border-primary);
+  background: var(--bg-tertiary);
+}
+.filter-section {
+  padding: 14px 16px;
+  border-bottom: 1px solid var(--border-primary);
+}
+.filter-section:last-child { border-bottom: none; }
+
+.filter-label {
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--text-muted);
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+}
+
+/* Range sliders */
+.filter-slider-group { display: flex; flex-direction: column; gap: 6px; }
+.filter-slider-header { display: flex; justify-content: space-between; align-items: center; }
+.filter-value {
+  font-size: 11px;
+  font-weight: 700;
+  color: var(--accent-purple);
+  font-family: var(--font-mono);
+}
+.filter-range {
+  -webkit-appearance: none;
+  appearance: none;
+  width: 100%;
+  height: 4px;
+  border-radius: 2px;
+  background: var(--border-primary);
+  outline: none;
+  cursor: pointer;
+}
+.filter-range::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  appearance: none;
+  width: 14px;
+  height: 14px;
+  border-radius: 50%;
+  background: var(--accent-purple);
+  cursor: pointer;
+  border: 2px solid var(--bg-card);
+  box-shadow: 0 0 0 2px var(--accent-purple);
+  transition: box-shadow var(--transition-fast);
+}
+.filter-range::-webkit-slider-thumb:hover {
+  box-shadow: 0 0 0 4px rgba(167, 139, 250, 0.3);
+}
+.filter-range::-moz-range-thumb {
+  width: 14px; height: 14px;
+  border-radius: 50%;
+  background: var(--accent-purple);
+  cursor: pointer;
+  border: 2px solid var(--bg-card);
+}
+/* Dual range: transparent tracks so they overlay cleanly */
+.dual-range { background: transparent; pointer-events: none; }
+.dual-range::-webkit-slider-thumb { pointer-events: all; }
+.dual-range::-moz-range-thumb { pointer-events: all; }
+
+.filter-range-bounds {
+  display: flex;
+  justify-content: space-between;
+  font-size: 10px;
+  color: var(--text-muted);
+}
+
+/* Risk chips */
+.filter-chip {
+  padding: 4px 10px;
+  font-size: 11px;
+  font-weight: 600;
+  border-radius: 20px;
+  border: 1px solid var(--border-primary);
+  background: none;
+  color: var(--text-secondary);
+  cursor: pointer;
+  transition: all var(--transition-fast);
+}
+.filter-chip:hover { border-color: var(--accent-purple); color: var(--accent-purple); }
+.filter-chip.active { background: rgba(167,139,250,0.15); border-color: var(--accent-purple); color: var(--accent-purple); }
+
+/* Toggle */
+.filter-toggle { display: flex; align-items: center; gap: 8px; cursor: pointer; }
+.filter-toggle input[type="checkbox"] { display: none; }
+.filter-toggle-track {
+  width: 32px; height: 18px;
+  background: var(--border-primary);
+  border-radius: 9px;
+  position: relative;
+  flex-shrink: 0;
+  transition: background var(--transition-fast);
+}
+.filter-toggle-track::after {
+  content: '';
+  position: absolute;
+  top: 2px; left: 2px;
+  width: 14px; height: 14px;
+  border-radius: 50%;
+  background: var(--text-muted);
+  transition: transform var(--transition-fast), background var(--transition-fast);
+}
+.filter-toggle input:checked ~ .filter-toggle-track {
+  background: var(--accent-purple);
+}
+.filter-toggle input:checked ~ .filter-toggle-track::after {
+  transform: translateX(14px);
+  background: #fff;
+}
+
+/* Search input in filter panel */
+.filter-search {
+  width: 100%;
+  padding: 7px 10px;
+  font-size: 12px;
+  background: var(--bg-tertiary);
+  border: 1px solid var(--border-primary);
+  border-radius: var(--radius-md);
+  color: var(--text-primary);
+  outline: none;
+  box-sizing: border-box;
+  font-family: var(--font-sans);
+  transition: border-color var(--transition-fast);
+}
+.filter-search:focus { border-color: var(--accent-purple); }
+.filter-search::placeholder { color: var(--text-muted); }
+
+/* ── FundingLoops: Charity Cards ── */
+.loop-charity-card {
+  background: var(--bg-card);
+  border: 1px solid var(--border-primary);
+  border-radius: var(--radius-md);
+  padding: 16px;
+  cursor: default;
+  transition: transform var(--transition-fast), border-color var(--transition-fast), box-shadow var(--transition-fast);
+}
+.loop-charity-card:hover {
+  transform: translateY(-2px);
+  border-color: var(--accent-purple);
+  box-shadow: var(--shadow-glow);
+}
+
+/* ── Pagination ── */
+.pagination {
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  gap: 16px;
+  padding: 12px 0;
+}
+.pagination-btn {
+  padding: 7px 16px;
+  font-size: 13px;
+  font-weight: 600;
+  background: var(--bg-card);
+  border: 1px solid var(--border-primary);
+  border-radius: var(--radius-md);
+  color: var(--text-secondary);
+  cursor: pointer;
+  transition: all var(--transition-fast);
+  font-family: var(--font-sans);
+}
+.pagination-btn:hover:not(:disabled) {
+  border-color: var(--accent-purple);
+  color: var(--accent-purple);
+}
+.pagination-btn:disabled { opacity: 0.35; cursor: not-allowed; }

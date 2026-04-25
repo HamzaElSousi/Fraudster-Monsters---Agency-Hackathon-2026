@@ -1,746 +1,645 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
-import { fetchLoopGraph, fetchLoops, formatCurrency } from '../api';
-import ForceGraph2D from 'react-force-graph-2d';
+import ReactECharts from 'echarts-for-react';
+import { fetchLoops, fetchLoopGraph, fetchLoopsStats, fetchLoopCharities, formatCurrency, formatNumber } from '../api';
 
-function debounce(fn, delay) {
-  let timer;
-  return function (...args) {
-    clearTimeout(timer);
-    timer = setTimeout(() => fn.apply(this, args), delay);
-  };
-}
+const RISK_COLOR = { high: '#ef4444', medium: '#f59e0b', low: '#22c55e' };
+const PAGE_SIZE = 20;
 
-// ── Hop count → badge class mapping ─────────────────────────────────────────
-function hopBadgeClass(hops) {
-  if (hops <= 2) return 'badge low';
-  if (hops === 3) return 'badge high';
-  return 'badge critical';
-}
-
-function hopBadgeLabel(hops) {
-  return `${hops}-hop`;
-}
-
-// ── Sortable column header ───────────────────────────────────────────────────
-function SortHeader({ label, field, sortField, sortDir, onSort }) {
-  const active = sortField === field;
-  const arrow = active ? (sortDir === 'asc' ? ' ▲' : ' ▼') : ' ▲▼';
+function RangeSlider({ label, min, max, value, onChange, format }) {
   return (
-    <th
-      onClick={() => onSort(field)}
-      style={{
-        cursor: 'pointer',
-        userSelect: 'none',
-        whiteSpace: 'nowrap',
-        color: active ? 'var(--accent-indigo-light)' : undefined,
-      }}
-      title={`Sort by ${label}`}
-    >
-      {label}
-      <span style={{ fontSize: 10, opacity: active ? 1 : 0.45, marginLeft: 3 }}>{arrow}</span>
-    </th>
-  );
-}
-
-// ── Spinner ──────────────────────────────────────────────────────────────────
-function Spinner() {
-  return (
-    <div style={{
-      display: 'flex',
-      flexDirection: 'column',
-      alignItems: 'center',
-      justifyContent: 'center',
-      height: '100%',
-      gap: 16,
-      color: 'var(--text-muted)',
-    }}>
-      <svg
-        width={36}
-        height={36}
-        viewBox="0 0 36 36"
-        style={{ animation: 'spin 0.9s linear infinite' }}
-      >
-        <circle
-          cx={18} cy={18} r={15}
-          fill="none"
-          stroke="var(--border-primary)"
-          strokeWidth={3}
-        />
-        <path
-          d="M18 3 A15 15 0 0 1 33 18"
-          fill="none"
-          stroke="var(--accent-indigo)"
-          strokeWidth={3}
-          strokeLinecap="round"
-        />
-      </svg>
-      <span style={{ fontSize: 13 }}>Loading funding loop network…</span>
-      <style>{`@keyframes spin { to { transform: rotate(360deg); } }`}</style>
+    <div className="filter-slider-group">
+      <div className="filter-slider-header">
+        <span className="filter-label">{label}</span>
+        <span className="filter-value">{format ? format(value) : value}</span>
+      </div>
+      <input
+        type="range" min={min} max={max}
+        value={Math.min(value, max)}
+        onChange={e => onChange(Number(e.target.value))}
+        className="filter-range"
+      />
+      <div className="filter-range-bounds">
+        <span>{format ? format(min) : min}</span>
+        <span>{format ? format(max) : max}</span>
+      </div>
     </div>
   );
 }
 
-// ── Main component ───────────────────────────────────────────────────────────
-export default function FundingLoops() {
-  const [graphData, setGraphData]       = useState(null);
-  const [loopsData, setLoopsData]       = useState([]);
-  const [loading, setLoading]           = useState(true);
-  const [selectedNode, setSelectedNode] = useState(null);
-  const [hoveredNode, setHoveredNode]   = useState(null);
-  const [viewMode, setViewMode]         = useState('graph'); // 'graph' | 'table'
-  const [sortField, setSortField]       = useState('total_flow');
-  const [sortDir, setSortDir]           = useState('desc');
-  const [highlightBns, setHighlightBns] = useState(null); // Set<string> | null
-  const [searchTerm, setSearchTerm]     = useState('');
-  const fgRef = useRef();
-  const hasZoomedRef = useRef(false); // fire zoomToFit only once on initial load
+function DualRangeSlider({ label, min, max, value, onChange, format }) {
+  const [lo, hi] = value;
+  return (
+    <div className="filter-slider-group">
+      <div className="filter-slider-header">
+        <span className="filter-label">{label}</span>
+        <span className="filter-value">{lo} – {hi}</span>
+      </div>
+      <div style={{ position: 'relative', height: 32, display: 'flex', alignItems: 'center' }}>
+        <input type="range" min={min} max={max} value={lo}
+          onChange={e => { const v = Math.min(Number(e.target.value), hi); onChange([v, hi]); }}
+          className="filter-range dual-range"
+          style={{ position: 'absolute', width: '100%', zIndex: lo === hi ? 5 : 3 }}
+        />
+        <input type="range" min={min} max={max} value={hi}
+          onChange={e => { const v = Math.max(Number(e.target.value), lo); onChange([lo, v]); }}
+          className="filter-range dual-range"
+          style={{ position: 'absolute', width: '100%', zIndex: 4 }}
+        />
+      </div>
+      <div className="filter-range-bounds">
+        <span>{format ? format(min) : min}</span>
+        <span>{format ? format(max) : max}</span>
+      </div>
+    </div>
+  );
+}
 
-  // ── Data loading ───────────────────────────────────────────────────────────
-  useEffect(() => {
-    Promise.all([
-      fetchLoopGraph(30),
-      fetchLoops(2, 6, 100),
-    ])
-      .then(([gData, lData]) => {
-        setGraphData(gData);
-        setLoopsData(Array.isArray(lData) ? lData : (lData?.results ?? lData?.loops ?? []));
-      })
-      .catch(console.error)
-      .finally(() => setLoading(false));
-  }, []);
+function FilterPanel({ hopsRange, setHopsRange, maxHops, flowMax, maxFlow, setMaxFlow,
+  sameYearOnly, setSameYearOnly, riskFilter, setRiskFilter, searchTerm, setSearchTerm, resultCount }) {
+  return (
+    <aside className="filter-panel">
+      <div className="filter-panel-header">
+        <span style={{ fontWeight: 700, fontSize: 13 }}>Filters</span>
+        <span style={{ fontSize: 12, color: 'var(--text-muted)' }}>{resultCount != null ? `${resultCount} loops` : '…'}</span>
+      </div>
 
-  // ── Physics tuning after graph data mounts ─────────────────────────────────
-  useEffect(() => {
-    if (!fgRef.current || !graphData || !graphData.nodes || graphData.nodes.length === 0) return;
-    hasZoomedRef.current = false; // reset so new data triggers zoomToFit
-    const fg = fgRef.current;
-    if (fg && fg.d3Force) {
-      fg.d3Force('charge')?.strength(-600);
-      fg.d3Force('link')?.distance(200);
-      fg.d3Force('x', null);
-      fg.d3Force('y', null);
-      fg.d3ReheatSimulation?.();
-    }
-  }, [graphData]);
+      <div className="filter-section">
+        <DualRangeSlider
+          label="Hops (cycle length)"
+          min={2} max={maxHops || 6}
+          value={hopsRange}
+          onChange={setHopsRange}
+        />
+      </div>
 
-  // ── Auto-fit once on initial load only ────────────────────────────────────
-  const handleEngineStop = useCallback(() => {
-    if (fgRef.current && !hasZoomedRef.current) {
-      hasZoomedRef.current = true;
-      fgRef.current.zoomToFit(800, 80);
-    }
-  }, []);
+      <div className="filter-section">
+        <RangeSlider
+          label="Max Total Flow"
+          min={0} max={flowMax || 5_000_000}
+          value={maxFlow}
+          onChange={setMaxFlow}
+          format={v => v === 0 ? 'No limit' : formatCurrency(v)}
+        />
+      </div>
 
-  // ── Node helpers ───────────────────────────────────────────────────────────
-  const getNodeColor = useCallback((node) => {
-    if (selectedNode && selectedNode.id === node.id) return '#6366f1';
-    const risk = node.risk || 'low';
-    if (risk === 'high')   return '#ef4444';
-    if (risk === 'medium') return '#f59e0b';
-    return '#22c55e';
-  }, [selectedNode]);
+      <div className="filter-section">
+        <div className="filter-label" style={{ marginBottom: 10 }}>Risk Level</div>
+        <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>
+          {['', 'high', 'medium', 'low'].map(r => (
+            <button
+              key={r}
+              className={`filter-chip ${riskFilter === r ? 'active' : ''}`}
+              style={riskFilter === r && r ? { background: RISK_COLOR[r] + '22', borderColor: RISK_COLOR[r], color: RISK_COLOR[r] } : {}}
+              onClick={() => setRiskFilter(r)}
+            >
+              {r === '' ? 'All' : r.charAt(0).toUpperCase() + r.slice(1)}
+            </button>
+          ))}
+        </div>
+      </div>
 
-  const getNodeSize = useCallback((node) => {
-    const revenue = node.revenue || 1_000_000;
-    return Math.max(5, Math.min(22, Math.sqrt(revenue / 400_000)));
-  }, []);
+      <div className="filter-section">
+        <label className="filter-toggle">
+          <input type="checkbox" checked={sameYearOnly} onChange={e => setSameYearOnly(e.target.checked)} />
+          <span className="filter-toggle-track" />
+          <span className="filter-label">Same-year only</span>
+        </label>
+        <div style={{ fontSize: 11, color: 'var(--text-muted)', marginTop: 4 }}>
+          All donations in a single fiscal year — indicates receipt inflation
+        </div>
+      </div>
 
-  // ── Node canvas renderer ───────────────────────────────────────────────────
-  const nodeCanvasObject = useCallback((node, ctx, globalScale) => {
-    const size       = getNodeSize(node);
-    const color      = getNodeColor(node);
-    const isSelected = selectedNode && selectedNode.id === node.id;
-    const isHovered  = hoveredNode  && hoveredNode.id  === node.id;
-    const isTopNode  = (node.loops_count ?? 0) >= 2;
+      <div className="filter-section">
+        <div className="filter-label" style={{ marginBottom: 8 }}>Search</div>
+        <input
+          className="filter-search"
+          placeholder="Charity name or BN…"
+          value={searchTerm}
+          onChange={e => setSearchTerm(e.target.value)}
+        />
+      </div>
+    </aside>
+  );
+}
 
-    // Highlight mode: dim non-highlighted nodes
-    const isHighlighted = !highlightBns || highlightBns.has(String(node.id));
-    const globalAlpha   = ctx.globalAlpha;
-    if (highlightBns) {
-      ctx.globalAlpha = isHighlighted ? 1.0 : 0.3;
-    }
+function StatsBar({ stats, loading }) {
+  const items = [
+    { label: 'Circular Loops', value: stats?.total_loops, format: formatNumber, color: 'var(--accent-purple)' },
+    { label: 'Total Flow', value: stats?.total_flow, format: formatCurrency, color: 'var(--accent-indigo)' },
+    { label: 'Same-Year Loops', value: stats?.same_year_count, format: formatNumber, color: 'var(--status-medium)' },
+    { label: 'High Risk', value: stats?.high_risk_count, format: formatNumber, color: 'var(--status-critical)' },
+  ];
+  return (
+    <div className="loops-stats-bar">
+      {items.map(item => (
+        <div key={item.label} className="loops-stat-item">
+          <div className="loops-stat-value" style={{ color: item.color }}>
+            {loading ? '…' : (item.value != null ? item.format(item.value) : '—')}
+          </div>
+          <div className="loops-stat-label">{item.label}</div>
+        </div>
+      ))}
+    </div>
+  );
+}
 
-    // Glow ring for selected / hovered
-    if (isSelected || isHovered) {
-      ctx.beginPath();
-      ctx.arc(node.x, node.y, size + 5, 0, 2 * Math.PI);
-      ctx.fillStyle = `${color}35`;
-      ctx.fill();
+function LoopsTable({ loops, searchTerm, page, setPage, selectedLoop, setSelectedLoop, sortField, setSortField, sortDir, setSortDir }) {
+  const filtered = loops.filter(l => {
+    if (!searchTerm) return true;
+    const s = searchTerm.toLowerCase();
+    return (l.path_display || '').toLowerCase().includes(s) ||
+      (l.path_bns || []).some(bn => bn.includes(searchTerm));
+  });
 
-      ctx.beginPath();
-      ctx.arc(node.x, node.y, size + 2.5, 0, 2 * Math.PI);
-      ctx.fillStyle = `${color}60`;
-      ctx.fill();
-    }
+  const sorted = [...filtered].sort((a, b) => {
+    const av = parseFloat(a[sortField]) || 0;
+    const bv = parseFloat(b[sortField]) || 0;
+    return sortDir === 'asc' ? av - bv : bv - av;
+  });
 
-    // Main circle
-    ctx.beginPath();
-    ctx.arc(node.x, node.y, size, 0, 2 * Math.PI);
-    ctx.fillStyle = color;
-    ctx.fill();
-    ctx.strokeStyle = isSelected ? '#ffffff' : `${color}99`;
-    ctx.lineWidth   = isSelected ? 2.5 : 1;
-    ctx.stroke();
+  const totalPages = Math.ceil(sorted.length / PAGE_SIZE);
+  const paged = sorted.slice((page - 1) * PAGE_SIZE, page * PAGE_SIZE);
 
-    // Label — always shown for top nodes, selected, or hovered; otherwise only at zoom > 1.5
-    const showLabel = isSelected || isHovered || isTopNode || globalScale > 1.5;
-    if (showLabel) {
-      const label    = (node.name || String(node.id)).substring(0, 30);
-      const fontSize = Math.max(11, 13 / globalScale);
-      ctx.font          = `${fontSize}px Inter, sans-serif`;
-      ctx.textAlign     = 'center';
-      ctx.textBaseline  = 'top';
+  const toggleSort = (field) => {
+    if (sortField === field) setSortDir(d => d === 'asc' ? 'desc' : 'asc');
+    else { setSortField(field); setSortDir('desc'); }
+  };
 
-      const labelWidth  = ctx.measureText(label).width;
-      const labelY      = node.y + size + 2;
-
-      // Semi-transparent background rect for readability
-      ctx.fillStyle = 'rgba(10, 14, 23, 0.75)';
-      ctx.fillRect(
-        node.x - labelWidth / 2 - 3,
-        labelY,
-        labelWidth + 6,
-        fontSize + 4,
-      );
-
-      ctx.fillStyle = '#f1f5f9';
-      ctx.fillText(label, node.x, labelY + 1);
-    }
-
-    // Restore alpha
-    ctx.globalAlpha = globalAlpha;
-  }, [getNodeColor, getNodeSize, selectedNode, hoveredNode, highlightBns]);
-
-  // ── Pointer area (slightly larger hit target) ──────────────────────────────
-  const nodePointerAreaPaint = useCallback((node, color, ctx) => {
-    const size = getNodeSize(node);
-    ctx.beginPath();
-    ctx.arc(node.x, node.y, size + 6, 0, 2 * Math.PI);
-    ctx.fillStyle = color;
-    ctx.fill();
-  }, [getNodeSize]);
-
-  // ── Link color (dim non-highlighted links too) ─────────────────────────────
-  const getLinkColor = useCallback((link) => {
-    if (!highlightBns) return 'rgba(99, 102, 241, 0.3)';
-    const srcHighlighted = highlightBns.has(String(link.source?.id ?? link.source));
-    const tgtHighlighted = highlightBns.has(String(link.target?.id ?? link.target));
-    return (srcHighlighted && tgtHighlighted)
-      ? 'rgba(99, 102, 241, 0.7)'
-      : 'rgba(99, 102, 241, 0.08)';
-  }, [highlightBns]);
-
-  // ── Node click — debounced 200ms so physics jitter doesn't fire multiple times
-  const handleNodeClick = useCallback(
-    debounce((node) => {
-      setSelectedNode(node);
-      setHighlightBns(null);
-      if (fgRef.current) {
-        fgRef.current.centerAt(node.x, node.y, 500);
-        fgRef.current.zoom(2.5, 500);
-      }
-    }, 200),
-    []
+  const SortTh = ({ field, children }) => (
+    <th onClick={() => toggleSort(field)} style={{ cursor: 'pointer', userSelect: 'none', whiteSpace: 'nowrap' }}>
+      {children} {sortField === field ? (sortDir === 'asc' ? '↑' : '↓') : <span style={{ opacity: 0.3 }}>↕</span>}
+    </th>
   );
 
-  // ── Formatted graph for ForceGraph2D ──────────────────────────────────────
-  const formattedGraph = graphData
-    ? {
-        nodes: (graphData.nodes || []).map(n => ({ ...n, id: n.bn || n.id || n.name })),
-        links: (graphData.links || []).map(l => ({
-          ...l,
-          source: String(l.source),
-          target: String(l.target),
-        })),
-      }
-    : { nodes: [], links: [] };
-
-  // ── Table logic ────────────────────────────────────────────────────────────
-  const handleSort = useCallback((field) => {
-    setSortField(prev => {
-      if (prev === field) {
-        setSortDir(d => d === 'desc' ? 'asc' : 'desc');
-        return prev;
-      }
-      setSortDir('desc');
-      return field;
-    });
-  }, []);
-
-  const filteredLoops = loopsData
-    .filter(loop => {
-      if (!searchTerm) return true;
-      const term = searchTerm.toLowerCase();
-      const path = (loop.path_display || '').toLowerCase();
-      const bns  = (loop.path_bns  || []).join(' ').toLowerCase();
-      return path.includes(term) || bns.includes(term);
-    })
-    .sort((a, b) => {
-      const aVal = a[sortField] ?? 0;
-      const bVal = b[sortField] ?? 0;
-      return sortDir === 'desc' ? bVal - aVal : aVal - bVal;
-    });
-
-  // ── Row click: highlight BNs + switch to graph ────────────────────────────
-  const handleLoopRowClick = useCallback((loop) => {
-    const bns = new Set((loop.path_bns || []).map(String));
-    setHighlightBns(bns);
-    setSelectedNode(null);
-    setViewMode('graph');
-  }, []);
-
-  // ── Stat counts from data ──────────────────────────────────────────────────
-  const totalLoopsCount    = loopsData.length || graphData?.total_loops    || null;
-  const totalCharitiesCount = graphData?.total_charities || graphData?.nodes?.length || null;
-
-  // ── Top 5 loops from graphData for sidebar ────────────────────────────────
-  const topLoops = [...(graphData?.loops || [])]
-    .sort((a, b) => (b.total_flow ?? 0) - (a.total_flow ?? 0))
-    .slice(0, 5);
-
-  // ── Empty state check ─────────────────────────────────────────────────────
-  const hasNoData = !loading && !graphData && loopsData.length === 0;
-
   return (
-    <div className="animate-in">
-      {/* ── Header ─────────────────────────────────────────────────────────── */}
-      <div style={{
-        display: 'flex',
-        gap: 16,
-        marginBottom: 24,
-        padding: '20px 24px',
-        background: 'rgba(167, 139, 250, 0.06)',
-        border: '1px solid rgba(167, 139, 250, 0.15)',
-        borderRadius: 'var(--radius-lg)',
-        alignItems: 'flex-start',
-      }}>
-        <div style={{ flex: 1 }}>
-          <div style={{
-            fontSize: 12,
-            color: 'var(--accent-purple)',
-            fontWeight: 600,
-            textTransform: 'uppercase',
-            letterSpacing: '0.05em',
-            marginBottom: 4,
-          }}>
-            Challenge #3 — Funding Loops
-          </div>
-          <div style={{ fontSize: 14, color: 'var(--text-secondary)', lineHeight: 1.6 }}>
-            Circular funding patterns between charities where money flows in cycles.
-            Using SCC decomposition and Johnson&apos;s algorithm to detect 2–6 hop loops in gift flows.{' '}
-            <strong style={{ color: 'var(--accent-purple)' }}>Click nodes</strong> to explore charities,
-            or switch to <strong style={{ color: 'var(--accent-purple)' }}>Table View</strong> to browse all loops.
-          </div>
-        </div>
-
-        <div style={{ display: 'flex', gap: 24, flexShrink: 0 }}>
-          <div style={{ textAlign: 'center' }}>
-            <div style={{ fontSize: 11, color: 'var(--text-muted)', marginBottom: 2 }}>Loops Detected</div>
-            <div style={{ fontSize: 22, fontWeight: 800, color: 'var(--accent-purple)', fontFamily: 'var(--font-mono)' }}>
-              {totalLoopsCount != null ? Number(totalLoopsCount).toLocaleString() : '…'}
-            </div>
-          </div>
-          <div style={{ textAlign: 'center' }}>
-            <div style={{ fontSize: 11, color: 'var(--text-muted)', marginBottom: 2 }}>Charities Involved</div>
-            <div style={{ fontSize: 22, fontWeight: 800, color: 'var(--accent-purple)', fontFamily: 'var(--font-mono)' }}>
-              {totalCharitiesCount != null ? Number(totalCharitiesCount).toLocaleString() : '…'}
-            </div>
-          </div>
-        </div>
+    <div>
+      <div className="data-table-container" style={{ marginBottom: 16 }}>
+        <table className="data-table">
+          <thead>
+            <tr>
+              <th style={{ width: 40 }}>#</th>
+              <th>Path</th>
+              <SortTh field="hops">Hops</SortTh>
+              <SortTh field="total_flow">Total Flow</SortTh>
+              <SortTh field="bottleneck_amt">Bottleneck</SortTh>
+              <th>Same-Year</th>
+              <th>Risk</th>
+            </tr>
+          </thead>
+          <tbody>
+            {paged.map((loop, i) => {
+              const rank = (page - 1) * PAGE_SIZE + i + 1;
+              const isOpen = selectedLoop?.id === loop.id;
+              const risk = loop.risk_level || 'low';
+              return [
+                <tr
+                  key={loop.id}
+                  onClick={() => setSelectedLoop(isOpen ? null : loop)}
+                  style={{ cursor: 'pointer', background: isOpen ? 'var(--bg-tertiary)' : undefined }}
+                >
+                  <td style={{ color: 'var(--text-muted)', fontSize: 12 }}>{rank}</td>
+                  <td style={{ maxWidth: 340, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', fontSize: 13 }}
+                    title={loop.path_display}>
+                    {loop.path_display || '—'}
+                  </td>
+                  <td>
+                    <span className={`badge ${risk}`} style={{ fontSize: 11 }}>{loop.hops}</span>
+                  </td>
+                  <td style={{ fontWeight: 700, fontFamily: 'var(--font-mono)', fontSize: 13 }}>
+                    {formatCurrency(parseFloat(loop.total_flow) || 0)}
+                  </td>
+                  <td style={{ fontFamily: 'var(--font-mono)', fontSize: 13, color: 'var(--text-secondary)' }}>
+                    {formatCurrency(parseFloat(loop.bottleneck_amt) || 0)}
+                  </td>
+                  <td>
+                    {loop.same_year
+                      ? <span className="badge critical" style={{ fontSize: 11 }}>Yes ⚠️</span>
+                      : <span style={{ color: 'var(--text-muted)', fontSize: 12 }}>No</span>}
+                  </td>
+                  <td>
+                    <span className={`badge ${risk}`} style={{ fontSize: 11, textTransform: 'capitalize' }}>{risk}</span>
+                  </td>
+                </tr>,
+                isOpen && (
+                  <tr key={`${loop.id}-detail`}>
+                    <td colSpan={7} style={{ padding: '12px 16px', background: 'var(--bg-tertiary)', borderBottom: '1px solid var(--border-primary)' }}>
+                      <div style={{ fontSize: 12, color: 'var(--text-muted)', marginBottom: 8 }}>Full path (BN chain):</div>
+                      <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6, marginBottom: 12 }}>
+                        {(loop.path_bns || []).map((bn, j) => (
+                          <span key={j} style={{ fontFamily: 'var(--font-mono)', fontSize: 11, padding: '2px 8px', background: 'var(--bg-primary)', border: '1px solid var(--border-primary)', borderRadius: 4 }}>{bn}</span>
+                        ))}
+                      </div>
+                      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 12 }}>
+                        {[
+                          { label: 'Total Flow', value: formatCurrency(parseFloat(loop.total_flow) || 0) },
+                          { label: 'Bottleneck', value: formatCurrency(parseFloat(loop.bottleneck_amt) || 0) },
+                          { label: 'Min Year', value: loop.min_year || '—' },
+                          { label: 'Max Year', value: loop.max_year || '—' },
+                        ].map(kv => (
+                          <div key={kv.label}>
+                            <div style={{ fontSize: 10, color: 'var(--text-muted)', textTransform: 'uppercase' }}>{kv.label}</div>
+                            <div style={{ fontWeight: 700, fontSize: 14 }}>{kv.value}</div>
+                          </div>
+                        ))}
+                      </div>
+                    </td>
+                  </tr>
+                )
+              ];
+            })}
+            {paged.length === 0 && (
+              <tr><td colSpan={7} style={{ textAlign: 'center', color: 'var(--text-muted)', padding: 40 }}>
+                No loops match the current filters
+              </td></tr>
+            )}
+          </tbody>
+        </table>
       </div>
 
-      {/* ── View Toggle ────────────────────────────────────────────────────── */}
-      <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 20 }}>
-        <div style={{
-          display: 'flex',
-          background: 'var(--bg-tertiary)',
-          border: '1px solid var(--border-primary)',
-          borderRadius: 'var(--radius-md)',
-          padding: 3,
-          gap: 2,
-        }}>
-          <button
-            onClick={() => setViewMode('graph')}
-            style={{
-              padding: '7px 18px',
-              borderRadius: 'calc(var(--radius-md) - 2px)',
-              border: 'none',
-              cursor: 'pointer',
-              fontFamily: 'var(--font-sans)',
-              fontSize: 13,
-              fontWeight: 600,
-              transition: 'all 0.18s ease',
-              background: viewMode === 'graph' ? 'var(--accent-indigo)' : 'transparent',
-              color:      viewMode === 'graph' ? '#ffffff' : 'var(--text-muted)',
-            }}
-          >
-            Graph View
-          </button>
-          <button
-            onClick={() => setViewMode('table')}
-            style={{
-              padding: '7px 18px',
-              borderRadius: 'calc(var(--radius-md) - 2px)',
-              border: 'none',
-              cursor: 'pointer',
-              fontFamily: 'var(--font-sans)',
-              fontSize: 13,
-              fontWeight: 600,
-              transition: 'all 0.18s ease',
-              background: viewMode === 'table' ? 'var(--accent-indigo)' : 'transparent',
-              color:      viewMode === 'table' ? '#ffffff' : 'var(--text-muted)',
-            }}
-          >
-            Table View
-          </button>
-        </div>
-
-        {highlightBns && viewMode === 'graph' && (
-          <div style={{
-            display: 'flex',
-            alignItems: 'center',
-            gap: 8,
-            padding: '5px 12px',
-            background: 'rgba(99, 102, 241, 0.12)',
-            border: '1px solid rgba(99, 102, 241, 0.3)',
-            borderRadius: 'var(--radius-md)',
-            fontSize: 12,
-            color: 'var(--accent-indigo-light)',
-          }}>
-            Highlighting {highlightBns.size} nodes from selected loop
-            <button
-              onClick={() => setHighlightBns(null)}
-              style={{
-                background: 'none',
-                border: 'none',
-                cursor: 'pointer',
-                color: 'var(--text-muted)',
-                fontSize: 14,
-                lineHeight: 1,
-                padding: '0 2px',
-              }}
-              title="Clear highlight"
-            >
-              ×
-            </button>
-          </div>
-        )}
-      </div>
-
-      {/* ── Empty state ────────────────────────────────────────────────────── */}
-      {hasNoData && (
-        <div style={{
-          display: 'flex',
-          flexDirection: 'column',
-          alignItems: 'center',
-          justifyContent: 'center',
-          height: 300,
-          gap: 12,
-          color: 'var(--text-muted)',
-          background: 'var(--bg-card)',
-          border: '1px solid var(--border-primary)',
-          borderRadius: 'var(--radius-lg)',
-        }}>
-          <span style={{ fontSize: 40 }}>🔄</span>
-          <div style={{ fontSize: 14 }}>No funding loops data available</div>
+      {totalPages > 1 && (
+        <div className="pagination">
+          <button className="pagination-btn" disabled={page === 1} onClick={() => setPage(p => p - 1)}>← Prev</button>
+          <span style={{ fontSize: 13, color: 'var(--text-muted)' }}>
+            Page {page} of {totalPages} · {sorted.length.toLocaleString()} results
+          </span>
+          <button className="pagination-btn" disabled={page === totalPages} onClick={() => setPage(p => p + 1)}>Next →</button>
         </div>
       )}
+    </div>
+  );
+}
 
-      {/* ── Table View ─────────────────────────────────────────────────────── */}
-      {viewMode === 'table' && !hasNoData && (
-        <div className="data-table-container animate-in">
-          {/* Table toolbar */}
-          <div className="data-table-header" style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12 }}>
-            <div className="data-table-title">Funding Loops</div>
-            <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
-              <span style={{ fontSize: 12, color: 'var(--text-muted)', whiteSpace: 'nowrap' }}>
-                Showing {filteredLoops.length} of {loopsData.length} loops
-              </span>
-              <div className="search-container" style={{ maxWidth: 280 }}>
-                <span className="search-icon">&#x2315;</span>
-                <input
-                  className="search-input"
-                  type="text"
-                  placeholder="Search path or BN…"
-                  value={searchTerm}
-                  onChange={e => setSearchTerm(e.target.value)}
-                />
-              </div>
+function GraphTab({ graphData }) {
+  const [selectedNode, setSelectedNode] = useState(null);
+  const chartRef = useRef(null);
+
+  const nodes = (graphData?.nodes || []).slice(0, 25);
+  const nodeIds = new Set(nodes.map(n => n.bn || n.id));
+  const links = (graphData?.links || []).filter(l => nodeIds.has(l.source) && nodeIds.has(l.target));
+
+  const option = {
+    backgroundColor: 'transparent',
+    tooltip: {
+      trigger: 'item',
+      formatter: (params) => {
+        if (params.dataType === 'node') {
+          const n = params.data._raw;
+          return `<div style="font-family:var(--font-sans);font-size:12px;max-width:200px">
+            <strong>${n.name}</strong><br/>
+            Loops: ${n.loops_count}<br/>
+            Revenue: ${formatCurrency(n.revenue)}<br/>
+            Circular outflow: ${formatCurrency(n.circular_outflow)}<br/>
+            Risk: <span style="text-transform:capitalize;color:${RISK_COLOR[n.risk]}">${n.risk}</span>
+          </div>`;
+        }
+        if (params.dataType === 'edge') {
+          return `Flow: ${formatCurrency(params.data.value || 0)}`;
+        }
+        return '';
+      },
+      backgroundColor: '#111827',
+      borderColor: 'rgba(55,65,81,0.5)',
+      textStyle: { color: '#f1f5f9' },
+    },
+    series: [{
+      type: 'graph',
+      layout: 'force',
+      roam: true,
+      draggable: true,
+      animation: true,
+      force: {
+        repulsion: 400,
+        edgeLength: [100, 200],
+        gravity: 0.1,
+        layoutAnimation: true,
+      },
+      data: nodes.map(n => ({
+        id: n.bn || n.id,
+        name: (n.name || '').length > 22 ? (n.name || '').slice(0, 20) + '…' : (n.name || ''),
+        symbolSize: Math.min(30, Math.max(8, Math.sqrt((n.revenue || 0) / 200_000) * 10 + 6)),
+        itemStyle: {
+          color: RISK_COLOR[n.risk] || RISK_COLOR.low,
+          borderColor: '#fff',
+          borderWidth: 1,
+          shadowBlur: n.risk === 'high' ? 12 : 4,
+          shadowColor: RISK_COLOR[n.risk] || RISK_COLOR.low,
+        },
+        label: {
+          show: true,
+          formatter: '{b}',
+          fontSize: 10,
+          color: '#f1f5f9',
+          distance: 6,
+        },
+        emphasis: { itemStyle: { borderWidth: 3, borderColor: '#fff' } },
+        _raw: n,
+      })),
+      links: links.map(l => ({
+        source: l.source,
+        target: l.target,
+        value: l.flow || 0,
+        lineStyle: {
+          width: Math.min(4, Math.max(1, Math.log10((l.flow || 1) + 1) - 1)),
+          curveness: 0.25,
+          opacity: 0.7,
+          color: 'source',
+        },
+        emphasis: { lineStyle: { width: 4, opacity: 1 } },
+      })),
+      lineStyle: { color: 'source', curveness: 0.2 },
+      emphasis: { focus: 'adjacency' },
+      edgeSymbol: ['none', 'arrow'],
+      edgeSymbolSize: 8,
+    }],
+  };
+
+  const onEvents = {
+    click: (params) => {
+      if (params.dataType === 'node') {
+        setSelectedNode(params.data._raw);
+      }
+    },
+  };
+
+  return (
+    <div style={{ display: 'flex', gap: 16, height: 540 }}>
+      <div style={{ flex: 1, position: 'relative', background: 'var(--bg-card)', border: '1px solid var(--border-primary)', borderRadius: 'var(--radius-lg)', overflow: 'hidden' }}>
+        <div style={{ position: 'absolute', top: 12, left: 12, zIndex: 10, fontSize: 11, color: 'var(--text-muted)' }}>
+          Showing top {nodes.length} charities · Scroll to zoom · Drag to pan
+        </div>
+        <div style={{ position: 'absolute', top: 12, right: 12, zIndex: 10, display: 'flex', flexDirection: 'column', gap: 4 }}>
+          {Object.entries(RISK_COLOR).map(([risk, color]) => (
+            <div key={risk} style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 11, color: 'var(--text-secondary)' }}>
+              <span style={{ width: 10, height: 10, borderRadius: '50%', background: color, display: 'inline-block' }} />
+              {risk.charAt(0).toUpperCase() + risk.slice(1)} risk
             </div>
+          ))}
+        </div>
+        <ReactECharts
+          ref={chartRef}
+          option={option}
+          onEvents={onEvents}
+          style={{ width: '100%', height: '100%' }}
+          notMerge={false}
+          lazyUpdate={true}
+        />
+      </div>
+
+      {selectedNode && (
+        <div style={{ width: 240, background: 'var(--bg-card)', border: '1px solid var(--border-primary)', borderRadius: 'var(--radius-lg)', padding: 20, display: 'flex', flexDirection: 'column', gap: 16 }}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
+            <div style={{ fontSize: 14, fontWeight: 700, lineHeight: 1.3, flex: 1, marginRight: 8 }}>{selectedNode.name}</div>
+            <button onClick={() => setSelectedNode(null)} style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--text-muted)', fontSize: 18, lineHeight: 1, padding: 0 }}>×</button>
           </div>
-
-          {loading ? (
-            <div style={{ padding: 40, textAlign: 'center', color: 'var(--text-muted)', fontSize: 13 }}>
-              Loading loops…
+          <span className={`badge ${selectedNode.risk}`} style={{ alignSelf: 'flex-start', textTransform: 'capitalize' }}>{selectedNode.risk} risk</span>
+          {[
+            { label: 'BN', value: selectedNode.bn, mono: true },
+            { label: 'Loops involved', value: selectedNode.loops_count },
+            { label: 'Revenue', value: formatCurrency(selectedNode.revenue) },
+            { label: 'Circular outflow', value: formatCurrency(selectedNode.circular_outflow) },
+            { label: 'Outflow ratio', value: selectedNode.revenue > 0 ? ((selectedNode.circular_outflow / selectedNode.revenue) * 100).toFixed(1) + '%' : '—' },
+          ].map(kv => (
+            <div key={kv.label}>
+              <div style={{ fontSize: 10, color: 'var(--text-muted)', textTransform: 'uppercase', marginBottom: 2 }}>{kv.label}</div>
+              <div style={{ fontSize: 13, fontWeight: 600, fontFamily: kv.mono ? 'var(--font-mono)' : undefined }}>{kv.value}</div>
             </div>
-          ) : filteredLoops.length === 0 ? (
-            <div style={{ padding: 40, textAlign: 'center', color: 'var(--text-muted)', fontSize: 13 }}>
-              No loops match your search.
-            </div>
-          ) : (
-            <div style={{ overflowX: 'auto' }}>
-              <table className="data-table">
-                <thead>
-                  <tr>
-                    <th style={{ width: 48, textAlign: 'center' }}>#</th>
-                    <th>Path</th>
-                    <SortHeader label="Hops"        field="hops"         sortField={sortField} sortDir={sortDir} onSort={handleSort} />
-                    <SortHeader label="Total Flow"  field="total_flow"   sortField={sortField} sortDir={sortDir} onSort={handleSort} />
-                    <SortHeader label="Bottleneck"  field="bottleneck_amt" sortField={sortField} sortDir={sortDir} onSort={handleSort} />
-                  </tr>
-                </thead>
-                <tbody>
-                  {filteredLoops.map((loop, i) => {
-                    const pathDisplay = loop.path_display || (loop.path_bns || []).join(' → ');
-                    const truncated   = pathDisplay.length > 60
-                      ? pathDisplay.substring(0, 60) + '…'
-                      : pathDisplay;
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
 
-                    return (
-                      <tr
-                        key={loop.id || i}
-                        onClick={() => handleLoopRowClick(loop)}
-                        style={{ cursor: 'pointer' }}
-                        title="Click to highlight this loop in graph view"
-                      >
-                        <td style={{ textAlign: 'center', color: 'var(--text-muted)', fontFamily: 'var(--font-mono)', fontSize: 12 }}>
-                          {i + 1}
-                        </td>
-                        <td>
-                          <span
-                            title={pathDisplay}
-                            style={{ fontFamily: 'var(--font-mono)', fontSize: 11, color: 'var(--text-secondary)', letterSpacing: '0.02em' }}
-                          >
-                            {truncated}
-                          </span>
-                        </td>
-                        <td>
-                          <span className={hopBadgeClass(loop.hops)}>
-                            {hopBadgeLabel(loop.hops)}
-                          </span>
-                        </td>
-                        <td style={{ fontFamily: 'var(--font-mono)', fontWeight: 600, color: 'var(--accent-indigo-light)' }}>
-                          {formatCurrency(loop.total_flow)}
-                        </td>
-                        <td style={{ fontFamily: 'var(--font-mono)', fontWeight: 700, color: 'var(--status-critical)' }}>
-                          {formatCurrency(loop.bottleneck_amt)}
-                        </td>
-                      </tr>
-                    );
-                  })}
-                </tbody>
-              </table>
+function CharitiesTab({ charities, loading }) {
+  const [riskFilter, setRiskFilter] = useState('');
+  const [search, setSearch] = useState('');
+
+  const filtered = charities.filter(c => {
+    if (riskFilter && c.risk !== riskFilter) return false;
+    if (search && !(c.name || '').toLowerCase().includes(search.toLowerCase())) return false;
+    return true;
+  });
+
+  return (
+    <div>
+      <div style={{ display: 'flex', gap: 12, marginBottom: 16, flexWrap: 'wrap', alignItems: 'center' }}>
+        <input
+          className="filter-search" placeholder="Search charity…"
+          value={search} onChange={e => setSearch(e.target.value)}
+          style={{ width: 220 }}
+        />
+        <div style={{ display: 'flex', gap: 6 }}>
+          {['', 'high', 'medium', 'low'].map(r => (
+            <button key={r}
+              className={`filter-chip ${riskFilter === r ? 'active' : ''}`}
+              style={riskFilter === r && r ? { background: RISK_COLOR[r] + '22', borderColor: RISK_COLOR[r], color: RISK_COLOR[r] } : {}}
+              onClick={() => setRiskFilter(r)}
+            >
+              {r === '' ? 'All' : r.charAt(0).toUpperCase() + r.slice(1)}
+            </button>
+          ))}
+        </div>
+        <span style={{ fontSize: 12, color: 'var(--text-muted)', marginLeft: 'auto' }}>
+          {filtered.length} charities
+        </span>
+      </div>
+
+      {loading ? (
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(240px, 1fr))', gap: 12 }}>
+          {[...Array(8)].map((_, i) => <div key={i} className="loading-shimmer" style={{ height: 140, borderRadius: 'var(--radius-md)' }} />)}
+        </div>
+      ) : (
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(240px, 1fr))', gap: 12 }}>
+          {filtered.map(c => (
+            <div key={c.bn} className="loop-charity-card">
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 10 }}>
+                <div style={{ fontSize: 13, fontWeight: 700, lineHeight: 1.3, flex: 1, marginRight: 8 }}
+                  title={c.name}>{(c.name || '').length > 40 ? c.name.slice(0, 38) + '…' : c.name}</div>
+                <span className={`badge ${c.risk}`} style={{ fontSize: 10, flexShrink: 0, textTransform: 'capitalize' }}>{c.risk}</span>
+              </div>
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8, marginBottom: 8 }}>
+                {[
+                  { label: 'Loops', value: c.loops_count, color: 'var(--accent-purple)' },
+                  { label: 'Circ. Outflow', value: formatCurrency(c.circular_outflow) },
+                  { label: 'Revenue', value: formatCurrency(c.revenue) },
+                  { label: 'Outflow %', value: c.revenue > 0 ? ((c.circular_outflow / c.revenue) * 100).toFixed(1) + '%' : '—', color: c.outflow_pct > 0.5 ? 'var(--status-critical)' : undefined },
+                ].map(kv => (
+                  <div key={kv.label}>
+                    <div style={{ fontSize: 10, color: 'var(--text-muted)', textTransform: 'uppercase' }}>{kv.label}</div>
+                    <div style={{ fontSize: 13, fontWeight: 700, color: kv.color }}>{kv.value}</div>
+                  </div>
+                ))}
+              </div>
+              <div style={{ fontSize: 10, color: 'var(--text-muted)', fontFamily: 'var(--font-mono)' }}>{c.bn}</div>
+            </div>
+          ))}
+          {filtered.length === 0 && (
+            <div style={{ gridColumn: '1/-1', textAlign: 'center', color: 'var(--text-muted)', padding: 40 }}>
+              No charities match the current filters
             </div>
           )}
         </div>
       )}
+    </div>
+  );
+}
 
-      {/* ── Graph View ─────────────────────────────────────────────────────── */}
-      {viewMode === 'graph' && !hasNoData && (
-        <div style={{ display: 'flex', gap: 20 }}>
-          {/* Graph canvas */}
-          <div className="graph-container" style={{ flex: 1, height: 620 }}>
-            {/* Legend */}
-            <div className="graph-legend">
-              <div style={{ fontSize: 12, fontWeight: 600, marginBottom: 8, color: 'var(--text-primary)' }}>
-                Risk Level
-              </div>
-              <div className="graph-legend-item">
-                <div className="graph-legend-dot" style={{ background: '#ef4444' }} />
-                <span>High Risk</span>
-              </div>
-              <div className="graph-legend-item">
-                <div className="graph-legend-dot" style={{ background: '#f59e0b' }} />
-                <span>Medium Risk</span>
-              </div>
-              <div className="graph-legend-item">
-                <div className="graph-legend-dot" style={{ background: '#22c55e' }} />
-                <span>Low Risk</span>
-              </div>
-              <div className="graph-legend-item">
-                <div className="graph-legend-dot" style={{ background: '#6366f1' }} />
-                <span>Selected</span>
-              </div>
-              <div style={{
-                marginTop: 10,
-                paddingTop: 10,
-                borderTop: '1px solid var(--border-primary)',
-                fontSize: 11,
-                color: 'var(--text-muted)',
-                lineHeight: 1.6,
-              }}>
-                Node size = Revenue<br />
-                Edges = Gift flows<br />
-                Labels always on for<br />
-                high-loop nodes
-              </div>
-            </div>
+export default function FundingLoops() {
+  // ── Filter state ──────────────────────────────────────────────────────────
+  const [hopsRange, setHopsRange] = useState([2, 6]);
+  const [maxFlow, setMaxFlow] = useState(0);
+  const [sameYearOnly, setSameYearOnly] = useState(false);
+  const [riskFilter, setRiskFilter] = useState('');
+  const [searchTerm, setSearchTerm] = useState('');
 
-            {loading ? (
-              <Spinner />
+  // ── Data state ────────────────────────────────────────────────────────────
+  const [loopsData, setLoopsData] = useState([]);
+  const [graphData, setGraphData] = useState(null);
+  const [charities, setCharities] = useState([]);
+  const [statsData, setStatsData] = useState(null);
+  const [loading, setLoading] = useState(true);
+  const [graphLoading, setGraphLoading] = useState(false);
+  const [charitiesLoading, setCharitiesLoading] = useState(true);
+
+  // ── UI state ──────────────────────────────────────────────────────────────
+  const [activeTab, setActiveTab] = useState('table');
+  const [selectedLoop, setSelectedLoop] = useState(null);
+  const [sortField, setSortField] = useState('total_flow');
+  const [sortDir, setSortDir] = useState('desc');
+  const [page, setPage] = useState(1);
+
+  // ── Initial load: stats + charities + first loops batch ───────────────────
+  useEffect(() => {
+    fetchLoopsStats()
+      .then(setStatsData)
+      .catch(() => {});
+
+    fetchLoopCharities(100)
+      .then(setCharities)
+      .catch(() => {})
+      .finally(() => setCharitiesLoading(false));
+
+    fetchLoops(2, 6, 0, 0, false, '', 200)
+      .then(d => setLoopsData(d.results ?? d.loops ?? []))
+      .catch(() => {})
+      .finally(() => setLoading(false));
+
+    fetchLoopGraph(25)
+      .then(setGraphData)
+      .catch(() => {});
+  }, []);
+
+  // ── Refetch loops when filters change (debounced 400ms, skip initial mount) ─
+  const filtersRef = useRef({ hopsRange, maxFlow, sameYearOnly, riskFilter });
+  filtersRef.current = { hopsRange, maxFlow, sameYearOnly, riskFilter };
+  const isMountedRef = useRef(false);
+
+  useEffect(() => {
+    if (!isMountedRef.current) {
+      isMountedRef.current = true;
+      return;
+    }
+    const timer = setTimeout(() => {
+      const { hopsRange, maxFlow, sameYearOnly, riskFilter } = filtersRef.current;
+      setLoading(true);
+      setPage(1);
+      fetchLoops(hopsRange[0], hopsRange[1], 0, maxFlow, sameYearOnly, riskFilter, 200)
+        .then(d => setLoopsData(d.results ?? d.loops ?? []))
+        .catch(() => {})
+        .finally(() => setLoading(false));
+    }, 400);
+    return () => clearTimeout(timer);
+  }, [hopsRange, maxFlow, sameYearOnly, riskFilter]);
+
+  // ── Refetch graph when switching to graph tab ─────────────────────────────
+  const handleTabChange = useCallback((tab) => {
+    setActiveTab(tab);
+    if (tab === 'graph' && !graphData) {
+      setGraphLoading(true);
+      fetchLoopGraph(25)
+        .then(setGraphData)
+        .catch(() => {})
+        .finally(() => setGraphLoading(false));
+    }
+  }, [graphData]);
+
+  const TABS = [
+    { id: 'table', label: '📋 Loops Table' },
+    { id: 'graph', label: '🕸️ Network Graph' },
+    { id: 'charities', label: '🏛️ Top Charities' },
+  ];
+
+  const flowMax = statsData?.max_flow || 5_000_000;
+
+  return (
+    <div className="animate-in" style={{ display: 'flex', flexDirection: 'column', gap: 20 }}>
+      <StatsBar stats={statsData} loading={!statsData} />
+
+      <div style={{ display: 'flex', gap: 20, alignItems: 'flex-start' }}>
+        <FilterPanel
+          hopsRange={hopsRange} setHopsRange={setHopsRange}
+          maxHops={statsData?.max_hops || 6}
+          flowMax={flowMax}
+          maxFlow={maxFlow} setMaxFlow={setMaxFlow}
+          sameYearOnly={sameYearOnly} setSameYearOnly={setSameYearOnly}
+          riskFilter={riskFilter} setRiskFilter={setRiskFilter}
+          searchTerm={searchTerm} setSearchTerm={setSearchTerm}
+          resultCount={loading ? null : loopsData.length}
+        />
+
+        <div style={{ flex: 1, minWidth: 0 }}>
+          {/* Tab bar */}
+          <div style={{ display: 'flex', gap: 4, marginBottom: 16, borderBottom: '1px solid var(--border-primary)', paddingBottom: 0 }}>
+            {TABS.map(tab => (
+              <button
+                key={tab.id}
+                onClick={() => handleTabChange(tab.id)}
+                style={{
+                  padding: '8px 16px',
+                  fontSize: 13, fontWeight: 600,
+                  background: 'none', border: 'none', cursor: 'pointer',
+                  borderBottom: activeTab === tab.id ? '2px solid var(--accent-purple)' : '2px solid transparent',
+                  color: activeTab === tab.id ? 'var(--accent-purple)' : 'var(--text-muted)',
+                  marginBottom: -1,
+                  transition: 'color var(--transition-fast)',
+                }}
+              >
+                {tab.label}
+              </button>
+            ))}
+          </div>
+
+          {/* Tab content */}
+          {activeTab === 'table' && (
+            loading ? (
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+                {[...Array(8)].map((_, i) => <div key={i} className="loading-shimmer" style={{ height: 44, borderRadius: 6 }} />)}
+              </div>
             ) : (
-              <ForceGraph2D
-                ref={fgRef}
-                graphData={formattedGraph}
-                nodeCanvasObject={nodeCanvasObject}
-                nodePointerAreaPaint={nodePointerAreaPaint}
-                linkColor={getLinkColor}
-                linkWidth={1.5}
-                linkDirectionalArrowLength={6}
-                linkDirectionalArrowRelPos={0.8}
-                linkDirectionalParticles={2}
-                linkDirectionalParticleWidth={2}
-                linkDirectionalParticleSpeed={0.005}
-                onNodeClick={handleNodeClick}
-                onNodeHover={setHoveredNode}
-                onEngineStop={handleEngineStop}
-                backgroundColor="transparent"
-                width={undefined}
-                height={620}
-                warmupTicks={100}
-                cooldownTicks={200}
-                d3AlphaDecay={0.015}
-                d3VelocityDecay={0.25}
+              <LoopsTable
+                loops={loopsData}
+                searchTerm={searchTerm}
+                page={page} setPage={setPage}
+                selectedLoop={selectedLoop} setSelectedLoop={setSelectedLoop}
+                sortField={sortField} setSortField={setSortField}
+                sortDir={sortDir} setSortDir={setSortDir}
               />
-            )}
-          </div>
+            )
+          )}
 
-          {/* ── Detail Panel ───────────────────────────────────────────────── */}
-          <div style={{ width: 320, flexShrink: 0, display: 'flex', flexDirection: 'column', gap: 16 }}>
-            {/* Selected node card */}
-            {selectedNode ? (
-              <div className="dossier-section" style={{ animation: 'fadeInUp 0.3s ease-out' }}>
-                <div className="dossier-section-title">Selected Charity</div>
-
-                <div style={{ marginBottom: 16 }}>
-                  <div style={{ fontSize: 15, fontWeight: 700, marginBottom: 4, lineHeight: 1.4 }}>
-                    {selectedNode.name || 'Unknown Charity'}
-                  </div>
-                  <div style={{ fontSize: 11, color: 'var(--text-muted)', fontFamily: 'var(--font-mono)' }}>
-                    BN: {selectedNode.id}
-                  </div>
-                </div>
-
-                <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
-                  <div>
-                    <div style={{ fontSize: 11, color: 'var(--text-muted)', marginBottom: 2 }}>Revenue</div>
-                    <div style={{ fontSize: 17, fontWeight: 700, color: 'var(--accent-indigo-light)', fontFamily: 'var(--font-mono)' }}>
-                      {formatCurrency(selectedNode.revenue)}
-                    </div>
-                  </div>
-
-                  <div>
-                    <div style={{ fontSize: 11, color: 'var(--text-muted)', marginBottom: 2 }}>Circular Outflow</div>
-                    <div style={{ fontSize: 17, fontWeight: 700, color: 'var(--status-critical)', fontFamily: 'var(--font-mono)' }}>
-                      {formatCurrency(selectedNode.circular_outflow)}
-                    </div>
-                  </div>
-
-                  <div>
-                    <div style={{ fontSize: 11, color: 'var(--text-muted)', marginBottom: 2 }}>Loops Involved</div>
-                    <div style={{ fontSize: 17, fontWeight: 700, color: 'var(--accent-amber)', fontFamily: 'var(--font-mono)' }}>
-                      {(selectedNode.loops_count ?? 0).toLocaleString()}
-                    </div>
-                  </div>
-
-                  <div>
-                    <div style={{ fontSize: 11, color: 'var(--text-muted)', marginBottom: 6 }}>Risk Level</div>
-                    <span className={`badge ${selectedNode.risk || 'low'}`}>
-                      {(selectedNode.risk || 'low').toUpperCase()}
-                    </span>
-                  </div>
-                </div>
-
-                <button
-                  onClick={() => setSelectedNode(null)}
-                  style={{
-                    marginTop: 16,
-                    width: '100%',
-                    padding: '7px 0',
-                    background: 'transparent',
-                    border: '1px solid var(--border-primary)',
-                    borderRadius: 'var(--radius-sm)',
-                    color: 'var(--text-muted)',
-                    cursor: 'pointer',
-                    fontSize: 12,
-                    fontFamily: 'var(--font-sans)',
-                    transition: 'all 0.15s',
-                  }}
-                  onMouseEnter={e => { e.currentTarget.style.borderColor = 'var(--accent-indigo)'; e.currentTarget.style.color = 'var(--accent-indigo-light)'; }}
-                  onMouseLeave={e => { e.currentTarget.style.borderColor = 'var(--border-primary)'; e.currentTarget.style.color = 'var(--text-muted)'; }}
-                >
-                  Deselect
-                </button>
-              </div>
+          {activeTab === 'graph' && (
+            graphLoading ? (
+              <div className="loading-shimmer" style={{ height: 540, borderRadius: 'var(--radius-lg)' }} />
             ) : (
-              <div className="dossier-section" style={{ textAlign: 'center', padding: '36px 24px' }}>
-                <div style={{ fontSize: 34, marginBottom: 12 }}>🔄</div>
-                <div style={{ fontSize: 13, color: 'var(--text-secondary)', lineHeight: 1.6 }}>
-                  Click a node in the graph to explore a charity's loop profile
-                </div>
-              </div>
-            )}
+              <GraphTab graphData={graphData} />
+            )
+          )}
 
-            {/* Top 5 loops by flow */}
-            <div className="dossier-section">
-              <div className="dossier-section-title">Top 5 Loops by Flow</div>
-
-              {loading && (
-                <>
-                  {[...Array(3)].map((_, i) => (
-                    <div key={i} className="loading-shimmer" style={{ height: 64, marginBottom: 8, borderRadius: 'var(--radius-sm)' }} />
-                  ))}
-                </>
-              )}
-
-              {!loading && topLoops.length === 0 && (
-                <div style={{ fontSize: 13, color: 'var(--text-muted)', textAlign: 'center', padding: '16px 0' }}>
-                  No loop data
-                </div>
-              )}
-
-              {!loading && topLoops.map((loop, i) => {
-                const pathBns = loop.path_bns || [];
-                const pathPreview = pathBns.slice(0, -1).map(bn => String(bn).substring(0, 9)).join(' → ');
-
-                return (
-                  <div
-                    key={loop.id || i}
-                    onClick={() => handleLoopRowClick(loop)}
-                    style={{
-                      padding: '10px 12px',
-                      marginBottom: 8,
-                      background: 'var(--bg-tertiary)',
-                      borderRadius: 'var(--radius-sm)',
-                      border: '1px solid var(--border-primary)',
-                      cursor: 'pointer',
-                      transition: 'border-color 0.15s',
-                    }}
-                    onMouseEnter={e => { e.currentTarget.style.borderColor = 'rgba(99,102,241,0.4)'; }}
-                    onMouseLeave={e => { e.currentTarget.style.borderColor = 'var(--border-primary)'; }}
-                    title="Click to highlight in graph"
-                  >
-                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 4 }}>
-                      <span style={{ fontSize: 12, fontWeight: 700, color: 'var(--text-primary)' }}>
-                        {loop.hops}-hop loop
-                      </span>
-                      <span className={hopBadgeClass(loop.hops)} style={{ fontSize: 10 }}>
-                        {formatCurrency(loop.total_flow)}
-                      </span>
-                    </div>
-                    <div style={{ fontSize: 10, color: 'var(--text-muted)', fontFamily: 'var(--font-mono)', marginBottom: 4, lineHeight: 1.5 }}>
-                      {pathPreview || '—'} → ↩
-                    </div>
-                    <div style={{ fontSize: 11, fontWeight: 700, color: 'var(--status-critical)', fontFamily: 'var(--font-mono)' }}>
-                      {formatCurrency(loop.bottleneck_amt)} bottleneck
-                    </div>
-                  </div>
-                );
-              })}
-            </div>
-          </div>
+          {activeTab === 'charities' && (
+            <CharitiesTab charities={charities} loading={charitiesLoading} />
+          )}
         </div>
-      )}
+      </div>
     </div>
   );
 }

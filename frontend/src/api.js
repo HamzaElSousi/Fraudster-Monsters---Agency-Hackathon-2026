@@ -12,9 +12,28 @@ export async function fetchZombies(minFunding = 100000, limit = 50) {
   return res.json();
 }
 
-export async function fetchLoops(minHops = 2, maxHops = 6, limit = 100) {
-  const res = await fetch(`${API_BASE}/api/loops?min_hops=${minHops}&max_hops=${maxHops}&limit=${limit}`);
+export async function fetchLoops(minHops = 2, maxHops = 6, minFlow = 0, maxFlow = 0, sameYearOnly = false, riskLevel = '', limit = 100) {
+  const params = new URLSearchParams({
+    min_hops: minHops, max_hops: maxHops,
+    min_flow: minFlow, max_flow: maxFlow,
+    same_year_only: sameYearOnly,
+    limit,
+  });
+  if (riskLevel) params.set('risk_level', riskLevel);
+  const res = await fetch(`${API_BASE}/api/loops?${params}`);
   if (!res.ok) throw new Error('Failed to fetch loops');
+  return res.json();
+}
+
+export async function fetchLoopsStats() {
+  const res = await fetch(`${API_BASE}/api/loops/stats`);
+  if (!res.ok) throw new Error('Failed to fetch loops stats');
+  return res.json();
+}
+
+export async function fetchLoopCharities(limit = 50) {
+  const res = await fetch(`${API_BASE}/api/loops/charities?limit=${limit}`);
+  if (!res.ok) throw new Error('Failed to fetch loop charities');
   return res.json();
 }
 

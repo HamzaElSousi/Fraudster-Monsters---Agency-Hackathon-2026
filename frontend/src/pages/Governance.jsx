@@ -44,12 +44,16 @@ export default function Governance() {
         </div>
         <div style={{ display: 'flex', gap: 16 }}>
           <div style={{ textAlign: 'center' }}>
-            <div style={{ fontSize: 11, color: 'var(--text-muted)' }}>Multi-Board</div>
-            <div style={{ fontSize: 22, fontWeight: 800, color: 'var(--accent-cyan)' }}>2,841</div>
+            <div style={{ fontSize: 11, color: 'var(--text-muted)' }}>Showing</div>
+            <div style={{ fontSize: 22, fontWeight: 800, color: 'var(--accent-cyan)' }}>
+              {loading ? '…' : directors.length.toLocaleString()}
+            </div>
           </div>
           <div style={{ textAlign: 'center' }}>
-            <div style={{ fontSize: 11, color: 'var(--text-muted)' }}>Directors Data</div>
-            <div style={{ fontSize: 22, fontWeight: 800, color: 'var(--accent-cyan)' }}>2.87M</div>
+            <div style={{ fontSize: 11, color: 'var(--text-muted)' }}>Filtered</div>
+            <div style={{ fontSize: 22, fontWeight: 800, color: 'var(--accent-cyan)' }}>
+              {loading ? '…' : filtered.length.toLocaleString()}
+            </div>
           </div>
         </div>
       </div>

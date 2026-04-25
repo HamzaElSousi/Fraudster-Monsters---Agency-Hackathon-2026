@@ -66,11 +66,10 @@ Key preloaded tables (in `_PRELOAD_TABLES`):
 
 ## Known issues / what to improve next
 
-- Governance: positions still verbose if director has many different titles (data quality issue)
-- Graph: nodes for BNs not in `loop_charity_financials` are stub nodes (just show BN number, no name)
 - Chat: AI responses are slow without Bedrock configured; `ai_enabled: false` in health check means it uses template responses
 - Alerts: only shows zombie+loop+governance flags; sole_source flag not yet cross-referenced
 - Challenges not yet implemented: #2 Receipt Inflation, #8 Grant Stacking, #9 Threshold Gaming
+- Docker not yet tested end-to-end (files created but not run)
 
 ---
 

@@ -48,19 +48,19 @@ export default function SoleSource() {
           <div style={{ textAlign: 'center' }}>
             <div style={{ fontSize: 11, color: 'var(--text-muted)' }}>Total Contracts</div>
             <div style={{ fontSize: 22, fontWeight: 800, color: 'var(--accent-amber)' }}>
-              {(stats.total_sole_source_contracts || 15533).toLocaleString()}
+              {stats.total_sole_source_contracts != null ? stats.total_sole_source_contracts.toLocaleString() : '…'}
             </div>
           </div>
           <div style={{ textAlign: 'center' }}>
-            <div style={{ fontSize: 11, color: 'var(--text-muted)' }}>10x+ Growth</div>
+            <div style={{ fontSize: 11, color: 'var(--text-muted)' }}>Flagged</div>
             <div style={{ fontSize: 22, fontWeight: 800, color: 'var(--status-critical)' }}>
-              {(stats.contracts_over_10x || 203).toLocaleString()}
+              {contracts.length > 0 ? contracts.length.toLocaleString() : '…'}
             </div>
           </div>
           <div style={{ textAlign: 'center' }}>
             <div style={{ fontSize: 11, color: 'var(--text-muted)' }}>At Risk $</div>
             <div style={{ fontSize: 22, fontWeight: 800, color: 'var(--status-critical)' }}>
-              {formatCurrency(stats.total_at_risk || 579_000_000)}
+              {stats.total_at_risk != null ? formatCurrency(stats.total_at_risk) : '…'}
             </div>
           </div>
         </div>
