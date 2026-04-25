@@ -206,14 +206,14 @@ def get_loop_detail(loop_id: int):
 
 @app.get("/api/loops")
 def get_funding_loops(
-    min_hops: int = Query(2),
-    max_hops: int = Query(6),
+    min_hops: int = Query(2, ge=2, le=20),
+    max_hops: int = Query(6, ge=2, le=20),
     min_flow: float = Query(default=0.0, ge=0),
     max_flow: float = Query(default=0.0, ge=0),
     same_year_only: bool = Query(default=False),
-    risk_level: str = Query(default=""),
-    classification: str = Query(default=""),
-    limit: int = Query(100),
+    risk_level: str = Query(default="", max_length=20),
+    classification: str = Query(default="", max_length=50),
+    limit: int = Query(100, ge=1, le=500),
 ):
     if DUCKDB_MODE:
         cache_key = f"loops_enriched:{min_hops}:{max_hops}:{min_flow}:{max_flow}:{same_year_only}:{risk_level}:{classification}:{limit}"

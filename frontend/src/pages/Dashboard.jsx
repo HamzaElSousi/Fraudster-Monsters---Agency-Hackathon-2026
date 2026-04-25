@@ -1,12 +1,14 @@
 import { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { fetchStats, fetchDashboardFeatured, formatCurrency, formatNumber, fmtDollars } from '../api';
+import { fetchStats, fetchDashboardFeatured, fetchLoopsStatsEnriched, fetchAlerts, formatCurrency, formatNumber, fmtDollars } from '../api';
 
 export default function Dashboard() {
   const [stats, setStats] = useState(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
   const [featured, setFeatured] = useState([]);
+  const [loopStats, setLoopStats] = useState(null);
+  const [killShot, setKillShot] = useState(null);
   const navigate = useNavigate();
 
   useEffect(() => {
@@ -20,6 +22,17 @@ export default function Dashboard() {
 
     fetchDashboardFeatured()
       .then(d => setFeatured(Array.isArray(d) ? d : (d.results || [])))
+      .catch(() => {});
+
+    fetchLoopsStatsEnriched()
+      .then(setLoopStats)
+      .catch(() => {});
+
+    fetchAlerts(2, 5)
+      .then(d => {
+        const results = d?.results || [];
+        if (results.length > 0) setKillShot(results[0]);
+      })
       .catch(() => {});
   }, []);
 
@@ -121,6 +134,7 @@ export default function Dashboard() {
             { label: 'Funding Loops', value: stats?.total_funding_loops, color: 'var(--accent-purple)', path: '/loops' },
             { label: 'Multi-Board Directors', value: stats?.multi_board_directors, color: 'var(--accent-cyan)', path: '/governance' },
             { label: 'At-Risk Funding', value: stats?.at_risk_funding ? formatCurrency(stats.at_risk_funding) : null, color: 'var(--status-critical)', raw: true },
+            { label: 'Phantom Tax Receipts', value: loopStats?.phantom_receipts_total ? fmtDollars(loopStats.phantom_receipts_total) : null, color: 'var(--status-critical)', raw: true, path: '/loops' },
           ].map((item, i) => (
             <div key={i} onClick={() => item.path && navigate(item.path)} style={{ cursor: item.path ? 'pointer' : 'default' }}>
               <div style={{ fontSize: 11, color: 'var(--text-muted)', marginBottom: 2 }}>{item.label}</div>
@@ -131,6 +145,50 @@ export default function Dashboard() {
           ))}
         </div>
       </div>
+
+      {/* Kill Shot Card — top multi-flag alert */}
+      {killShot && (
+        <div
+          onClick={() => navigate(`/entity/${encodeURIComponent(killShot.bn)}`)}
+          style={{
+            padding: '20px 24px',
+            background: 'rgba(239,68,68,0.05)',
+            border: '1px solid rgba(239,68,68,0.25)',
+            borderLeft: '4px solid var(--status-critical)',
+            borderRadius: 'var(--radius-lg)',
+            cursor: 'pointer',
+            transition: 'all var(--transition-fast)',
+          }}
+          onMouseEnter={e => e.currentTarget.style.background = 'rgba(239,68,68,0.09)'}
+          onMouseLeave={e => e.currentTarget.style.background = 'rgba(239,68,68,0.05)'}
+        >
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: 16, flexWrap: 'wrap' }}>
+            <div style={{ flex: 1, minWidth: 0 }}>
+              <div style={{ fontSize: 10, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.1em', color: 'var(--status-critical)', marginBottom: 6 }}>
+                🚨 Highest-Priority Case
+              </div>
+              <div style={{ fontSize: 18, fontWeight: 800, marginBottom: 8 }}>{killShot.canonical_name}</div>
+              <div style={{ fontSize: 13, color: 'var(--text-secondary)', lineHeight: 1.6 }}>
+                Received <strong style={{ color: 'var(--text-primary)' }}>{formatCurrency(killShot.total_govt_funding || 0)}</strong> in public funds
+                {killShot.govt_share_pct ? ` (${Number(killShot.govt_share_pct).toFixed(0)}% of revenue from government)` : ''}.
+                Flagged across <strong style={{ color: 'var(--status-critical)' }}>{killShot.alarm_count} challenge categories</strong>
+                {(killShot.flags || []).includes('zombie') && killShot.last_filing_year ? ` and stopped filing after ${killShot.last_filing_year}` : ''}.
+                {' '}All data from public CRA T3010 filings.
+              </div>
+            </div>
+            <div style={{ flexShrink: 0, textAlign: 'right' }}>
+              <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', justifyContent: 'flex-end', marginBottom: 10 }}>
+                {(killShot.flags || []).map(f => (
+                  <span key={f} style={{ fontSize: 11, padding: '3px 8px', borderRadius: 4, background: 'rgba(239,68,68,0.12)', color: 'var(--status-critical)', border: '1px solid rgba(239,68,68,0.3)', fontWeight: 600 }}>
+                    {f === 'zombie' ? '🧟 Zombie' : f === 'loop' ? '🔄 Loop' : f === 'governance' ? '🕸️ Governance' : f}
+                  </span>
+                ))}
+              </div>
+              <span style={{ fontSize: 13, color: 'var(--status-critical)', fontWeight: 700 }}>Investigate → </span>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Stat Cards */}
       <div className="stats-grid">

@@ -26,8 +26,11 @@ function RangeSlider({ label, min, max, value, onChange, format }) {
   );
 }
 
-function DualRangeSlider({ label, min, max, value, onChange, format }) {
+function DualRangeSlider({ label, min, max, value, onChange }) {
   const [lo, hi] = value;
+  const range = max - min || 1;
+  const lowPct = ((lo - min) / range) * 100;
+  const highPct = ((hi - min) / range) * 100;
   return (
     <div className="filter-slider-group">
       <div className="filter-slider-header">
@@ -35,6 +38,8 @@ function DualRangeSlider({ label, min, max, value, onChange, format }) {
         <span className="filter-value">{lo} – {hi}</span>
       </div>
       <div style={{ position: 'relative', height: 32, display: 'flex', alignItems: 'center' }}>
+        <div style={{ position: 'absolute', width: '100%', height: 4, background: 'var(--border-primary)', borderRadius: 2, pointerEvents: 'none' }} />
+        <div style={{ position: 'absolute', left: `${lowPct}%`, width: `${Math.max(0, highPct - lowPct)}%`, height: 4, background: 'var(--accent-purple)', borderRadius: 2, pointerEvents: 'none' }} />
         <input type="range" min={min} max={max} value={lo}
           onChange={e => { const v = Math.min(Number(e.target.value), hi); onChange([v, hi]); }}
           className="filter-range dual-range"
@@ -47,11 +52,23 @@ function DualRangeSlider({ label, min, max, value, onChange, format }) {
         />
       </div>
       <div className="filter-range-bounds">
-        <span>{format ? format(min) : min}</span>
-        <span>{format ? format(max) : max}</span>
+        <span>{min}</span>
+        <span>{max}</span>
       </div>
     </div>
   );
+}
+
+function buildSuspicionTooltip(loop) {
+  const score = loop.suspicion_score ?? null;
+  if (score === null) return undefined;
+  const parts = [];
+  if (loop.same_year) parts.push('Same-year loop (+3)');
+  if ((loop.avg_circular_pct || 0) > 0.30) parts.push(`High circular outflow ${((loop.avg_circular_pct || 0) * 100).toFixed(0)}% (+2)`);
+  if ((loop.avg_program_pct || 0) > 0 && (loop.avg_program_pct || 0) < 0.40) parts.push(`Low program delivery ${((loop.avg_program_pct || 0) * 100).toFixed(0)}% (+2)`);
+  if ((loop.hops || 0) <= 3 && !loop.has_hub) parts.push('Short loop (+1)');
+  if (loop.has_hub) parts.push('Known hub org (−3)');
+  return `Suspicion score ${score}/8${parts.length ? ' · ' + parts.join(' · ') : ''}`;
 }
 
 function FilterPanel({ hopsRange, setHopsRange, maxHops, flowMax, maxFlow, setMaxFlow,
@@ -225,12 +242,16 @@ function LoopsTable({ loops, searchTerm, page, setPage, selectedLoop, setSelecte
                       : <span style={{ color: 'var(--text-muted)', fontSize: 12 }}>No</span>}
                   </td>
                   <td>
-                    <span style={{
-                      background: `${badge.color}22`,
-                      color: badge.color,
-                      border: `1px solid ${badge.color}`,
-                      borderRadius: 4, padding: '2px 8px', fontSize: 11, fontWeight: 600,
-                    }}>
+                    <span
+                      title={buildSuspicionTooltip(loop)}
+                      style={{
+                        background: `${badge.color}22`,
+                        color: badge.color,
+                        border: `1px solid ${badge.color}`,
+                        borderRadius: 4, padding: '2px 8px', fontSize: 11, fontWeight: 600,
+                        cursor: loop.suspicion_score != null ? 'help' : 'default',
+                      }}
+                    >
                       {badge.label}
                     </span>
                   </td>
@@ -268,27 +289,56 @@ function LoopsTable({ loops, searchTerm, page, setPage, selectedLoop, setSelecte
                 ),
                 isExpanded && (
                   <tr key={`${loop.id}-expanded`}>
-                    <td colSpan={9} style={{ padding: '12px 16px', background: 'var(--bg-tertiary)', borderBottom: '1px solid var(--border-primary)' }}>
+                    <td colSpan={9} style={{ padding: '14px 18px', background: 'var(--bg-tertiary)', borderBottom: '1px solid var(--border-primary)' }}>
                       {detailLoading ? (
                         <div style={{ textAlign: 'center', padding: 20, color: 'var(--text-muted)' }}>Loading participant details...</div>
                       ) : expandedDetail?.participants?.length > 0 ? (
-                        <>
-                          <div style={{ fontSize: 12, color: 'var(--text-muted)', marginBottom: 12 }}>Participants</div>
-                          <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+                        <div>
+                          {/* Follow The Money header */}
+                          <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 14, flexWrap: 'wrap' }}>
+                            <span style={{ fontSize: 11, fontWeight: 700, textTransform: 'uppercase', letterSpacing: 1, color: 'var(--accent-purple)' }}>Follow The Money</span>
+                            {loop.same_year && (
+                              <span style={{ fontSize: 12, padding: '4px 12px', borderRadius: 6, background: 'rgba(239,68,68,0.1)', border: '1px solid rgba(239,68,68,0.3)', color: 'var(--status-critical)', fontWeight: 600 }}>
+                                ⚠️ Same-year loop — CRA could see <strong>{fmtDollars(parseFloat(loop.phantom_receipts) || 0)}</strong> in receipts for <strong>{fmtDollars(parseFloat(loop.total_flow) || 0)}</strong> actual flow
+                              </span>
+                            )}
+                          </div>
+                          {/* Hop-by-hop chain */}
+                          <div style={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
                             {expandedDetail.participants.map((p, idx) => (
-                              <div key={idx} style={{ display: 'flex', alignItems: 'center', gap: 12, padding: '8px 12px', background: 'var(--bg-card)', borderRadius: 6 }}>
-                                <span style={{ fontWeight: 700, color: 'var(--accent-purple)' }}>#{idx + 1}</span>
-                                <span style={{ flex: 1, fontWeight: 600 }}>{p.name || p.bn} <span style={{ color: 'var(--text-muted)', fontFamily: 'var(--font-mono)', fontSize: 11 }}>(BN: {p.bn})</span></span>
-                                <span style={{ color: (p.circular_outflow_pct || 0) > 0.30 ? 'var(--status-critical)' : (p.circular_outflow_pct || 0) > 0.15 ? 'var(--status-medium)' : 'var(--text-secondary)' }}>
-                                  circ. outflow: {((p.circular_outflow_pct || 0) * 100).toFixed(0)}%
-                                </span>
-                                <span style={{ color: (p.program_pct || 0) < 0.30 ? 'var(--status-critical)' : (p.program_pct || 0) < 0.50 ? 'var(--status-medium)' : 'var(--text-secondary)' }}>
-                                  prog: {((p.program_pct || 0) * 100).toFixed(0)}%
-                                </span>
+                              <div key={p.bn || idx}>
+                                <div style={{ display: 'flex', alignItems: 'center', gap: 12, padding: '10px 14px', background: 'var(--bg-card)', borderRadius: 8, border: '1px solid var(--border-primary)' }}>
+                                  <div style={{ width: 26, height: 26, borderRadius: '50%', background: 'var(--accent-purple)', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#fff', fontSize: 11, fontWeight: 700, flexShrink: 0 }}>{idx + 1}</div>
+                                  <div style={{ flex: 1, minWidth: 0 }}>
+                                    <div style={{ fontWeight: 600, fontSize: 13, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{p.name || p.bn}</div>
+                                    <div style={{ fontSize: 11, color: 'var(--text-muted)', fontFamily: 'var(--font-mono)' }}>{p.bn}</div>
+                                  </div>
+                                  <div style={{ display: 'flex', gap: 20, flexShrink: 0 }}>
+                                    <div style={{ textAlign: 'center', width: 90 }}>
+                                      <div style={{ fontSize: 10, color: 'var(--text-muted)', marginBottom: 3 }}>Circular Outflow</div>
+                                      <div style={{ width: '100%', height: 5, background: 'var(--border-primary)', borderRadius: 3, overflow: 'hidden' }}>
+                                        <div style={{ width: `${Math.min(100, (p.circular_outflow_pct || 0) * 100)}%`, height: '100%', background: (p.circular_outflow_pct || 0) > 0.3 ? 'var(--status-critical)' : 'var(--accent-purple)', borderRadius: 3 }} />
+                                      </div>
+                                      <div style={{ fontSize: 11, color: (p.circular_outflow_pct || 0) > 0.3 ? 'var(--status-critical)' : 'var(--text-secondary)', marginTop: 2, fontWeight: 600 }}>{((p.circular_outflow_pct || 0) * 100).toFixed(0)}%</div>
+                                    </div>
+                                    <div style={{ textAlign: 'center', width: 90 }}>
+                                      <div style={{ fontSize: 10, color: 'var(--text-muted)', marginBottom: 3 }}>To Programs</div>
+                                      <div style={{ width: '100%', height: 5, background: 'var(--border-primary)', borderRadius: 3, overflow: 'hidden' }}>
+                                        <div style={{ width: `${Math.min(100, (p.program_pct || 0) * 100)}%`, height: '100%', background: (p.program_pct || 0) < 0.3 ? 'var(--status-critical)' : 'var(--accent-cyan)', borderRadius: 3 }} />
+                                      </div>
+                                      <div style={{ fontSize: 11, color: (p.program_pct || 0) < 0.3 ? 'var(--status-critical)' : 'var(--text-secondary)', marginTop: 2, fontWeight: 600 }}>{((p.program_pct || 0) * 100).toFixed(0)}%</div>
+                                    </div>
+                                  </div>
+                                </div>
+                                {idx < expandedDetail.participants.length - 1 ? (
+                                  <div style={{ padding: '3px 26px', fontSize: 13, color: 'var(--accent-purple)', opacity: 0.8 }}>↓ transfers to</div>
+                                ) : (
+                                  <div style={{ padding: '3px 26px', fontSize: 12, color: 'var(--status-critical)', fontWeight: 700 }}>↩ returns to Hop 1 — loop closes</div>
+                                )}
                               </div>
                             ))}
                           </div>
-                        </>
+                        </div>
                       ) : (
                         <div style={{ textAlign: 'center', padding: 20, color: 'var(--text-muted)' }}>No participant details available</div>
                       )}

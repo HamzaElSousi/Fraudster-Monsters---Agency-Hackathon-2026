@@ -942,8 +942,10 @@ body {
   cursor: pointer;
   border: 2px solid var(--bg-card);
 }
-/* Dual range: transparent tracks so they overlay cleanly */
-.dual-range { background: transparent; pointer-events: none; }
+/* Dual range: transparent tracks so custom fill div shows through */
+.dual-range { background: transparent !important; pointer-events: none; }
+.dual-range::-webkit-slider-runnable-track { background: transparent !important; }
+.dual-range::-moz-range-track { background: transparent !important; height: 4px; }
 .dual-range::-webkit-slider-thumb { pointer-events: all; }
 .dual-range::-moz-range-thumb { pointer-events: all; }
 

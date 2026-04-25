@@ -4,6 +4,7 @@ No PostgreSQL required. Set DATA_DIR env var to the extracted data directory.
 """
 
 import os
+import re
 import json
 import time
 import threading
@@ -270,7 +271,8 @@ def get_loops_live(
 
     same_year_filter = "AND lf.same_year = true" if same_year_only else ""
 
-    risk_filter = f"WHERE risk_level = '{risk_level}'" if risk_level else ""
+    _VALID_RISK = {'high', 'medium', 'low'}
+    risk_filter = f"WHERE risk_level = '{risk_level}'" if risk_level in _VALID_RISK else ""
 
     sql = f"""
         WITH loops_with_risk AS (
@@ -411,7 +413,8 @@ def get_loop_graph_live(limit: int = 50) -> dict:
     links = []
 
     if bns:
-        bn_list = "','".join(list(bns)[:300])
+        safe_bns = [b for b in bns if b and re.match(r'^[A-Za-z0-9]{9,15}$', str(b))]
+        bn_list = "','".join(list(safe_bns)[:300])
         node_sql = f"""
             SELECT
                 bn,
