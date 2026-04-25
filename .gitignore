@@ -19,6 +19,9 @@ dist/
 # Hackathon data repo (has its own git)
 hackathon-data/
 
+# Large data files (14GB — never commit)
+data/
+
 # OS
 .DS_Store
 Thumbs.db
