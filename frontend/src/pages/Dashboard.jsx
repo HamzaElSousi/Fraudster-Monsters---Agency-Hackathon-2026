@@ -19,7 +19,7 @@ export default function Dashboard() {
       .finally(() => setLoading(false));
 
     fetchDashboardFeatured()
-      .then(d => setFeatured(d.results || []))
+      .then(d => setFeatured(Array.isArray(d) ? d : (d.results || [])))
       .catch(() => {});
   }, []);
 
@@ -177,19 +177,19 @@ export default function Dashboard() {
                 <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: 8, marginBottom: 8 }}>
                   <div style={{ fontSize: 14, fontWeight: 700, lineHeight: 1.3, flex: 1 }}>{org.name}</div>
                   <span style={{ fontSize: 11, padding: '2px 7px', borderRadius: 4, background: 'rgba(239,68,68,0.12)', color: 'var(--status-critical)', border: '1px solid rgba(239,68,68,0.3)', whiteSpace: 'nowrap', flexShrink: 0, fontWeight: 600 }}>
-                    {org.red_flag_count || org.loop_count || 0} flags
+                    {org.loops_count || org.loop_count || 0} loops
                   </span>
                 </div>
                 <div style={{ display: 'flex', gap: 10, marginBottom: 10, flexWrap: 'wrap' }}>
                   {(org.flags || []).slice(0, 2).map(f => (
                     <span key={f} style={{ fontSize: 11, color: 'var(--status-critical)', background: 'rgba(239,68,68,0.08)', padding: '2px 6px', borderRadius: 4 }}>
-                      {f === 'same_year_loop' ? '🔴 Same-year loop' : f === 'loop_participant' ? `🔴 ${org.loop_count} loops` : f === 'high_circular_dependency' ? '🔴 High circular' : '🟡 Low programs'}
+                      🔴 {f}
                     </span>
                   ))}
                 </div>
                 <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
                   <div style={{ fontSize: 12, color: 'var(--text-muted)', fontFamily: 'var(--font-mono)' }}>
-                    {org.circular_outflow > 0 ? `${fmtDollars(org.circular_outflow)} circular` : `${org.loop_count || 0} loops`}
+                    {org.circular_outflow > 0 ? `${fmtDollars(org.circular_outflow)} circular` : `${org.loops_count || 0} loops`}
                   </div>
                   <span style={{ fontSize: 12, color: 'var(--accent-purple)', fontWeight: 600 }}>Investigate →</span>
                 </div>

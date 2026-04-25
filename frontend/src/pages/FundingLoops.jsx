@@ -573,7 +573,7 @@ export default function FundingLoops() {
       .catch(() => {})
       .finally(() => setCharitiesLoading(false));
 
-    fetchLoops(2, 6, 0, 0, false, '', '', 200)
+    fetchLoopsEnriched(2, 6, 0, 0, false, '', '', 200)
       .then(d => setLoopsData(d.results ?? d.loops ?? []))
       .catch(() => {})
       .finally(() => setLoading(false));
@@ -597,7 +597,7 @@ export default function FundingLoops() {
       const { hopsRange, maxFlow, sameYearOnly, riskFilter, classification } = filtersRef.current;
       setLoading(true);
       setPage(1);
-      fetchLoops(hopsRange[0], hopsRange[1], 0, maxFlow, sameYearOnly, riskFilter, classification, 200)
+      fetchLoopsEnriched(hopsRange[0], hopsRange[1], 0, maxFlow, sameYearOnly, riskFilter, classification, 200)
         .then(d => setLoopsData(d.results ?? d.loops ?? []))
         .catch(() => {})
         .finally(() => setLoading(false));

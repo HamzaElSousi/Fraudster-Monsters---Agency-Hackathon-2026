@@ -163,7 +163,7 @@ export default function EntityCaseFile() {
       {(entity.loops || []).length > 0 && (
         <div className="card" style={{ padding: 20 }}>
           <h3 style={{ margin: '0 0 16px', fontSize: 12, textTransform: 'uppercase', letterSpacing: 1, color: 'var(--text-muted)', fontWeight: 700 }}>
-            Loop Participation ({entity.loop_count})
+            Loop Participation ({entity.loop_count}){entity.loop_count > 20 ? ' — top 20 by flow' : ''}
           </h3>
           <table className="data-table">
             <thead>
@@ -175,8 +175,8 @@ export default function EntityCaseFile() {
               </tr>
             </thead>
             <tbody>
-              {(entity.loops || []).map(loop => (
-                <tr key={loop.loop_id}>
+              {(entity.loops || []).slice(0, 20).map((loop, i) => (
+                <tr key={loop.loop_id || i}>
                   <td><span className="badge medium">{loop.hops}-hop</span></td>
                   <td style={{ fontWeight: 700, fontFamily: 'var(--font-mono)' }}>{fmtDollars(loop.total_flow)}</td>
                   <td>{loop.same_year ? <span className="badge critical" style={{ fontSize: 11 }}>⚠️ Yes</span> : <span style={{ color: 'var(--text-muted)' }}>—</span>}</td>
