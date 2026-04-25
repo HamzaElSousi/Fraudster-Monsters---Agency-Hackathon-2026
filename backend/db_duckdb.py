@@ -12,18 +12,32 @@ import duckdb
 _conn = None
 _loaded_tables: set[str] = set()
 _conn_lock = threading.Lock()
-_table_lock = threading.Lock()
+# Per-table locks: prevents loading the same table twice, but different tables load concurrently
+_table_locks: dict[str, threading.Lock] = {}
+_table_locks_meta = threading.Lock()  # protects the _table_locks dict itself
 
-# Key tables to preload at startup (schema, table) in priority order
-_PRELOAD_TABLES = [
+
+def _get_table_lock(tname: str) -> threading.Lock:
+    with _table_locks_meta:
+        if tname not in _table_locks:
+            _table_locks[tname] = threading.Lock()
+        return _table_locks[tname]
+
+# Fast tables (<2MB each) — loaded synchronously before server accepts requests
+_PRELOAD_SYNC = [
     ("cra", "loops"),
     ("cra", "loop_charity_financials"),
+    ("cra", "loop_financials"),
     ("ab", "ab_sole_source"),
-    ("cra", "govt_funding_by_charity"),
-    ("cra", "cra_identification"),
-    ("cra", "cra_directors"),
-    ("fed", "grants_contributions"),
 ]
+# Large tables — loaded in background after server is already serving
+_PRELOAD_BACKGROUND = [
+    ("cra", "govt_funding_by_charity"),   # 47 MB
+    ("cra", "cra_identification"),        # 171 MB
+    ("cra", "cra_directors"),             # 704 MB
+    ("fed", "grants_contributions"),      # 3.2 GB
+]
+_PRELOAD_TABLES = _PRELOAD_SYNC + _PRELOAD_BACKGROUND
 
 # Result cache: key → (timestamp, result)
 _cache: dict[str, tuple[float, object]] = {}
@@ -73,7 +87,8 @@ def _ensure_table(schema: str, table: str) -> str:
     tname = _tname(schema, table)
     if tname in _loaded_tables:
         return tname
-    with _table_lock:
+    lock = _get_table_lock(tname)
+    with lock:
         # Re-check inside lock to avoid double-load
         if tname in _loaded_tables:
             return tname
@@ -117,18 +132,28 @@ def query(sql: str) -> list[dict]:
         return []
 
 
+def _load_tables(tables: list) -> None:
+    for schema, table in tables:
+        if not _available(schema, table):
+            continue
+        try:
+            _ensure_table(schema, table)
+        except Exception as e:
+            print(f"[DuckDB] Preload failed for {schema}/{table}: {e}", flush=True)
+
+
+def preload_tables_sync():
+    """Sync-load fast tables, then kick off background load of large tables."""
+    print("[DuckDB] Sync-loading fast tables…", flush=True)
+    _load_tables(_PRELOAD_SYNC)
+    print("[DuckDB] Fast tables ready — server starting. Large tables loading in background…", flush=True)
+    t = threading.Thread(target=_load_tables, args=(_PRELOAD_BACKGROUND,), daemon=True, name="duckdb-bg-preload")
+    t.start()
+
+
 def preload_tables_background():
-    """Load all key JSONL files into DuckDB tables in a background thread."""
-    def _load():
-        for schema, table in _PRELOAD_TABLES:
-            if not _available(schema, table):
-                continue
-            try:
-                _ensure_table(schema, table)
-            except Exception as e:
-                print(f"[DuckDB] Preload failed for {schema}/{table}: {e}")
-        print("[DuckDB] All tables preloaded — queries will be fast", flush=True)
-    t = threading.Thread(target=_load, daemon=True, name="duckdb-preload")
+    """Load all tables in background (non-blocking startup)."""
+    t = threading.Thread(target=_load_tables, args=(_PRELOAD_TABLES,), daemon=True, name="duckdb-preload")
     t.start()
 
 
@@ -240,19 +265,47 @@ def get_zombies_live(min_funding: float = 100000, limit: int = 50) -> list[dict]
 
 
 # ── Funding Loops (Challenge #3) ──────────────────────────────────────────────
-def get_loops_live(min_hops: int = 2, max_hops: int = 6, limit: int = 100) -> list[dict]:
-    loops = _read("cra", "loops")
-    lf = _read("cra", "loop_financials")
+def get_loops_live(
+    min_hops: int = 2,
+    max_hops: int = 6,
+    min_flow: float = 0.0,
+    max_flow: float = 0.0,      # 0 = no upper limit
+    same_year_only: bool = False,
+    risk_level: str = "",       # "high", "medium", "low", or ""
+    limit: int = 100,
+) -> list[dict]:
+    loops_tbl = _read("cra", "loops")
+    fin_tbl = _read("cra", "loop_financials")
+
+    # Build optional WHERE clause fragments
+    flow_filters = f"AND COALESCE(TRY_CAST(l.total_flow AS DOUBLE), 0) >= {min_flow}"
+    if max_flow > 0:
+        flow_filters += f"\n    AND COALESCE(TRY_CAST(l.total_flow AS DOUBLE), 0) <= {max_flow}"
+
+    same_year_filter = "AND lf.same_year = true" if same_year_only else ""
+
+    risk_filter = f"WHERE risk_level = '{risk_level}'" if risk_level else ""
 
     sql = f"""
-        SELECT
-            l.id, l.hops, l.path_bns, l.path_display,
-            l.bottleneck_amt, l.total_flow, l.min_year, l.max_year,
-            lf.same_year, lf.bottleneck_window, lf.total_flow_window
-        FROM {loops} l
-        LEFT JOIN {lf} lf ON lf.loop_id = l.id
-        WHERE l.hops BETWEEN {min_hops} AND {max_hops}
-        ORDER BY COALESCE(TRY_CAST(l.total_flow AS DOUBLE), 0) DESC
+        WITH loops_with_risk AS (
+            SELECT
+                l.id, l.hops, l.path_bns, l.path_display,
+                l.bottleneck_amt, l.total_flow, l.min_year, l.max_year,
+                lf.same_year, lf.bottleneck_window, lf.total_flow_window,
+                CASE
+                    WHEN TRY_CAST(l.bottleneck_amt AS DOUBLE) > 500000 THEN 'high'
+                    WHEN TRY_CAST(l.bottleneck_amt AS DOUBLE) > 50000  THEN 'medium'
+                    ELSE 'low'
+                END as risk_level
+            FROM {loops_tbl} l
+            LEFT JOIN {fin_tbl} lf ON lf.loop_id = l.id
+            WHERE l.hops BETWEEN {min_hops} AND {max_hops}
+            {flow_filters}
+            {same_year_filter}
+        )
+        SELECT * FROM loops_with_risk
+        {risk_filter}
+        ORDER BY COALESCE(TRY_CAST(total_flow AS DOUBLE), 0) DESC
         LIMIT {limit}
     """
     rows = query(sql)
@@ -263,7 +316,92 @@ def get_loops_live(min_hops: int = 2, max_hops: int = 6, limit: int = 100) -> li
             r["path_display"] = _resolve_path(path_bns)
         r["bottleneck_amt"] = float(r.get("bottleneck_amt") or 0)
         r["total_flow"] = float(r.get("total_flow") or 0)
+        # risk_level already present from CTE; ensure it's a string
+        r["risk_level"] = r.get("risk_level") or "low"
     return rows
+
+
+def get_loops_stats_live() -> dict:
+    try:
+        loops_tbl = _read("cra", "loops")
+        fin_tbl = _read("cra", "loop_financials")
+
+        base = query(f"""
+            SELECT
+                COUNT(*) as total_loops,
+                MAX(COALESCE(TRY_CAST(total_flow AS DOUBLE), 0)) as max_flow,
+                SUM(COALESCE(TRY_CAST(total_flow AS DOUBLE), 0)) as sum_flow,
+                MAX(hops) as max_hops,
+                COUNT(CASE WHEN TRY_CAST(bottleneck_amt AS DOUBLE) > 500000 THEN 1 END) as high_risk_count
+            FROM {loops_tbl}
+        """)
+
+        same_year_count = 0
+        try:
+            if _available("cra", "loop_financials"):
+                sy = query(f"SELECT COUNT(*) as n FROM {fin_tbl} WHERE same_year = true")
+                same_year_count = sy[0]["n"] if sy else 0
+        except Exception:
+            pass
+
+        r = base[0] if base else {}
+        return {
+            "total_loops": int(r.get("total_loops") or 0),
+            "max_flow": float(r.get("max_flow") or 0),
+            "total_flow": float(r.get("sum_flow") or 0),
+            "max_hops": int(r.get("max_hops") or 6),
+            "high_risk_count": int(r.get("high_risk_count") or 0),
+            "same_year_count": same_year_count,
+        }
+    except Exception as e:
+        print(f"[DuckDB] loops stats error: {e}")
+        return {"total_loops": 0, "max_flow": 0, "total_flow": 0, "max_hops": 6, "high_risk_count": 0, "same_year_count": 0}
+
+
+def get_top_loop_charities_live(limit: int = 50) -> list[dict]:
+    try:
+        lcf_tbl = _read("cra", "loop_charity_financials")
+        rows = query(f"""
+            SELECT
+                bn,
+                legal_name as name,
+                loops_count,
+                TRY_CAST(circular_outflow AS DOUBLE) as circular_outflow,
+                TRY_CAST(circular_inflow AS DOUBLE) as circular_inflow,
+                TRY_CAST(revenue AS DOUBLE) as revenue,
+                CASE
+                    WHEN TRY_CAST(revenue AS DOUBLE) > 0
+                    THEN TRY_CAST(circular_outflow AS DOUBLE) / TRY_CAST(revenue AS DOUBLE)
+                    ELSE NULL
+                END as outflow_pct,
+                CASE
+                    WHEN TRY_CAST(revenue AS DOUBLE) > 0
+                         AND TRY_CAST(circular_outflow AS DOUBLE) / TRY_CAST(revenue AS DOUBLE) > 0.3
+                    THEN 'high'
+                    WHEN TRY_CAST(circular_outflow AS DOUBLE) > 50000 THEN 'medium'
+                    ELSE 'low'
+                END as risk
+            FROM {lcf_tbl}
+            WHERE loops_count IS NOT NULL
+            ORDER BY loops_count DESC, TRY_CAST(circular_outflow AS DOUBLE) DESC
+            LIMIT {limit}
+        """)
+        result = []
+        for r in rows:
+            result.append({
+                "bn": r.get("bn"),
+                "name": r.get("name") or r.get("bn", "Unknown"),
+                "loops_count": int(r.get("loops_count") or 0),
+                "circular_outflow": float(r.get("circular_outflow") or 0),
+                "circular_inflow": float(r.get("circular_inflow") or 0),
+                "revenue": float(r.get("revenue") or 0),
+                "outflow_pct": float(r.get("outflow_pct") or 0),
+                "risk": r.get("risk") or "low",
+            })
+        return result
+    except Exception as e:
+        print(f"[DuckDB] top charities error: {e}")
+        return []
 
 
 def get_loop_graph_live(limit: int = 50) -> dict:
@@ -566,7 +704,7 @@ def get_alerts_live(min_flags: int = 2, limit: int = 20) -> list[dict]:
     loops = _read("cra", "loops")
     dirs = _read("cra", "cra_directors")
 
-    # Step 1: Get zombie BNs (high govt-dependency, stopped filing)
+    # Step 1: Get zombie BNs (ALL organizations that stopped filing)
     zombie_sql = f"""
         WITH last_filing AS (
             SELECT bn, MAX(fiscal_year) as last_year
@@ -584,9 +722,7 @@ def get_alerts_live(min_flags: int = 2, limit: int = 20) -> list[dict]:
                     ORDER BY TRY_CAST(g.total_govt AS DOUBLE) DESC NULLS LAST
                 ) as rn
             FROM {gov} g
-            WHERE TRY_CAST(g.govt_share_of_rev AS DOUBLE) >= 70.0
-              AND TRY_CAST(g.total_govt AS DOUBLE) >= 100000
-              AND g.legal_name NOT LIKE '%GOVERNMENT%'
+            WHERE g.legal_name NOT LIKE '%GOVERNMENT%'
               AND g.legal_name NOT LIKE '%PROVINCE%'
               AND g.legal_name NOT LIKE '%MINISTRY%'
         )
@@ -601,7 +737,7 @@ def get_alerts_live(min_flags: int = 2, limit: int = 20) -> list[dict]:
         WHERE b.rn = 1
           AND lf.last_year <= 2022
         ORDER BY b.total_govt_funding DESC
-        LIMIT 500
+        LIMIT 1000
     """
     zombies = query(zombie_sql)
     if not zombies:
@@ -709,7 +845,7 @@ def get_stats_live() -> dict:
             if r:
                 fed_n = r[0]["n"]
 
-        # Compute zombie count + at-risk funding using same criteria as get_zombies_live
+        # Compute zombie count + at-risk funding (ALL organizations that stopped filing)
         gov_tbl = _read("cra", "govt_funding_by_charity")
         ident_tbl = _read("cra", "cra_identification")
         zombie_r = query(f"""
@@ -717,9 +853,7 @@ def get_stats_live() -> dict:
                 SELECT g.bn, TRY_CAST(g.total_govt AS DOUBLE) as total_govt,
                        ROW_NUMBER() OVER (PARTITION BY g.bn ORDER BY TRY_CAST(g.total_govt AS DOUBLE) DESC NULLS LAST) as rn
                 FROM {gov_tbl} g
-                WHERE TRY_CAST(g.govt_share_of_rev AS DOUBLE) >= 70.0
-                  AND TRY_CAST(g.total_govt AS DOUBLE) >= 100000
-                  AND g.legal_name NOT LIKE '%GOVERNMENT%'
+                WHERE g.legal_name NOT LIKE '%GOVERNMENT%'
             ),
             lf AS (SELECT bn, MAX(fiscal_year) as last_year FROM {ident_tbl} GROUP BY bn)
             SELECT COUNT(*) as n, SUM(b.total_govt) as at_risk

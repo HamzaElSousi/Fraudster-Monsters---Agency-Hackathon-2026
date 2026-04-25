@@ -6,6 +6,7 @@ Agency 2026 Ottawa Hackathon
 
 import os
 import json
+import asyncio
 from datetime import datetime
 from contextlib import asynccontextmanager
 
@@ -13,7 +14,8 @@ from fastapi import FastAPI, Query, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from dotenv import load_dotenv
 
-load_dotenv()
+# Load .env from project root (parent directory)
+load_dotenv(os.path.join(os.path.dirname(__file__), "..", ".env"))
 
 import db_duckdb as _duck
 DUCKDB_MODE = _duck.is_available()
@@ -51,8 +53,11 @@ def _no_data():
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     if DUCKDB_MODE:
-        print(f"[START] DuckDB mode — real JSONL data at {_duck._base()}")
-        _duck.preload_tables_background()
+        print(f"[START] DuckDB mode — loading tables from {_duck._base()}")
+        # Run synchronous preload in a thread so the event loop stays responsive,
+        # but DO NOT yield until it's done — this prevents any request from being
+        # served before all tables are ready.
+        await asyncio.to_thread(_duck.preload_tables_sync)
     else:
         pg = os.getenv("DB_CONNECTION_STRING", "")
         if pg:
@@ -173,14 +178,33 @@ def get_zombies(
 
 
 # ── Funding Loops ─────────────────────────────────────────────────────────────
+@app.get("/api/loops/stats")
+def get_loops_stats():
+    return _duck.get_loops_stats_live()
+
+
+@app.get("/api/loops/charities")
+def get_loop_charities(limit: int = Query(default=50, le=200)):
+    return _duck.get_top_loop_charities_live(limit)
+
+
 @app.get("/api/loops")
 def get_funding_loops(
     min_hops: int = Query(2),
     max_hops: int = Query(6),
+    min_flow: float = Query(default=0.0, ge=0),
+    max_flow: float = Query(default=0.0, ge=0),
+    same_year_only: bool = Query(default=False),
+    risk_level: str = Query(default=""),
     limit: int = Query(100),
 ):
     if DUCKDB_MODE:
-        results = _duck.cached(f"loops:{min_hops}:{max_hops}:{limit}", _duck.get_loops_live, min_hops, max_hops, limit)
+        cache_key = f"loops:{min_hops}:{max_hops}:{min_flow}:{max_flow}:{same_year_only}:{risk_level}:{limit}"
+        results = _duck.cached(
+            cache_key,
+            _duck.get_loops_live,
+            min_hops, max_hops, min_flow, max_flow, same_year_only, risk_level, limit,
+        )
         return {"results": results, "count": len(results), "query_mode": "duckdb-live"}
 
     sql = """
