@@ -742,6 +742,51 @@ def template_query(message: str) -> dict:
         }
 
 
+# ── Global Search ─────────────────────────────────────────────────────────────
+@app.get("/api/search")
+def global_search(q: str = Query(...), limit: int = Query(10)):
+    """Full-text search across all challenge datasets."""
+    if not DUCKDB_MODE or not q.strip():
+        return {"results": {}, "total": 0, "query": q}
+
+    q_lower = q.lower()
+    results = {"zombies": [], "loops": [], "governance": [], "sole_source": [], "alerts": []}
+    fetch = limit * 8  # over-fetch then filter in Python
+
+    try:
+        rows = _duck.cached(f"zombies:0:{fetch}", _duck.get_zombies_live, 0, fetch)
+        results["zombies"] = [r for r in rows if q_lower in (r.get("canonical_name") or "").lower() or q_lower in (r.get("bn") or "").lower()][:limit]
+    except Exception:
+        pass
+
+    try:
+        rows = _duck.cached(f"loops:2:6:0:0:False:::{fetch}", _duck.get_loops_live, 2, 6, 0, 0, False, "", fetch)
+        results["loops"] = [r for r in rows if q_lower in (r.get("path_display") or "").lower()][:limit]
+    except Exception:
+        pass
+
+    try:
+        rows = _duck.cached(f"governance:2:{fetch}", _duck.get_governance_live, 2, fetch)
+        results["governance"] = [r for r in rows if q_lower in (r.get("first_name") or "").lower() or q_lower in (r.get("last_name") or "").lower()][:limit]
+    except Exception:
+        pass
+
+    try:
+        rows = _duck.cached(f"sole_source:1.0:{fetch}", _duck.get_sole_source_live, 1.0, fetch)
+        results["sole_source"] = [r for r in rows if q_lower in (r.get("vendor") or "").lower() or q_lower in (r.get("department") or "").lower()][:limit]
+    except Exception:
+        pass
+
+    try:
+        rows = _duck.cached(f"alerts:1:{fetch}", _duck.get_alerts_live, 1, fetch)
+        results["alerts"] = [r for r in rows if q_lower in (r.get("canonical_name") or "").lower()][:limit]
+    except Exception:
+        pass
+
+    total = sum(len(v) for v in results.values())
+    return {"results": results, "total": total, "query": q}
+
+
 # ── Health Check ─────────────────────────────────────────────────────────────
 @app.get("/api/health")
 def health():

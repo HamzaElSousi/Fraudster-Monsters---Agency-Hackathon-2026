@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { BrowserRouter, Routes, Route, NavLink, useLocation } from 'react-router-dom';
+import { BrowserRouter, Routes, Route, NavLink, useLocation, useNavigate } from 'react-router-dom';
 import Dashboard from './pages/Dashboard';
 import Zombies from './pages/Zombies';
 import FundingLoops from './pages/FundingLoops';
@@ -9,21 +9,71 @@ import SoleSource from './pages/SoleSource';
 import Chat from './pages/Chat';
 import './index.css';
 
+const API_BASE = import.meta.env.VITE_API_URL || 'http://localhost:8000';
+
+function BackendStatus() {
+  const [down, setDown] = useState(false);
+  useEffect(() => {
+    fetch(`${API_BASE}/api/health`)
+      .then(r => setDown(!r.ok))
+      .catch(() => setDown(true));
+  }, []);
+  if (!down) return null;
+  return (
+    <div style={{ background: 'var(--status-critical)', color: '#fff', fontSize: 12, padding: '6px 20px', textAlign: 'center', position: 'sticky', top: 0, zIndex: 200 }}>
+      ⚠️ Backend unavailable — run <code style={{ background: 'rgba(0,0,0,0.2)', padding: '1px 6px', borderRadius: 4 }}>cd backend && python3 main.py</code>
+    </div>
+  );
+}
+
 function Sidebar() {
   const [alertCount, setAlertCount] = useState(null);
   const [navStats, setNavStats] = useState(null);
+  const [searchQuery, setSearchQuery] = useState('');
+  const [searchResults, setSearchResults] = useState(null);
+  const [searching, setSearching] = useState(false);
+  const navigate = useNavigate();
 
   useEffect(() => {
-    fetch('http://localhost:8000/api/alerts?min_flags=2&limit=100')
+    fetch(`${API_BASE}/api/alerts?min_flags=2&limit=100`)
       .then(r => r.json())
       .then(d => setAlertCount(d.count || 0))
       .catch(() => setAlertCount(null));
 
-    fetch('http://localhost:8000/api/stats')
+    fetch(`${API_BASE}/api/stats`)
       .then(r => r.json())
       .then(setNavStats)
       .catch(() => {});
   }, []);
+
+  // Debounced search
+  useEffect(() => {
+    if (!searchQuery.trim()) {
+      setSearchResults(null);
+      return;
+    }
+    setSearching(true);
+    const timer = setTimeout(() => {
+      fetch(`${API_BASE}/api/search?q=${encodeURIComponent(searchQuery)}&limit=5`)
+        .then(r => r.json())
+        .then(d => {
+          setSearchResults(d);
+          setSearching(false);
+        })
+        .catch(() => setSearching(false));
+    }, 300);
+    return () => clearTimeout(timer);
+  }, [searchQuery]);
+
+  const handleResultClick = (type, item) => {
+    setSearchQuery('');
+    setSearchResults(null);
+    if (type === 'zombies') navigate('/zombies');
+    else if (type === 'loops') navigate('/loops');
+    else if (type === 'governance') navigate('/governance');
+    else if (type === 'sole_source') navigate('/sole-source');
+    else if (type === 'alerts') navigate('/alerts');
+  };
 
   return (
     <aside className="sidebar">
@@ -35,6 +85,66 @@ function Sidebar() {
             <span className="sidebar-logo-subtitle">Agency 2026 Ottawa</span>
           </div>
         </NavLink>
+
+        {/* Global Search */}
+        <div style={{ marginTop: 16, position: 'relative' }}>
+          <input
+            type="text"
+            placeholder="🔍 Search..."
+            value={searchQuery}
+            onChange={(e) => setSearchQuery(e.target.value)}
+            style={{
+              width: '100%',
+              padding: '10px 12px',
+              fontSize: 13,
+              background: 'var(--bg-tertiary)',
+              border: '1px solid var(--border-primary)',
+              borderRadius: 'var(--radius-md)',
+              color: 'var(--text-primary)',
+              outline: 'none',
+            }}
+          />
+          {searchResults && (
+            <div style={{
+              position: 'absolute',
+              top: '100%',
+              left: 0,
+              right: 0,
+              background: 'var(--bg-card)',
+              border: '1px solid var(--border-accent)',
+              borderRadius: 'var(--radius-md)',
+              maxHeight: 300,
+              overflowY: 'auto',
+              zIndex: 100,
+              marginTop: 4,
+            }}>
+              {searchResults.total === 0 ? (
+                <div style={{ padding: 12, fontSize: 13, color: 'var(--text-muted)' }}>No results found</div>
+              ) : (
+                Object.entries(searchResults.results).map(([type, items]) => (
+                  items.length > 0 && (
+                    <div key={type}>
+                      <div style={{ padding: '8px 12px', fontSize: 11, color: 'var(--text-muted)', textTransform: 'uppercase', background: 'var(--bg-tertiary)' }}>
+                        {type.replace('_', ' ')} ({items.length})
+                      </div>
+                      {items.map((item, i) => (
+                        <div
+                          key={i}
+                          onClick={() => handleResultClick(type, item)}
+                          style={{ padding: '8px 12px', fontSize: 13, cursor: 'pointer', borderBottom: '1px solid var(--border-primary)' }}
+                          onMouseEnter={(e) => e.currentTarget.style.background = 'var(--bg-tertiary)'}
+                          onMouseLeave={(e) => e.currentTarget.style.background = 'transparent'}
+                        >
+                          {item.canonical_name || item.vendor || item.path_display?.slice(0, 50) || `${item.first_name} ${item.last_name}`}
+                        </div>
+                      ))}
+                    </div>
+                  )
+                ))
+              )}
+            </div>
+          )}
+        </div>
       </div>
 
       <nav className="sidebar-nav">
@@ -155,6 +265,7 @@ function MainLayout() {
 function App() {
   return (
     <BrowserRouter>
+      <BackendStatus />
       <MainLayout />
     </BrowserRouter>
   );

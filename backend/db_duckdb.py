@@ -23,21 +23,13 @@ def _get_table_lock(tname: str) -> threading.Lock:
             _table_locks[tname] = threading.Lock()
         return _table_locks[tname]
 
-# Fast tables (<2MB each) — loaded synchronously before server accepts requests
-_PRELOAD_SYNC = [
+# Sync-preloaded at startup (fast tables only — large ones already in hackathon.duckdb)
+_PRELOAD_TABLES = [
     ("cra", "loops"),
     ("cra", "loop_charity_financials"),
     ("cra", "loop_financials"),
     ("ab", "ab_sole_source"),
 ]
-# Large tables — loaded in background after server is already serving
-_PRELOAD_BACKGROUND = [
-    ("cra", "govt_funding_by_charity"),   # 47 MB
-    ("cra", "cra_identification"),        # 171 MB
-    ("cra", "cra_directors"),             # 704 MB
-    ("fed", "grants_contributions"),      # 3.2 GB
-]
-_PRELOAD_TABLES = _PRELOAD_SYNC + _PRELOAD_BACKGROUND
 
 # Result cache: key → (timestamp, result)
 _cache: dict[str, tuple[float, object]] = {}
@@ -89,24 +81,24 @@ def _ensure_table(schema: str, table: str) -> str:
         return tname
     lock = _get_table_lock(tname)
     with lock:
-        # Re-check inside lock to avoid double-load
         if tname in _loaded_tables:
             return tname
-        db = get_conn()
-        # Check if table already exists in the .duckdb file
-        exists = db.execute(
-            "SELECT COUNT(*) FROM information_schema.tables WHERE table_name = ?", [tname]
-        ).fetchone()[0]
+        with _conn_lock:
+            db = get_conn()
+            exists = db.execute(
+                "SELECT COUNT(*) FROM information_schema.tables WHERE table_name = ?", [tname]
+            ).fetchone()[0]
         if exists:
             _loaded_tables.add(tname)
             return tname
-        # Load from JSONL
         p = _path(schema, table)
         if not os.path.exists(p):
             raise FileNotFoundError(f"JSONL not found: {p}")
         t0 = time.time()
         print(f"[DuckDB] Loading {tname} ...", flush=True)
-        db.execute(f"CREATE TABLE IF NOT EXISTS {tname} AS SELECT * FROM read_json_auto('{p}', format=newline_delimited)")
+        with _conn_lock:
+            db = get_conn()
+            db.execute(f"CREATE TABLE IF NOT EXISTS {tname} AS SELECT * FROM read_json_auto('{p}', format=newline_delimited)")
         _loaded_tables.add(tname)
         print(f"[DuckDB] {tname} ready ({time.time()-t0:.1f}s)", flush=True)
         return tname
@@ -123,38 +115,27 @@ def _read(schema: str, table: str) -> str:
 
 def query(sql: str) -> list[dict]:
     try:
-        db = get_conn()
-        r = db.execute(sql)
-        cols = [d[0] for d in r.description]
-        return [dict(zip(cols, row)) for row in r.fetchall()]
+        with _conn_lock:
+            db = get_conn()
+            r = db.execute(sql)
+            cols = [d[0] for d in r.description]
+            return [dict(zip(cols, row)) for row in r.fetchall()]
     except Exception as e:
         print(f"[DuckDB] Query error: {e}")
         return []
 
 
-def _load_tables(tables: list) -> None:
-    for schema, table in tables:
+def preload_tables_sync():
+    """Sync-load fast tables before server accepts requests."""
+    print("[DuckDB] Loading fast tables…", flush=True)
+    for schema, table in _PRELOAD_TABLES:
         if not _available(schema, table):
             continue
         try:
             _ensure_table(schema, table)
         except Exception as e:
             print(f"[DuckDB] Preload failed for {schema}/{table}: {e}", flush=True)
-
-
-def preload_tables_sync():
-    """Sync-load fast tables, then kick off background load of large tables."""
-    print("[DuckDB] Sync-loading fast tables…", flush=True)
-    _load_tables(_PRELOAD_SYNC)
-    print("[DuckDB] Fast tables ready — server starting. Large tables loading in background…", flush=True)
-    t = threading.Thread(target=_load_tables, args=(_PRELOAD_BACKGROUND,), daemon=True, name="duckdb-bg-preload")
-    t.start()
-
-
-def preload_tables_background():
-    """Load all tables in background (non-blocking startup)."""
-    t = threading.Thread(target=_load_tables, args=(_PRELOAD_TABLES,), daemon=True, name="duckdb-preload")
-    t.start()
+    print("[DuckDB] Ready — serving requests", flush=True)
 
 
 # ── Name cache for BN → charity name resolution ───────────────────────────────

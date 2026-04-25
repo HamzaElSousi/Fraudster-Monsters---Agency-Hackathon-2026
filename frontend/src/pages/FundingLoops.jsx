@@ -512,7 +512,7 @@ export default function FundingLoops() {
   useEffect(() => {
     fetchLoopsStats()
       .then(setStatsData)
-      .catch(() => {});
+      .catch(() => setStatsData({ total_loops: 0, total_flow: 0, same_year_count: 0, high_risk_count: 0, max_flow: 5_000_000, max_hops: 6 }));
 
     fetchLoopCharities(100)
       .then(setCharities)
