@@ -132,6 +132,17 @@ def get_stats():
 
 
 # ── Zombie Recipients ────────────────────────────────────────────────────────
+@app.get("/api/zombies/loop-crossref")
+def get_zombie_loop_crossref(
+    min_funding: float = Query(default=100000),
+    limit: int = Query(default=50),
+):
+    """Zombie recipients enriched with loop participation counts."""
+    cache_key = f"zombie_loop_crossref:{min_funding}:{limit}"
+    results = _duck.cached(cache_key, _duck.get_zombie_loop_crossref_live, min_funding, limit)
+    return {"results": results, "count": len(results), "query_mode": "duckdb-live"}
+
+
 @app.get("/api/zombies")
 def get_zombies(
     min_funding: float = Query(100000),
@@ -180,12 +191,17 @@ def get_zombies(
 # ── Funding Loops ─────────────────────────────────────────────────────────────
 @app.get("/api/loops/stats")
 def get_loops_stats():
-    return _duck.get_loops_stats_live()
+    return _duck.cached("loops_stats_enriched", _duck.get_loops_stats_enriched_live)
 
 
 @app.get("/api/loops/charities")
 def get_loop_charities(limit: int = Query(default=50, le=200)):
     return _duck.get_top_loop_charities_live(limit)
+
+
+@app.get("/api/loops/detail/{loop_id}")
+def get_loop_detail(loop_id: int):
+    return _duck.get_loop_detail_live(loop_id)
 
 
 @app.get("/api/loops")
@@ -196,14 +212,15 @@ def get_funding_loops(
     max_flow: float = Query(default=0.0, ge=0),
     same_year_only: bool = Query(default=False),
     risk_level: str = Query(default=""),
+    classification: str = Query(default=""),
     limit: int = Query(100),
 ):
     if DUCKDB_MODE:
-        cache_key = f"loops:{min_hops}:{max_hops}:{min_flow}:{max_flow}:{same_year_only}:{risk_level}:{limit}"
+        cache_key = f"loops_enriched:{min_hops}:{max_hops}:{min_flow}:{max_flow}:{same_year_only}:{risk_level}:{classification}:{limit}"
         results = _duck.cached(
             cache_key,
-            _duck.get_loops_live,
-            min_hops, max_hops, min_flow, max_flow, same_year_only, risk_level, limit,
+            _duck.get_loops_enriched_live,
+            min_hops, max_hops, min_flow, max_flow, same_year_only, risk_level, classification, limit,
         )
         return {"results": results, "count": len(results), "query_mode": "duckdb-live"}
 
@@ -272,6 +289,17 @@ def get_loop_graph(limit: int = Query(50)):
 
 
 # ── Governance Networks ──────────────────────────────────────────────────────
+@app.get("/api/governance/self-dealing")
+def get_self_dealing_directors(
+    min_boards: int = Query(default=2),
+    limit: int = Query(default=50),
+):
+    """Directors whose multiple organizations appear together in the same funding loop."""
+    cache_key = f"self_dealing:{min_boards}:{limit}"
+    results = _duck.cached(cache_key, _duck.get_director_loop_intersections_live, min_boards, limit)
+    return {"results": results, "count": len(results), "query_mode": "duckdb-live"}
+
+
 @app.get("/api/governance")
 def get_governance_networks(
     min_boards: int = Query(3),
@@ -462,6 +490,22 @@ def get_entity_dossier(entity_id: int):
     if not results:
         raise HTTPException(404, "Entity not found")
     return results[0]
+
+
+# ── Entity Case File (deep-dive dossier) ─────────────────────────────────────
+@app.get("/api/entity/{bn}")
+def get_entity_case_file(bn: str):
+    """Full accountability dossier for a single organization by BN."""
+    if len(bn) < 9:
+        raise HTTPException(400, "Invalid BN format — must be at least 9 characters")
+    return _duck.cached(f"entity:{bn}", _duck.get_entity_case_file_live, bn)
+
+
+# ── Dashboard Featured Cases ──────────────────────────────────────────────────
+@app.get("/api/dashboard/featured")
+def get_dashboard_featured():
+    """Top 5 pre-ranked high-impact entities for the Dashboard 'Start Here' section."""
+    return _duck.cached("dashboard_featured", _duck.get_dashboard_featured_cases_live)
 
 
 # ── AI Chat ──────────────────────────────────────────────────────────────────
