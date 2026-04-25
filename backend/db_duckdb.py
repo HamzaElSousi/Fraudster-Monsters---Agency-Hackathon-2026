@@ -834,7 +834,8 @@ def get_stats_live() -> dict:
             if r:
                 fed_n = r[0]["n"]
 
-        # Compute zombie count + at-risk funding (ALL organizations that stopped filing)
+        # Compute zombie count + at-risk funding — same definition as get_zombies_live:
+        # high govt dependency (>=70% of revenue) + stopped filing by 2022 + min $100K received
         gov_tbl = _read("cra", "govt_funding_by_charity")
         ident_tbl = _read("cra", "cra_identification")
         zombie_r = query(f"""
@@ -842,7 +843,11 @@ def get_stats_live() -> dict:
                 SELECT g.bn, TRY_CAST(g.total_govt AS DOUBLE) as total_govt,
                        ROW_NUMBER() OVER (PARTITION BY g.bn ORDER BY TRY_CAST(g.total_govt AS DOUBLE) DESC NULLS LAST) as rn
                 FROM {gov_tbl} g
-                WHERE g.legal_name NOT LIKE '%GOVERNMENT%'
+                WHERE TRY_CAST(g.govt_share_of_rev AS DOUBLE) >= 70.0
+                  AND TRY_CAST(g.total_govt AS DOUBLE) >= 100000
+                  AND g.legal_name NOT LIKE '%GOVERNMENT%'
+                  AND g.legal_name NOT LIKE '%PROVINCE%'
+                  AND g.legal_name NOT LIKE '%MINISTRY%'
             ),
             lf AS (SELECT bn, MAX(fiscal_year) as last_year FROM {ident_tbl} GROUP BY bn)
             SELECT COUNT(*) as n, SUM(b.total_govt) as at_risk
@@ -1277,6 +1282,9 @@ def get_entity_case_file_live(bn: str) -> dict:
     """Full accountability dossier for one organization."""
     import re as _re
     bn = _re.sub(r"[^A-Za-z0-9]", "", bn)  # sanitize — prevent SQL injection
+    # Loop tables store 15-char BNs (888078425RR0001); alerts/zombies return 9-char roots.
+    # Always match on the 9-char prefix so both navigation paths resolve correctly.
+    bn9 = bn[:9]
 
     gfbc_tbl  = _read("cra", "govt_funding_by_charity")
     lcf_tbl   = _read("cra", "loop_charity_financials")
@@ -1294,7 +1302,7 @@ def get_entity_case_file_live(bn: str) -> dict:
                TRY_CAST(govt_share_of_rev AS DOUBLE) as govt_pct,
                legal_name as name
         FROM {gfbc_tbl}
-        WHERE bn = '{bn}'
+        WHERE LEFT(bn, 9) = '{bn9}'
         ORDER BY fiscal_year
     """)
 
@@ -1306,7 +1314,8 @@ def get_entity_case_file_live(bn: str) -> dict:
                TRY_CAST(program_spending AS DOUBLE)     as program_spending,
                TRY_CAST(total_expenditures AS DOUBLE)   as total_expenditures,
                loops_count
-        FROM {lcf_tbl} WHERE bn = '{bn}'
+        FROM {lcf_tbl} WHERE LEFT(bn, 9) = '{bn9}'
+        LIMIT 1
     """)
 
     loops = query(f"""
@@ -1316,7 +1325,7 @@ def get_entity_case_file_live(bn: str) -> dict:
         FROM {lp_tbl} lp
         JOIN {loops_tbl} l ON l.id = lp.loop_id
         LEFT JOIN {lf_tbl} lf ON lf.loop_id = l.id
-        WHERE lp.bn = '{bn}'
+        WHERE LEFT(lp.bn, 9) = '{bn9}'
         ORDER BY l.total_flow DESC
         LIMIT 20
     """)
