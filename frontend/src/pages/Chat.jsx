@@ -5,12 +5,10 @@ import { sendChatMessage, formatCurrency, fetchStats } from '../api';
 function buildWelcomeMessage(stats) {
   const fedGrants = stats?.total_fed_grants ?? 0;
   const abGrants = stats?.total_ab_grants ?? 0;
-  const charities = stats?.total_charities ?? 0;
-  const soleSource = stats?.total_sole_source ?? 0;
-  const total = fedGrants + abGrants + charities + soleSource;
-  const recordStr = total > 1_000_000
-    ? `${(total / 1_000_000).toFixed(1)}M+`
-    : total > 0 ? total.toLocaleString() : '23M+';
+  const totalRecords = fedGrants + abGrants;
+  const recordStr = totalRecords > 1_000_000
+    ? `${(totalRecords / 1_000_000).toFixed(1)}M+`
+    : totalRecords > 0 ? totalRecords.toLocaleString() : '1.3M+';
 
   return {
     role: 'assistant',
@@ -302,6 +300,33 @@ export default function Chat() {
         <div ref={messagesEndRef} />
       </div>
 
+      {messages.length <= 1 && !isLoading && (
+        <div style={{ padding: '0 0 12px', display: 'flex', flexWrap: 'wrap', gap: 8 }}>
+          {[
+            'Which organizations got government money and sent it in circles?',
+            'Show me the most suspicious funding loops with phantom tax receipts',
+            'Which director controls the most funding across multiple boards?',
+            'Find charities that stopped filing but still received government grants',
+          ].map((q, i) => (
+            <button
+              key={i}
+              onClick={() => handleSend(q)}
+              style={{
+                padding: '8px 14px', fontSize: 12, fontWeight: 500,
+                background: 'var(--bg-tertiary)',
+                border: '1px solid var(--border-primary)',
+                borderRadius: 99, color: 'var(--text-secondary)',
+                cursor: 'pointer', textAlign: 'left',
+                transition: 'border-color 0.15s, color 0.15s',
+              }}
+              onMouseEnter={e => { e.target.style.borderColor = 'var(--accent-purple)'; e.target.style.color = 'var(--accent-purple)'; }}
+              onMouseLeave={e => { e.target.style.borderColor = 'var(--border-primary)'; e.target.style.color = 'var(--text-secondary)'; }}
+            >
+              {q}
+            </button>
+          ))}
+        </div>
+      )}
       <div className="chat-input-area">
         <input
           className="chat-input"

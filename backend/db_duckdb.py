@@ -693,36 +693,40 @@ def get_alerts_live(min_flags: int = 2, limit: int = 20) -> list[dict]:
     loops = _read("cra", "loops")
     dirs = _read("cra", "cra_directors")
 
-    # Step 1: Get zombie BNs (ALL organizations that stopped filing)
+    # Step 1: Get zombie BNs — must match zombies page definition:
+    # 70%+ govt revenue, min $100K, stopped filing (last year across ALL program accounts <= 2022)
     zombie_sql = f"""
         WITH last_filing AS (
-            SELECT bn, MAX(fiscal_year) as last_year
+            -- Group by 9-char root so multi-account orgs use their MOST RECENT filing
+            SELECT LEFT(bn, 9) as bn9, MAX(fiscal_year) as last_year
             FROM {ident}
-            GROUP BY bn
+            GROUP BY LEFT(bn, 9)
         ),
         best_govt_year AS (
             SELECT
-                g.bn,
+                LEFT(g.bn, 9) as bn9,
                 g.legal_name,
                 TRY_CAST(g.total_govt AS DOUBLE) as total_govt_funding,
                 TRY_CAST(g.govt_share_of_rev AS DOUBLE) as govt_share_pct,
                 ROW_NUMBER() OVER (
-                    PARTITION BY g.bn
+                    PARTITION BY LEFT(g.bn, 9)
                     ORDER BY TRY_CAST(g.total_govt AS DOUBLE) DESC NULLS LAST
                 ) as rn
             FROM {gov} g
             WHERE g.legal_name NOT LIKE '%GOVERNMENT%'
               AND g.legal_name NOT LIKE '%PROVINCE%'
               AND g.legal_name NOT LIKE '%MINISTRY%'
+              AND TRY_CAST(g.govt_share_of_rev AS DOUBLE) >= 70.0
+              AND TRY_CAST(g.total_govt AS DOUBLE) >= 100000
         )
         SELECT
-            b.bn,
+            b.bn9 as bn,
             b.legal_name,
             b.total_govt_funding,
             b.govt_share_pct,
             lf.last_year as last_filing_year
         FROM best_govt_year b
-        JOIN last_filing lf ON lf.bn = b.bn
+        JOIN last_filing lf ON lf.bn9 = b.bn9
         WHERE b.rn = 1
           AND lf.last_year <= 2022
         ORDER BY b.total_govt_funding DESC
@@ -746,6 +750,7 @@ def get_alerts_live(min_flags: int = 2, limit: int = 20) -> list[dict]:
         print(f"[DuckDB] alerts loop_bns error: {e}")
 
     # Step 3: Get multi-board director BNs as a Python set
+    # Only include directors with 3+ boards (to match get_governance_live definition)
     gov_bns_set: set[str] = set()
     try:
         gov_rows = query(f"""
@@ -754,7 +759,7 @@ def get_alerts_live(min_flags: int = 2, limit: int = 20) -> list[dict]:
             WHERE last_name IS NOT NULL AND first_name IS NOT NULL
               AND LENGTH(last_name) > 1 AND LENGTH(first_name) > 1
             GROUP BY last_name, first_name, LEFT(bn, 9)
-            HAVING COUNT(DISTINCT LEFT(bn, 9)) >= 1
+            HAVING COUNT(DISTINCT LEFT(bn, 9)) >= 3
         """)
         gov_bns_set = {r["bn_root"][:9] for r in gov_rows if r.get("bn_root")}
     except Exception as e:
@@ -812,15 +817,23 @@ def get_stats_live() -> dict:
         loop_n = loops_count[0]["n"] if loops_count else 0
 
         # Match governance page filters exactly: non-null, non-empty, length > 1
+        # Must use CTE to ensure each (last_name, first_name, bn_root) is counted only once
         dirs = query(f"""
             SELECT COUNT(*) as n FROM (
+                WITH director_boards AS (
+                    SELECT
+                        last_name, first_name,
+                        LEFT(bn, 9) as bn_root
+                    FROM {_read('cra', 'cra_directors')}
+                    WHERE last_name IS NOT NULL AND first_name IS NOT NULL
+                      AND last_name != '' AND first_name != ''
+                      AND LENGTH(last_name) > 1 AND LENGTH(first_name) > 1
+                    GROUP BY last_name, first_name, LEFT(bn, 9)
+                )
                 SELECT last_name, first_name
-                FROM {_read('cra', 'cra_directors')}
-                WHERE last_name IS NOT NULL AND first_name IS NOT NULL
-                  AND last_name != '' AND first_name != ''
-                  AND LENGTH(last_name) > 1 AND LENGTH(first_name) > 1
+                FROM director_boards
                 GROUP BY last_name, first_name
-                HAVING COUNT(DISTINCT LEFT(bn, 9)) >= 3
+                HAVING COUNT(DISTINCT bn_root) >= 3
             )
         """)
         dir_n = dirs[0]["n"] if dirs else 0
@@ -939,7 +952,9 @@ def get_loops_enriched_live(
         where_parts.append("COALESCE(lf.same_year, false) = true")
     where_sql = " AND ".join(where_parts)
 
-    class_filter = f"AND classification = '{classification}'" if classification in ("high_alert", "suspicious", "normal") else ""
+    _VALID_CLASS = {"high_alert", "suspicious", "normal"}
+    _class_vals = [c for c in classification.split(",") if c in _VALID_CLASS]
+    class_filter = f"AND classification IN ({', '.join(repr(c) for c in _class_vals)})" if _class_vals else ""
 
     try:
         lcf_tbl  = _read("cra", "loop_charity_financials")
@@ -1313,28 +1328,46 @@ def get_entity_case_file_live(bn: str) -> dict:
 
     funding = query(f"""
         SELECT fiscal_year as year,
-               TRY_CAST(federal AS DOUBLE)       as federal,
-               TRY_CAST(provincial AS DOUBLE)    as provincial,
-               TRY_CAST(municipal AS DOUBLE)     as municipal,
-               TRY_CAST(total_govt AS DOUBLE)    as total_govt,
-               TRY_CAST(revenue AS DOUBLE)       as revenue,
-               TRY_CAST(govt_share_of_rev AS DOUBLE) as govt_pct,
-               legal_name as name
+               SUM(TRY_CAST(federal AS DOUBLE))       as federal,
+               SUM(TRY_CAST(provincial AS DOUBLE))    as provincial,
+               SUM(TRY_CAST(municipal AS DOUBLE))     as municipal,
+               SUM(TRY_CAST(total_govt AS DOUBLE))    as total_govt,
+               SUM(TRY_CAST(revenue AS DOUBLE))       as revenue,
+               CASE WHEN SUM(TRY_CAST(revenue AS DOUBLE)) > 0
+                    THEN ROUND(SUM(TRY_CAST(total_govt AS DOUBLE)) /
+                               SUM(TRY_CAST(revenue AS DOUBLE)) * 100, 2)
+                    ELSE 0 END                         as govt_pct,
+               MAX(legal_name) as name
         FROM {gfbc_tbl}
         WHERE LEFT(bn, 9) = '{bn9}'
+        GROUP BY fiscal_year
         ORDER BY fiscal_year
     """)
 
     profile = query(f"""
-        SELECT legal_name as name, designation, category,
-               TRY_CAST(circular_outflow AS DOUBLE)     as circular_outflow,
-               TRY_CAST(circular_inflow AS DOUBLE)      as circular_inflow,
-               TRY_CAST(revenue AS DOUBLE)              as revenue,
-               TRY_CAST(program_spending AS DOUBLE)     as program_spending,
-               TRY_CAST(total_expenditures AS DOUBLE)   as total_expenditures,
-               loops_count
-        FROM {lcf_tbl} WHERE LEFT(bn, 9) = '{bn9}'
-        LIMIT 1
+        WITH per_bn AS (
+            SELECT bn,
+                   MAX(legal_name)                                 as legal_name,
+                   MAX(designation)                                as designation,
+                   MAX(category)                                   as category,
+                   MAX(TRY_CAST(circular_outflow AS DOUBLE))       as circular_outflow,
+                   MAX(TRY_CAST(circular_inflow AS DOUBLE))        as circular_inflow,
+                   MAX(TRY_CAST(revenue AS DOUBLE))                as revenue,
+                   MAX(TRY_CAST(program_spending AS DOUBLE))       as program_spending,
+                   MAX(TRY_CAST(total_expenditures AS DOUBLE))     as total_expenditures,
+                   MAX(TRY_CAST(loops_count AS INTEGER))           as loops_count
+            FROM {lcf_tbl}
+            WHERE LEFT(bn, 9) = '{bn9}'
+            GROUP BY bn
+        )
+        SELECT MAX(legal_name) as name, MAX(designation) as designation, MAX(category) as category,
+               SUM(circular_outflow)     as circular_outflow,
+               SUM(circular_inflow)      as circular_inflow,
+               SUM(revenue)              as revenue,
+               SUM(program_spending)     as program_spending,
+               SUM(total_expenditures)   as total_expenditures,
+               SUM(loops_count)          as loops_count
+        FROM per_bn
     """)
 
     loops = query(f"""
@@ -1355,11 +1388,21 @@ def get_entity_case_file_live(bn: str) -> dict:
     circ = float(pf.get("circular_outflow") or 0)
     prog = float(pf.get("program_spending") or 0)
 
+    # Use COUNT DISTINCT from loop_participants — more accurate than lcf.loops_count sum
+    loop_count_rows = query(f"""
+        SELECT COUNT(DISTINCT loop_id) as cnt FROM {lp_tbl}
+        WHERE LEFT(bn, 9) = '{bn9}'
+    """)
+    distinct_loop_count = int((loop_count_rows[0].get("cnt") or 0) if loop_count_rows else 0)
+
+    # circular_outflow in lcf is cumulative across years; ratio is only coherent when <= 1.0
+    circ_pct = round(circ / rev, 3) if rev > 0 and circ / rev <= 1.0 else 0
+
     flags = []
-    if loops:                              flags.append("loop_participant")
+    if loops or distinct_loop_count > 0:       flags.append("loop_participant")
     if any(l.get("same_year") for l in loops): flags.append("same_year_loop")
-    if rev > 0 and circ / rev > 0.3:      flags.append("high_circular_dependency")
-    if exp > 0 and prog / exp < 0.3:      flags.append("low_program_delivery")
+    if circ_pct > 0 and circ_pct > 0.3:       flags.append("high_circular_dependency")
+    if exp > 0 and prog / exp < 0.3:           flags.append("low_program_delivery")
 
     name = pf.get("name") or (funding[0].get("name") if funding else bn)
 
@@ -1370,9 +1413,9 @@ def get_entity_case_file_live(bn: str) -> dict:
         "category":            pf.get("category", ""),
         "funding_history":     funding,
         "loops":               loops,
-        "loop_count":          int(pf.get("loops_count") or len(loops)),
+        "loop_count":          distinct_loop_count or len(loops),
         "circular_outflow":    circ,
-        "circular_outflow_pct": round(circ / rev, 3) if rev > 0 else 0,
+        "circular_outflow_pct": circ_pct,
         "program_pct":         round(prog / exp, 3) if exp > 0 else 0,
         "flags":               flags,
         "red_flag_count":      len(flags),

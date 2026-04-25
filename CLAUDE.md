@@ -14,18 +14,16 @@
 ## How to run
 
 ```bash
-# Both at once (recommended)
-bash start.sh
+bash start.sh          # kills ports 8000 + 5173, starts both, waits for health check
 
 # Or individually:
-cd backend && python3 main.py          # port 8000
-cd frontend && npm run dev             # port 5173
-
-# Docker (not tested end-to-end but should work):
-docker compose up --build
+cd backend && python3 main.py    # port 8000
+cd frontend && npm run dev       # port 5173
 ```
 
-If frontend shows blank screen: clear browser cache or use `window.location.href = 'http://localhost:5173/?nocache=' + Date.now()`
+**After any backend code change, restart the backend** — stats are cached 10 min under key `"stats"`.
+
+If frontend shows blank screen: `window.location.href = 'http://localhost:5173/?nocache=' + Date.now()`
 
 ---
 
@@ -34,12 +32,51 @@ If frontend shows blank screen: clear browser cache or use `window.location.href
 | # | Name | Page | Status |
 |---|------|------|--------|
 | 1 | Zombie Recipients | `/zombies` | ✅ Working (table + loop crossref tab) |
-| 3 | Funding Loops | `/loops` | ✅ Working (graph + table + MoneyTrace + classification filter) |
+| 3 | Funding Loops | `/loops` | ✅ Working (table + MoneyTrace + classification filter) |
 | 4 | Sole Source & Amendment Creep | `/sole-source` | ✅ Working |
 | 6 | Governance Networks | `/governance` | ✅ Working (self-dealing toggle) |
 | Multi | Cross-challenge Alerts | `/alerts` | ✅ Working |
 | AI | Ask AI Chat | `/chat` | ✅ Working |
 | Deep | Entity Case File | `/entity/:bn` | ✅ Working (flags, funding chart, loop table, AI narrative) |
+
+---
+
+## Live stat values (as of last audit)
+
+| Stat | Value | Source |
+|------|-------|--------|
+| Registered charities | 91,129 | `COUNT(DISTINCT bn)` from `cra_identification` |
+| Govt-funded charities | 45,933 | `COUNT(DISTINCT bn)` from `govt_funding_by_charity WHERE total_govt > 0` |
+| Zombie recipients | 219 | govt_share ≥ 70%, min $100K, stopped filing by 2022 |
+| Funding loops | 5,808 | `COUNT(*)` from `cra__loops` |
+| Multi-board directors | ~2,841 | grouped by name, 3+ distinct BN roots, length > 1 filter |
+| Federal grant records | 1,275,521 | `COUNT(*)` from `fed__grants_contributions` |
+| AB sole-source records | 15,533 | `COUNT(*)` from `ab__ab_sole_source` |
+| AB contract value | $18.2B | `SUM(amount)` from `ab__ab_sole_source` |
+| At-risk funding | $482M | peak-year govt funding of zombie charities |
+
+**Hero text** = "We mapped N charities, M grant records, K procurement contracts" — no dollar figure in hero because `total_public_funding` ($300B = SUM of peak annual year per charity) is not a coherent single pool and would mislead judges.
+
+---
+
+## Known issues / next improvements
+
+### Filter/graph problems
+- **Loop filters (hops, flow, risk) do not visibly change the graph** — graph data is fetched once on load from `/api/loops/graph` and cached; filters only update the table. Graph needs its own filter-aware refetch or should be removed and replaced with a better viz.
+- **Network graph has repeated/duplicate nodes** — same org appears multiple times when it participates in many loops under slightly different BN formats; backend deduplicates by 9-char prefix but stub nodes still appear.
+- **Classification filter buttons send `high_alert,suspicious` for "Suspicious" tab** but backend `get_loops_enriched_live` only accepts a single classification value — multi-value not handled.
+- **Risk level filter and classification filter both active simultaneously** causes confusing results — they stack without a visual indicator.
+
+### Data gaps
+- Chat: AI responses are template-only without Bedrock (`ai_enabled: false` in health check)
+- Alerts: `sole_source` flag not cross-referenced yet
+- Challenges not implemented: #2 Receipt Inflation, #8 Grant Stacking, #9 Threshold Gaming
+- `multi_board_directors` uses name-only matching — common names (e.g. "John Smith") across different people inflate count; no position/province disambiguation
+
+### Presentation depth
+- Entity case file lacks zombie flag (entity pages don't check revocation status)
+- No year-over-year trend line for funding history
+- Loop timeline chart (from `fetchLoopDetail`) exists in backend but unused in expanded row
 
 ---
 
@@ -67,19 +104,19 @@ GET  /api/loops?min_hops=2&max_hops=6&min_flow=0&max_flow=0&same_year_only=false
 GET  /api/loops/stats          — enriched: phantom_receipts_total, high_alert_count, suspicious_count
 GET  /api/loops/charities?limit=50
 GET  /api/loops/detail/{loop_id}   — participants + timeline
-GET  /api/loops/graph?limit=25
+GET  /api/loops/graph?limit=25     — NOT filter-aware; cached independently
 GET  /api/governance?min_boards=3&limit=50
 GET  /api/governance/self-dealing?min_boards=2&limit=50
 GET  /api/alerts?min_flags=2&limit=20
 GET  /api/sole-source?min_ratio=3&limit=50
-GET  /api/entity/{bn}          — full case file: flags, funding history, loops, narrative
+GET  /api/entity/{bn}          — full case file (uses LEFT(bn,9) matching across all tables)
 GET  /api/dashboard/featured   — top 5 high-risk entities
-GET  /api/search?q=...         — global full-text search
+GET  /api/search?q=...
 GET  /api/health
 POST /api/chat  (body: {message: string})
 ```
 
-**Query param bounds enforced** (FastAPI `Query` validators): `min_hops` 2–20, `max_hops` 2–20, `limit` 1–500, `risk_level` max 20 chars, `classification` max 50 chars.
+**Query param bounds** (FastAPI `Query` validators): `min_hops` 2–20, `max_hops` 2–20, `limit` 1–500, `risk_level` max 20 chars, `classification` max 50 chars.
 
 ---
 
@@ -87,24 +124,22 @@ POST /api/chat  (body: {message: string})
 
 | File | Purpose |
 |------|---------|
-| `backend/db_duckdb.py` | All DuckDB queries — get_zombies_live, get_loops_enriched_live, get_loop_graph_live, get_loop_detail_live, get_governance_live, get_self_dealing_directors_live, get_sole_source_live, get_alerts_live, get_stats_live, get_entity_case_file_live, get_dashboard_featured_cases_live, get_zombie_loop_crossref_live |
+| `backend/db_duckdb.py` | All DuckDB queries — all `get_*_live` functions |
 | `backend/main.py` | FastAPI routes + LLM chat logic + Query validators |
 | `frontend/src/api.js` | All fetch functions — uses `import.meta.env.VITE_API_URL \|\| 'http://localhost:8000'` |
-| `frontend/src/App.jsx` | Router + sidebar with live alert count badge; includes `/entity/:bn` route |
-| `frontend/src/pages/FundingLoops.jsx` | Graph (ECharts force) + table view + MoneyTrace expand + classification filter + suspicion tooltip |
-| `frontend/src/pages/Zombies.jsx` | Table with search + risk filter + loop crossref tab |
-| `frontend/src/pages/Governance.jsx` | Director cards with expand + self-dealing toggle |
-| `frontend/src/pages/EntityCaseFile.jsx` | Single-org deep dive: red flags, ECharts funding chart, loop table, AI narrative |
-| `frontend/src/pages/Dashboard.jsx` | Executive briefing hero + Kill Shot card + featured cases + phantom receipts stat |
+| `frontend/src/App.jsx` | Router + sidebar with live alert count badge; `/entity/:bn` route |
+| `frontend/src/pages/FundingLoops.jsx` | Table + MoneyTrace expand + classification filter + suspicion tooltip |
+| `frontend/src/pages/Zombies.jsx` | Table + loop crossref tab |
+| `frontend/src/pages/Governance.jsx` | Director cards + self-dealing toggle |
+| `frontend/src/pages/EntityCaseFile.jsx` | Deep dive: flags, ECharts funding chart, loop table, AI narrative |
+| `frontend/src/pages/Dashboard.jsx` | Hero + Kill Shot card + featured cases |
 | `frontend/src/pages/Alerts.jsx` | Multi-flag alert cards |
-| `frontend/src/pages/Chat.jsx` | AI chat with inline DataCard expansion |
+| `frontend/src/pages/Chat.jsx` | AI chat |
 | `frontend/src/index.css` | All CSS variables + component styles |
 
 ---
 
 ## Suspicion scoring (funding loops)
-
-Each loop gets a score 0–8:
 
 | Condition | Points |
 |-----------|--------|
@@ -114,47 +149,45 @@ Each loop gets a score 0–8:
 | Short loop (hops ≤ 3) AND no identified hub | +1 |
 | Any participant is an identified hub org | −3 |
 
-Classification: `score >= 6` → High Alert 🔴 · `score >= 3` → Suspicious 🟡 · `score < 3` → Normal ✅
+Classification: `score >= 6` → High Alert 🔴 · `score >= 3` → Suspicious 🟡 · `score < 3` → Normal
 
-**Phantom receipts**: `total_flow × hops` for same-year loops — upper-bound estimate of tax receipt inflation if every hop issued a charitable receipt.
-
----
-
-## Critical bugs fixed (history)
-
-1. **`process.env` crash** — Vite uses `import.meta.env.VITE_*`. Fixed in `api.js`.
-2. **Graph nodes invisible** — `get_loop_graph_live` SQL now selects `bn as id`; frontend filters links to existing node set.
-3. **Table view empty** — `fetchLoops` returns `{results:[...]}`. Fixed: `d.results ?? d.loops ?? []`.
-4. **Alerts page blank** — `STRING_SPLIT(path_bns, ',')` on DuckDB LIST type. Rewritten as Python 4-step join.
-5. **Alerts duplicates** — deduplicate by `bn[:9]` in `get_alerts_live`.
-6. **Graph zoom glitch** — `hasZoomedRef` flag fires `zoomToFit` only once on initial load.
-7. **Governance positions overflow** — truncate positions list to first 3 + count.
-8. **Thread safety** — `_table_lock`, `_cache_lock`, `CREATE TABLE IF NOT EXISTS`.
-9. **Dashboard featured empty** — API returns plain array, not `{results:[]}`. Fixed: `Array.isArray(d) ? d : d.results || []`.
-10. **FundingLoops 422 error** — `fetchLoops` (7-param) called with 8 args → `limit=''`. Fixed: use `fetchLoopsEnriched` (8-param including `classification`).
-11. **SQL injection** — `risk_level` filter whitelisted to `{high, medium, low}`; BN list sanitized with regex before SQL interpolation.
-12. **DualRangeSlider invisible fill** — Added custom fill div with `left%`/`width%` computed from values; native track made transparent via `::-webkit-slider-runnable-track`.
+**Phantom receipts**: `total_flow × hops` for same-year loops — upper-bound estimate, labelled as such in UI.
 
 ---
 
-## Known issues / what to improve next
+## Bug history (all fixed)
 
-- Chat: AI responses are slow without Bedrock configured (`ai_enabled: false` in health check → template responses)
-- Alerts: sole_source flag not yet cross-referenced
-- Challenges not yet implemented: #2 Receipt Inflation, #8 Grant Stacking, #9 Threshold Gaming
-- Docker not yet tested end-to-end (files exist, not run)
-- Phantom receipt formula (`flow × hops`) is an upper-bound heuristic — label it as estimated when presenting to judges
+1. `process.env` crash → `import.meta.env.VITE_*`
+2. Graph nodes invisible → `bn as id` in SQL; frontend filters links to node set
+3. Table view empty → `d.results ?? d.loops ?? []`
+4. Alerts page blank → `STRING_SPLIT` on DuckDB LIST; rewritten as Python join
+5. Alerts duplicates → deduplicate by `bn[:9]`
+6. Graph zoom glitch → `hasZoomedRef` fires `zoomToFit` once only
+7. Governance positions overflow → truncate to first 3
+8. Thread safety → `_table_lock`, `_cache_lock`, `CREATE TABLE IF NOT EXISTS`
+9. Dashboard featured empty → `Array.isArray(d) ? d : d.results || []`
+10. FundingLoops 422 → switched to `fetchLoopsEnriched` (8-param)
+11. SQL injection → `risk_level` whitelisted; BN list regex-sanitized
+12. DualRangeSlider no fill → custom track div with `left%`/`width%`; native track transparent
+13. Entity case file no flags → BN format mismatch; all loop table queries use `LEFT(bn,9)`
+14. Stats zombie count inflated → added `govt_share >= 70%` + `min $100K` to match zombies page
+15. `multi_board_directors` 37,481→~2,841 → added `!= ''` and `LENGTH > 1` filters to match governance page
+16. Hero `$300B` misleading → removed dollar total from hero; replaced with verifiable record counts
+17. Dashboard stat duplicates → `total_ab_grants`/`total_sole_source` (same count) distinguished via dollar value for AB card; `total_entities` changed from `charity+sole` to funded-charities-only
+18. Alerts governance flag definition wrong → `get_alerts_live` was checking `COUNT(DISTINCT LEFT(bn, 9)) >= 1` (everyone); fixed to `>= 3` to match multi-board director definition
+19. Chat.jsx welcome stat calculation mixed incompatible values → fixed to sum only `fedGrants + abGrants` (record counts) instead of adding charities and soleSource counts
+20. get_stats_live governance count missing CTE → added director_boards CTE to ensure each (last_name, first_name, bn_root) counted once before grouping
 
 ---
 
 ## Important DuckDB gotchas
 
-- DuckDB is single-writer: only one process can write at a time. Backend holds the lock — don't run concurrent test processes against the same `.duckdb` file.
-- `path_bns` is a DuckDB LIST type. Use `UNNEST(path_bns)` not `STRING_SPLIT(path_bns, ',')`.
-- `QUALIFY ROW_NUMBER() OVER (...)` works in DuckDB but not combined with JOINs in some versions — use CTE + `WHERE rn = 1` instead.
-- `TRY_CAST(x AS DOUBLE)` instead of plain CAST to avoid crashes on null/empty strings.
-- Cache TTL is 10 minutes. To bust cache during dev, restart backend.
-- `re` module (stdlib) used in `db_duckdb.py` for BN sanitization — no pip install needed.
+- DuckDB is single-writer. Backend holds the lock — no concurrent `.duckdb` access.
+- `path_bns` is a DuckDB LIST. Use `UNNEST(path_bns)` not `STRING_SPLIT`.
+- `QUALIFY ROW_NUMBER()` broken with JOINs in some DuckDB versions — use CTE + `WHERE rn = 1`.
+- `TRY_CAST(x AS DOUBLE)` everywhere — prevents crashes on null/empty JSONL fields.
+- Cache TTL = 10 min. Restart backend to bust cache.
+- `re` module (stdlib) in `db_duckdb.py` — no pip install needed.
 
 ---
 
@@ -162,7 +195,6 @@ Classification: `score >= 6` → High Alert 🔴 · `score >= 3` → Suspicious 
 
 - Event: Agency 2026, Ottawa, April 29 2026
 - Code freeze: 2PM
-- Judging criteria: impact of finding, technical depth, AI integration, presentation
-- Goal: demonstrate AI-powered accountability for $89.4B in tracked public funding
-- Key narrative: 347 zombie recipients, 5,808 funding loops, 2,841 multi-board directors
-- Data provenance: CRA T3010 filings, Federal Proactive Disclosure (51+ departments), Alberta Open Data — all public records
+- Judging: impact of finding, technical depth, AI integration, presentation
+- Key narrative: 219 zombie recipients, 5,808 funding loops, ~2,841 multi-board directors
+- Data provenance: CRA T3010, Federal Proactive Disclosure (51+ depts), Alberta Open Data — all public records
