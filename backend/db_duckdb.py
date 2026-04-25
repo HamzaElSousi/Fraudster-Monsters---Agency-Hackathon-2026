@@ -28,6 +28,11 @@ _PRELOAD_TABLES = [
     ("cra", "loops"),
     ("cra", "loop_charity_financials"),
     ("cra", "loop_financials"),
+    ("cra", "loop_participants"),
+    ("cra", "loop_edges"),
+    ("cra", "loop_edge_year_flows"),
+    ("cra", "identified_hubs"),
+    ("cra", "scc_summary"),
     ("ab", "ab_sole_source"),
 ]
 
@@ -880,3 +885,550 @@ def is_available() -> bool:
         _available("ab", "ab_sole_source") and
         _available("cra", "govt_funding_by_charity")
     )
+
+
+# ── Deep-Dive: Enriched Loops (Challenge #3 extended) ────────────────────────
+
+def get_loops_enriched_live(
+    min_hops: int = 2,
+    max_hops: int = 6,
+    min_flow: float = 0.0,
+    max_flow: float = 0.0,
+    same_year_only: bool = False,
+    risk_level: str = "",
+    classification: str = "",
+    limit: int = 200,
+) -> list[dict]:
+    """Loops with suspicion_score, phantom_receipts, classification (high_alert/suspicious/normal)."""
+    loops_tbl = _read("cra", "loops")
+    lf_tbl    = _read("cra", "loop_financials")
+
+    where_parts = [f"l.hops BETWEEN {min_hops} AND {max_hops}"]
+    if min_flow > 0:
+        where_parts.append(f"TRY_CAST(l.total_flow AS DOUBLE) >= {min_flow}")
+    if max_flow > 0:
+        where_parts.append(f"TRY_CAST(l.total_flow AS DOUBLE) <= {max_flow}")
+    if same_year_only:
+        where_parts.append("COALESCE(lf.same_year, false) = true")
+    where_sql = " AND ".join(where_parts)
+
+    class_filter = f"AND classification = '{classification}'" if classification in ("high_alert", "suspicious", "normal") else ""
+
+    try:
+        lcf_tbl  = _read("cra", "loop_charity_financials")
+        lp_tbl   = _read("cra", "loop_participants")
+        hubs_tbl = _read("cra", "identified_hubs")
+
+        sql = f"""
+        WITH loop_base AS (
+            SELECT
+                l.id, l.hops, l.path_bns, l.path_display,
+                TRY_CAST(l.bottleneck_amt AS DOUBLE) as bottleneck_amt,
+                TRY_CAST(l.total_flow AS DOUBLE) as total_flow,
+                l.min_year, l.max_year,
+                COALESCE(lf.same_year, false) as same_year,
+                CASE WHEN COALESCE(lf.same_year, false)
+                     THEN TRY_CAST(l.total_flow AS DOUBLE) * l.hops
+                     ELSE 0 END as phantom_receipts
+            FROM {loops_tbl} l
+            LEFT JOIN {lf_tbl} lf ON lf.loop_id = l.id
+            WHERE {where_sql}
+        ),
+        participant_stats AS (
+            SELECT
+                lp.loop_id,
+                AVG(TRY_CAST(lcf.program_spending AS DOUBLE) /
+                    NULLIF(TRY_CAST(lcf.total_expenditures AS DOUBLE), 0)) as avg_program_pct,
+                AVG(TRY_CAST(lcf.circular_outflow AS DOUBLE) /
+                    NULLIF(TRY_CAST(lcf.revenue AS DOUBLE), 0)) as avg_circular_pct,
+                BOOL_OR(h.bn IS NOT NULL) as has_hub
+            FROM {lp_tbl} lp
+            LEFT JOIN {lcf_tbl} lcf ON lcf.bn = lp.bn
+            LEFT JOIN {hubs_tbl} h ON h.bn = lp.bn
+            GROUP BY lp.loop_id
+        ),
+        scored AS (
+            SELECT
+                lb.*,
+                COALESCE(ps.avg_program_pct, 0.5)  as avg_program_pct,
+                COALESCE(ps.avg_circular_pct, 0)    as avg_circular_pct,
+                COALESCE(ps.has_hub, false)          as has_hub,
+                (CASE WHEN lb.same_year THEN 3 ELSE 0 END
+                 + CASE WHEN COALESCE(ps.avg_circular_pct, 0) > 0.30 THEN 2 ELSE 0 END
+                 + CASE WHEN COALESCE(ps.avg_program_pct, 0.5) < 0.40 THEN 2 ELSE 0 END
+                 + CASE WHEN lb.hops <= 3 AND NOT COALESCE(ps.has_hub, false) THEN 1 ELSE 0 END
+                 - CASE WHEN COALESCE(ps.has_hub, false) THEN 3 ELSE 0 END
+                ) as suspicion_score
+            FROM loop_base lb
+            LEFT JOIN participant_stats ps ON ps.loop_id = lb.id
+        ),
+        classified AS (
+            SELECT *,
+                CASE
+                    WHEN suspicion_score >= 6 THEN 'high_alert'
+                    WHEN suspicion_score >= 3 THEN 'suspicious'
+                    ELSE 'normal'
+                END as classification,
+                CASE
+                    WHEN suspicion_score >= 6 THEN 'high'
+                    WHEN suspicion_score >= 3 THEN 'medium'
+                    ELSE 'low'
+                END as risk_level
+            FROM scored
+        )
+        SELECT * FROM classified
+        WHERE 1=1 {class_filter}
+        ORDER BY suspicion_score DESC, phantom_receipts DESC, total_flow DESC
+        LIMIT {limit}
+        """
+        rows = query(sql)
+
+    except Exception as e:
+        print(f"[DuckDB] get_loops_enriched_live falling back to basic: {e}")
+        rows = get_loops_live(min_hops, max_hops, min_flow, max_flow, same_year_only, risk_level, limit)
+        for r in rows:
+            sy = bool(r.get("same_year"))
+            r["suspicion_score"] = 3 if sy else 0
+            r["phantom_receipts"] = float(r.get("total_flow", 0)) * int(r.get("hops", 2)) if sy else 0
+            r["classification"] = "suspicious" if sy else "normal"
+            r["avg_program_pct"] = 0.0
+        return rows
+
+    for r in rows:
+        path_bns = r.get("path_bns") or []
+        if path_bns:
+            r["path_display"] = _resolve_path(path_bns)
+        r["bottleneck_amt"] = float(r.get("bottleneck_amt") or 0)
+        r["total_flow"]     = float(r.get("total_flow") or 0)
+        r["phantom_receipts"] = float(r.get("phantom_receipts") or 0)
+        r["suspicion_score"]  = int(r.get("suspicion_score") or 0)
+        r["risk_level"]       = r.get("risk_level") or "low"
+    return rows
+
+
+def get_loops_stats_enriched_live() -> dict:
+    """Extended loop stats including phantom_receipts_total and classification counts."""
+    loops_tbl = _read("cra", "loops")
+    lf_tbl    = _read("cra", "loop_financials")
+
+    try:
+        lcf_tbl  = _read("cra", "loop_charity_financials")
+        lp_tbl   = _read("cra", "loop_participants")
+        hubs_tbl = _read("cra", "identified_hubs")
+        has_scoring_tables = True
+    except Exception:
+        has_scoring_tables = False
+
+    try:
+        if has_scoring_tables:
+            rows = query(f"""
+            WITH participant_stats AS (
+                SELECT
+                    lp.loop_id,
+                    AVG(TRY_CAST(lcf.program_spending AS DOUBLE) /
+                        NULLIF(TRY_CAST(lcf.total_expenditures AS DOUBLE), 0)) as avg_program_pct,
+                    AVG(TRY_CAST(lcf.circular_outflow AS DOUBLE) /
+                        NULLIF(TRY_CAST(lcf.revenue AS DOUBLE), 0)) as avg_circular_pct,
+                    BOOL_OR(h.bn IS NOT NULL) as has_hub
+                FROM {lp_tbl} lp
+                LEFT JOIN {lcf_tbl} lcf ON lcf.bn = lp.bn
+                LEFT JOIN {hubs_tbl} h ON h.bn = lp.bn
+                GROUP BY lp.loop_id
+            ),
+            scored AS (
+                SELECT
+                    l.hops,
+                    TRY_CAST(l.total_flow AS DOUBLE)      as total_flow,
+                    TRY_CAST(l.bottleneck_amt AS DOUBLE)  as bottleneck_amt,
+                    COALESCE(lf.same_year, false)          as same_year,
+                    (CASE WHEN COALESCE(lf.same_year, false) THEN 3 ELSE 0 END
+                     + CASE WHEN COALESCE(ps.avg_circular_pct, 0) > 0.30 THEN 2 ELSE 0 END
+                     + CASE WHEN COALESCE(ps.avg_program_pct, 0.5) < 0.40 THEN 2 ELSE 0 END
+                     + CASE WHEN l.hops <= 3 AND NOT COALESCE(ps.has_hub, false) THEN 1 ELSE 0 END
+                     - CASE WHEN COALESCE(ps.has_hub, false) THEN 3 ELSE 0 END
+                    ) as suspicion_score
+                FROM {loops_tbl} l
+                LEFT JOIN {lf_tbl} lf ON lf.loop_id = l.id
+                LEFT JOIN participant_stats ps ON ps.loop_id = l.id
+            )
+            SELECT
+                COUNT(*)                                                            as total_loops,
+                SUM(total_flow)                                                     as total_flow,
+                SUM(CASE WHEN same_year THEN 1 ELSE 0 END)                        as same_year_count,
+                SUM(CASE WHEN bottleneck_amt > 500000 THEN 1 ELSE 0 END)          as high_risk_count,
+                SUM(CASE WHEN same_year THEN total_flow * hops ELSE 0 END)        as phantom_receipts_total,
+                MAX(total_flow)                                                     as max_flow,
+                MAX(hops)                                                           as max_hops,
+                SUM(CASE WHEN suspicion_score >= 6 THEN 1 ELSE 0 END)             as high_alert_count,
+                SUM(CASE WHEN suspicion_score >= 3 AND suspicion_score < 6
+                         THEN 1 ELSE 0 END)                                        as suspicious_count,
+                SUM(CASE WHEN suspicion_score < 3 THEN 1 ELSE 0 END)              as normal_count
+            FROM scored
+            """)
+        else:
+            rows = query(f"""
+            SELECT
+                COUNT(*) as total_loops,
+                SUM(TRY_CAST(l.total_flow AS DOUBLE)) as total_flow,
+                SUM(CASE WHEN lf.same_year THEN 1 ELSE 0 END) as same_year_count,
+                SUM(CASE WHEN TRY_CAST(l.bottleneck_amt AS DOUBLE) > 500000 THEN 1 ELSE 0 END) as high_risk_count,
+                SUM(CASE WHEN lf.same_year
+                         THEN TRY_CAST(l.total_flow AS DOUBLE) * l.hops ELSE 0 END) as phantom_receipts_total,
+                MAX(TRY_CAST(l.total_flow AS DOUBLE)) as max_flow,
+                MAX(l.hops) as max_hops,
+                SUM(CASE WHEN lf.same_year THEN 1 ELSE 0 END) as high_alert_count,
+                0 as suspicious_count,
+                SUM(CASE WHEN NOT COALESCE(lf.same_year, false) THEN 1 ELSE 0 END) as normal_count
+            FROM {loops_tbl} l
+            LEFT JOIN {lf_tbl} lf ON lf.loop_id = l.id
+            """)
+
+        r = rows[0] if rows else {}
+        return {
+            "total_loops":           int(r.get("total_loops") or 0),
+            "total_flow":            float(r.get("total_flow") or 0),
+            "same_year_count":       int(r.get("same_year_count") or 0),
+            "high_risk_count":       int(r.get("high_risk_count") or 0),
+            "phantom_receipts_total": float(r.get("phantom_receipts_total") or 0),
+            "max_flow":              float(r.get("max_flow") or 5_000_000),
+            "max_hops":              int(r.get("max_hops") or 6),
+            "high_alert_count":      int(r.get("high_alert_count") or 0),
+            "suspicious_count":      int(r.get("suspicious_count") or 0),
+            "normal_count":          int(r.get("normal_count") or 0),
+        }
+    except Exception as e:
+        print(f"[DuckDB] get_loops_stats_enriched_live error: {e}")
+        return {
+            "total_loops": 0, "total_flow": 0, "same_year_count": 0,
+            "high_risk_count": 0, "phantom_receipts_total": 0,
+            "max_flow": 5_000_000, "max_hops": 6,
+            "high_alert_count": 0, "suspicious_count": 0, "normal_count": 0,
+        }
+
+
+def get_loop_detail_live(loop_id: int) -> dict:
+    """Full loop detail: participants with spend breakdown + year-over-year timeline."""
+    loops_tbl = _read("cra", "loops")
+    lf_tbl    = _read("cra", "loop_financials")
+
+    loop_rows = query(f"""
+        SELECT l.*, lf.same_year, lf.total_flow_window
+        FROM {loops_tbl} l
+        LEFT JOIN {lf_tbl} lf ON lf.loop_id = l.id
+        WHERE l.id = {int(loop_id)}
+    """)
+    if not loop_rows:
+        return {}
+    loop = loop_rows[0]
+    loop["total_flow"]     = float(loop.get("total_flow") or 0)
+    loop["bottleneck_amt"] = float(loop.get("bottleneck_amt") or 0)
+    loop["path_display"]   = _resolve_path(loop.get("path_bns") or [])
+
+    participants = []
+    timeline = []
+    try:
+        lp_tbl   = _read("cra", "loop_participants")
+        lcf_tbl  = _read("cra", "loop_charity_financials")
+
+        participants = query(f"""
+            SELECT
+                lp.bn, lp.position_in_loop, lp.sends_to, lp.receives_from,
+                lcf.legal_name as name,
+                TRY_CAST(lcf.revenue AS DOUBLE)               as revenue,
+                TRY_CAST(lcf.circular_outflow AS DOUBLE)      as circular_outflow,
+                TRY_CAST(lcf.circular_inflow AS DOUBLE)       as circular_inflow,
+                TRY_CAST(lcf.program_spending AS DOUBLE)      as program_spending,
+                TRY_CAST(lcf.admin_spending AS DOUBLE)        as admin_spending,
+                TRY_CAST(lcf.compensation_spending AS DOUBLE) as compensation_spending,
+                TRY_CAST(lcf.total_expenditures AS DOUBLE)   as total_expenditures
+            FROM {lp_tbl} lp
+            LEFT JOIN {lcf_tbl} lcf ON lcf.bn = lp.bn
+            WHERE lp.loop_id = {int(loop_id)}
+            ORDER BY lp.position_in_loop
+        """)
+        names = _get_bn_names()
+        for p in participants:
+            rev = p.get("revenue") or 0
+            exp = p.get("total_expenditures") or 0
+            circ = p.get("circular_outflow") or 0
+            prog = p.get("program_spending") or 0
+            adm  = p.get("admin_spending") or 0
+            comp = p.get("compensation_spending") or 0
+            p["circular_outflow_pct"] = round(circ / rev, 3) if rev > 0 else 0
+            p["program_pct"]           = round(prog / exp, 3) if exp > 0 else 0
+            p["admin_pct"]             = round(adm  / exp, 3) if exp > 0 else 0
+            p["compensation_pct"]      = round(comp / exp, 3) if exp > 0 else 0
+            if not p.get("name"):
+                p["name"] = names.get(p["bn"], p["bn"][:9])
+    except Exception as e:
+        print(f"[DuckDB] get_loop_detail_live participants error: {e}")
+
+    try:
+        leyf_tbl = _read("cra", "loop_edge_year_flows")
+        raw_flows = query(f"""
+            SELECT year_flow, gift_count
+            FROM {leyf_tbl}
+            WHERE loop_id = {int(loop_id)}
+        """)
+        by_year: dict[int, float] = {}
+        for rf in raw_flows:
+            yf = rf.get("year_flow")
+            if isinstance(yf, dict):
+                for yr_str, amt in yf.items():
+                    try:
+                        by_year[int(yr_str)] = by_year.get(int(yr_str), 0) + float(amt)
+                    except Exception:
+                        pass
+            elif isinstance(yf, str):
+                try:
+                    import json as _json
+                    yf_dict = _json.loads(yf)
+                    for yr_str, amt in yf_dict.items():
+                        by_year[int(yr_str)] = by_year.get(int(yr_str), 0) + float(amt)
+                except Exception:
+                    pass
+        timeline = [{"year": y, "flow": v} for y, v in sorted(by_year.items())]
+    except Exception as e:
+        print(f"[DuckDB] get_loop_detail_live timeline error: {e}")
+
+    return {"loop": loop, "participants": participants, "timeline": timeline}
+
+
+# ── Deep-Dive: Director Self-Dealing (Challenge #6 extended) ─────────────────
+
+def get_director_loop_intersections_live(min_boards: int = 2, limit: int = 50) -> list[dict]:
+    """Directors whose multiple organizations appear together in the same funding loop."""
+    dir_tbl   = _read("cra", "cra_directors")
+    lp_tbl    = _read("cra", "loop_participants")
+    loops_tbl = _read("cra", "loops")
+    lf_tbl    = _read("cra", "loop_financials")
+
+    try:
+        sql = f"""
+        WITH director_bns AS (
+            SELECT
+                LOWER(TRIM(first_name)) as fn,
+                LOWER(TRIM(last_name))  as ln,
+                LEFT(bn, 9)             as bn_root
+            FROM {dir_tbl}
+            WHERE last_name IS NOT NULL AND first_name IS NOT NULL
+              AND last_name != '' AND first_name != ''
+              AND LENGTH(last_name) > 1 AND LENGTH(first_name) > 1
+        ),
+        multi_board AS (
+            SELECT fn, ln,
+                   COUNT(DISTINCT bn_root) as board_count,
+                   LIST(DISTINCT bn_root ORDER BY bn_root) as bn_roots
+            FROM director_bns
+            GROUP BY fn, ln
+            HAVING COUNT(DISTINCT bn_root) >= {int(min_boards)}
+        ),
+        loop_intersect AS (
+            SELECT mb.fn, mb.ln, lp.loop_id,
+                   COUNT(DISTINCT LEFT(lp.bn, 9)) as orgs_in_loop,
+                   TRY_CAST(l.total_flow AS DOUBLE) as loop_flow,
+                   COALESCE(lf.same_year, false) as same_year
+            FROM multi_board mb
+            JOIN {lp_tbl} lp ON list_contains(mb.bn_roots, LEFT(lp.bn, 9))
+            JOIN {loops_tbl} l ON l.id = lp.loop_id
+            LEFT JOIN {lf_tbl} lf ON lf.loop_id = lp.loop_id
+            GROUP BY mb.fn, mb.ln, lp.loop_id, l.total_flow, lf.same_year
+            HAVING COUNT(DISTINCT LEFT(lp.bn, 9)) >= 2
+        )
+        SELECT
+            mb.fn as first_name, mb.ln as last_name,
+            mb.board_count,
+            COUNT(DISTINCT li.loop_id)  as self_dealing_loops,
+            COALESCE(SUM(li.loop_flow), 0) as controlled_flow,
+            mb.bn_roots
+        FROM multi_board mb
+        LEFT JOIN loop_intersect li ON li.fn = mb.fn AND li.ln = mb.ln
+        GROUP BY mb.fn, mb.ln, mb.board_count, mb.bn_roots
+        HAVING COUNT(DISTINCT li.loop_id) > 0
+        ORDER BY self_dealing_loops DESC, mb.board_count DESC
+        LIMIT {int(limit)}
+        """
+        rows = query(sql)
+        names = _get_bn_names()
+        for r in rows:
+            bn_roots = r.get("bn_roots") or []
+            r["organizations"] = [
+                {
+                    "bn":   bn + "RR0001",
+                    "name": names.get(bn + "RR0001") or names.get(bn, bn),
+                }
+                for bn in bn_roots
+            ]
+            r["self_dealing_loops"] = int(r.get("self_dealing_loops") or 0)
+            r["board_count"]        = int(r.get("board_count") or 0)
+            r["controlled_flow"]    = float(r.get("controlled_flow") or 0)
+        return rows
+    except Exception as e:
+        print(f"[DuckDB] get_director_loop_intersections_live error: {e}")
+        return []
+
+
+# ── Deep-Dive: Entity Case File ────────────────────────────────────────────────
+
+def get_entity_case_file_live(bn: str) -> dict:
+    """Full accountability dossier for one organization."""
+    import re as _re
+    bn = _re.sub(r"[^A-Za-z0-9]", "", bn)  # sanitize — prevent SQL injection
+
+    gfbc_tbl  = _read("cra", "govt_funding_by_charity")
+    lcf_tbl   = _read("cra", "loop_charity_financials")
+    lp_tbl    = _read("cra", "loop_participants")
+    loops_tbl = _read("cra", "loops")
+    lf_tbl    = _read("cra", "loop_financials")
+
+    funding = query(f"""
+        SELECT fiscal_year as year,
+               TRY_CAST(federal AS DOUBLE)       as federal,
+               TRY_CAST(provincial AS DOUBLE)    as provincial,
+               TRY_CAST(municipal AS DOUBLE)     as municipal,
+               TRY_CAST(total_govt AS DOUBLE)    as total_govt,
+               TRY_CAST(revenue AS DOUBLE)       as revenue,
+               TRY_CAST(govt_share_of_rev AS DOUBLE) as govt_pct,
+               legal_name as name
+        FROM {gfbc_tbl}
+        WHERE bn = '{bn}'
+        ORDER BY fiscal_year
+    """)
+
+    profile = query(f"""
+        SELECT legal_name as name, designation, category,
+               TRY_CAST(circular_outflow AS DOUBLE)     as circular_outflow,
+               TRY_CAST(circular_inflow AS DOUBLE)      as circular_inflow,
+               TRY_CAST(revenue AS DOUBLE)              as revenue,
+               TRY_CAST(program_spending AS DOUBLE)     as program_spending,
+               TRY_CAST(total_expenditures AS DOUBLE)   as total_expenditures,
+               loops_count
+        FROM {lcf_tbl} WHERE bn = '{bn}'
+    """)
+
+    loops = query(f"""
+        SELECT l.id as loop_id, l.hops,
+               TRY_CAST(l.total_flow AS DOUBLE) as total_flow,
+               lf.same_year, l.min_year, l.max_year
+        FROM {lp_tbl} lp
+        JOIN {loops_tbl} l ON l.id = lp.loop_id
+        LEFT JOIN {lf_tbl} lf ON lf.loop_id = l.id
+        WHERE lp.bn = '{bn}'
+        ORDER BY l.total_flow DESC
+        LIMIT 20
+    """)
+
+    pf   = profile[0] if profile else {}
+    rev  = float(pf.get("revenue") or 0)
+    exp  = float(pf.get("total_expenditures") or 0)
+    circ = float(pf.get("circular_outflow") or 0)
+    prog = float(pf.get("program_spending") or 0)
+
+    flags = []
+    if loops:                              flags.append("loop_participant")
+    if any(l.get("same_year") for l in loops): flags.append("same_year_loop")
+    if rev > 0 and circ / rev > 0.3:      flags.append("high_circular_dependency")
+    if exp > 0 and prog / exp < 0.3:      flags.append("low_program_delivery")
+
+    name = pf.get("name") or (funding[0].get("name") if funding else bn)
+
+    return {
+        "bn":                  bn,
+        "name":                name,
+        "designation":         pf.get("designation", ""),
+        "category":            pf.get("category", ""),
+        "funding_history":     funding,
+        "loops":               loops,
+        "loop_count":          int(pf.get("loops_count") or len(loops)),
+        "circular_outflow":    circ,
+        "circular_outflow_pct": round(circ / rev, 3) if rev > 0 else 0,
+        "program_pct":         round(prog / exp, 3) if exp > 0 else 0,
+        "flags":               flags,
+        "red_flag_count":      len(flags),
+    }
+
+
+# ── Deep-Dive: Zombie × Loop Cross-Reference (Challenge #1 extended) ──────────
+
+def get_zombie_loop_crossref_live(min_funding: float = 100000, limit: int = 50) -> list[dict]:
+    """Zombie orgs enriched with loop participation counts."""
+    zombies = get_zombies_live(min_funding, limit * 2)
+    if not zombies:
+        return []
+
+    bns = [f"'{z['bn']}'" for z in zombies if z.get("bn")]
+    if not bns:
+        return zombies[:limit]
+
+    try:
+        lp_tbl = _read("cra", "loop_participants")
+        loop_counts = query(f"""
+            SELECT LEFT(bn, 9) as bn9, COUNT(DISTINCT loop_id) as loop_count
+            FROM {lp_tbl}
+            WHERE LEFT(bn, 9) IN ({','.join(bns)})
+            GROUP BY LEFT(bn, 9)
+        """)
+        loop_map = {r["bn9"]: int(r["loop_count"]) for r in loop_counts}
+    except Exception as e:
+        print(f"[DuckDB] zombie crossref loop counts error: {e}")
+        loop_map = {}
+
+    for z in zombies:
+        bn9 = (z.get("bn") or "")[:9]
+        lc = loop_map.get(bn9, 0)
+        z["loop_count"]  = lc
+        z["was_in_loop"] = lc > 0
+
+    return sorted(zombies[:limit], key=lambda x: (-x["loop_count"], -(x.get("total_govt_funding") or 0)))
+
+
+# ── Deep-Dive: Dashboard Featured Cases ───────────────────────────────────────
+
+def get_dashboard_featured_cases_live() -> list[dict]:
+    """Top 5 high-impact entities for Dashboard 'Start Here' cards."""
+    try:
+        lcf_tbl = _read("cra", "loop_charity_financials")
+        lf_tbl  = _read("cra", "loop_financials")
+        lp_tbl  = _read("cra", "loop_participants")
+
+        rows = query(f"""
+            SELECT
+                lcf.bn,
+                lcf.legal_name as name,
+                lcf.loops_count,
+                TRY_CAST(lcf.circular_outflow AS DOUBLE)   as circular_outflow,
+                TRY_CAST(lcf.revenue AS DOUBLE)            as revenue,
+                TRY_CAST(lcf.program_spending AS DOUBLE) /
+                    NULLIF(TRY_CAST(lcf.total_expenditures AS DOUBLE), 0) as program_pct,
+                COUNT(CASE WHEN lf.same_year THEN 1 END)   as same_year_loops
+            FROM {lcf_tbl} lcf
+            LEFT JOIN {lp_tbl} lp ON lp.bn = lcf.bn
+            LEFT JOIN {lf_tbl} lf ON lf.loop_id = lp.loop_id
+            WHERE lcf.loops_count >= 3
+            GROUP BY lcf.bn, lcf.legal_name, lcf.loops_count,
+                     lcf.circular_outflow, lcf.revenue, lcf.program_spending, lcf.total_expenditures
+            ORDER BY same_year_loops DESC, lcf.loops_count DESC,
+                     TRY_CAST(lcf.circular_outflow AS DOUBLE) DESC
+            LIMIT 5
+        """)
+
+        for r in rows:
+            rev      = float(r.get("revenue") or 0)
+            circ     = float(r.get("circular_outflow") or 0)
+            prog_pct = float(r.get("program_pct") or 0)
+            same_yr  = int(r.get("same_year_loops") or 0)
+            flags = []
+            if same_yr > 0:
+                flags.append(f"{same_yr} same-year loop{'s' if same_yr != 1 else ''}")
+            if rev > 0 and circ / rev > 0.2:
+                flags.append(f"{circ/rev*100:.0f}% circular outflow")
+            if 0 < prog_pct < 0.4:
+                flags.append(f"only {prog_pct*100:.0f}% to programs")
+            r["flags"]          = flags
+            r["same_year_loops"] = same_yr
+            r["circular_outflow"] = circ
+
+        return rows
+    except Exception as e:
+        print(f"[DuckDB] get_dashboard_featured_cases_live error: {e}")
+        return []
