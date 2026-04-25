@@ -7,6 +7,7 @@ import Governance from './pages/Governance';
 import Alerts from './pages/Alerts';
 import SoleSource from './pages/SoleSource';
 import Chat from './pages/Chat';
+import EntityCaseFile from './pages/EntityCaseFile';
 import './index.css';
 
 const API_BASE = import.meta.env.VITE_API_URL || 'http://localhost:8000';
@@ -217,6 +218,7 @@ const PAGE_TITLES = {
   '/governance': 'Governance Networks — Challenge #6',
   '/sole-source': 'Sole Source & Amendment Creep — Challenge #4',
   '/chat': 'AI Investigator',
+  '/entity': 'Entity Case File',
 };
 
 const PAGE_CLASSES = {
@@ -231,8 +233,9 @@ const PAGE_CLASSES = {
 
 function MainLayout() {
   const location = useLocation();
-  const pageTitle = PAGE_TITLES[location.pathname] || 'Follow The Money';
-  const pageClass = PAGE_CLASSES[location.pathname] || '';
+  const pathKey = location.pathname.startsWith('/entity/') ? '/entity' : location.pathname;
+  const pageTitle = PAGE_TITLES[pathKey] || 'Follow The Money';
+  const pageClass = PAGE_CLASSES[pathKey] || '';
 
   return (
     <div className="app-layout">
@@ -255,6 +258,7 @@ function MainLayout() {
             <Route path="/governance" element={<Governance />} />
             <Route path="/sole-source" element={<SoleSource />} />
             <Route path="/chat" element={<Chat />} />
+            <Route path="/entity/:bn" element={<EntityCaseFile />} />
           </Routes>
         </div>
       </main>
