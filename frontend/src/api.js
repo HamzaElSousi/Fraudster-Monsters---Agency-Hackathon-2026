@@ -102,3 +102,65 @@ export function getRiskClass(level) {
   if (!level) return 'low';
   return level.toLowerCase();
 }
+
+// ── Dollar formatter ───────────────────────────────────────────────────────
+export function fmtDollars(n) {
+  if (n == null || n === 0) return '$0';
+  if (n >= 1_000_000) return `$${(n / 1_000_000).toFixed(1)}M`;
+  if (n >= 1_000) return `$${Math.round(n / 1_000)}K`;
+  return `$${Math.round(n)}`;
+}
+
+// ── Risk classification badge ──────────────────────────────────────────────
+export function classificationBadge(cls) {
+  const map = {
+    high_alert: { label: 'High Alert', color: 'var(--status-critical)' },
+    suspicious: { label: 'Suspicious', color: 'var(--status-medium)' },
+    normal:     { label: 'Normal',     color: 'var(--status-low)' },
+  };
+  return map[cls] ?? map.normal;
+}
+
+// ── New fetch functions for deep-dive features ─────────────────────────────
+
+// Enriched loops: adds suspicion_score, classification, phantom_receipts
+export const fetchLoopsEnriched = (
+  minHops = 2, maxHops = 6,
+  minFlow = 0, maxFlow = 0,
+  sameYearOnly = false,
+  riskLevel = '',
+  classification = '',
+  limit = 200,
+) =>
+  fetch(
+    `${API_BASE}/api/loops?min_hops=${minHops}&max_hops=${maxHops}` +
+    `&min_flow=${minFlow}&max_flow=${maxFlow}` +
+    `&same_year_only=${sameYearOnly}&risk_level=${riskLevel}` +
+    `&classification=${classification}&limit=${limit}`
+  ).then(r => r.json());
+
+// Extended stats: adds phantom_receipts_total, high_alert_count, suspicious_count
+export const fetchLoopsStatsEnriched = () =>
+  fetch(`${API_BASE}/api/loops/stats`).then(r => r.json());
+
+// Full loop detail for expanded row: participants + timeline
+export const fetchLoopDetail = (loopId) =>
+  fetch(`${API_BASE}/api/loops/detail/${loopId}`).then(r => r.json());
+
+// Directors whose multiple orgs appear in the same loop together
+export const fetchSelfDealingDirectors = (minBoards = 2, limit = 50) =>
+  fetch(`${API_BASE}/api/governance/self-dealing?min_boards=${minBoards}&limit=${limit}`)
+    .then(r => r.json());
+
+// Zombies enriched with loop_count and was_in_loop boolean
+export const fetchZombieLoopCrossref = (minFunding = 100000, limit = 50) =>
+  fetch(`${API_BASE}/api/zombies/loop-crossref?min_funding=${minFunding}&limit=${limit}`)
+    .then(r => r.json());
+
+// Full entity accountability dossier
+export const fetchEntityCaseFile = (bn) =>
+  fetch(`${API_BASE}/api/entity/${encodeURIComponent(bn)}`).then(r => r.json());
+
+// 5 pre-ranked orgs for Dashboard "Start Here" cards
+export const fetchDashboardFeatured = () =>
+  fetch(`${API_BASE}/api/dashboard/featured`).then(r => r.json());

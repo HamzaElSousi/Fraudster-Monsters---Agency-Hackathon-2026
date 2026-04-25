@@ -1,11 +1,12 @@
 import { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { fetchStats, formatCurrency, formatNumber } from '../api';
+import { fetchStats, fetchDashboardFeatured, formatCurrency, formatNumber, fmtDollars } from '../api';
 
 export default function Dashboard() {
   const [stats, setStats] = useState(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
+  const [featured, setFeatured] = useState([]);
   const navigate = useNavigate();
 
   useEffect(() => {
@@ -16,6 +17,10 @@ export default function Dashboard() {
         setError('Backend unavailable — start the server with bash start.sh');
       })
       .finally(() => setLoading(false));
+
+    fetchDashboardFeatured()
+      .then(d => setFeatured(d.results || []))
+      .catch(() => {});
   }, []);
 
   if (error) {
@@ -92,47 +97,38 @@ export default function Dashboard() {
 
   return (
     <div className="animate-in">
-      {/* Hero Stats */}
+      {/* Executive Briefing Hero */}
       <div style={{
         display: 'flex',
-        gap: 24,
+        flexDirection: 'column',
+        gap: 8,
         marginBottom: 32,
         padding: '28px 32px',
         background: 'var(--gradient-glass)',
         border: '1px solid var(--border-accent)',
         borderRadius: 'var(--radius-xl)',
       }}>
-        <div style={{ flex: 1 }}>
-          <div style={{ fontSize: 13, color: 'var(--text-muted)', fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: 8 }}>
-            Total Public Funding Tracked
-          </div>
-          <div style={{ fontSize: 42, fontWeight: 900, letterSpacing: '-0.03em', lineHeight: 1, background: 'var(--gradient-primary)', WebkitBackgroundClip: 'text', WebkitTextFillColor: 'transparent' }}>
-            {stats?.total_public_funding ? formatCurrency(stats.total_public_funding) : '—'}
-          </div>
-          <div style={{ fontSize: 14, color: 'var(--text-secondary)', marginTop: 8 }}>
-            Across CRA T3010, Federal Grants & Contributions, and Alberta Open Data
-          </div>
+        <div style={{ fontSize: 13, color: 'var(--text-muted)', fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.05em' }}>
+          AI Accountability Dashboard · Agency 2026 Ottawa
         </div>
-        <div style={{
-          padding: '16px 24px',
-          background: 'rgba(239, 68, 68, 0.08)',
-          border: '1px solid rgba(239, 68, 68, 0.2)',
-          borderRadius: 'var(--radius-lg)',
-          display: 'flex',
-          flexDirection: 'column',
-          alignItems: 'center',
-          justifyContent: 'center',
-          minWidth: 180,
-        }}>
-          <div style={{ fontSize: 11, color: 'var(--status-critical)', fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: 4 }}>
-            At-Risk Funding
-          </div>
-          <div style={{ fontSize: 28, fontWeight: 800, color: 'var(--status-critical)' }}>
-            {stats?.at_risk_funding ? formatCurrency(stats.at_risk_funding) : '—'}
-          </div>
-          <div style={{ fontSize: 12, color: 'var(--text-muted)', marginTop: 2 }}>
-            Linked to flagged entities
-          </div>
+        <div style={{ fontSize: 38, fontWeight: 900, letterSpacing: '-0.02em', lineHeight: 1.15, background: 'var(--gradient-primary)', WebkitBackgroundClip: 'text', WebkitTextFillColor: 'transparent' }}>
+          We analyzed {stats?.total_public_funding ? formatCurrency(stats.total_public_funding) : '$89.4B'} in public funding.<br />
+          Here is what we found.
+        </div>
+        <div style={{ display: 'flex', gap: 32, marginTop: 12, flexWrap: 'wrap' }}>
+          {[
+            { label: 'Zombie Recipients', value: stats?.zombie_count, color: 'var(--status-critical)', path: '/zombies' },
+            { label: 'Funding Loops', value: stats?.total_funding_loops, color: 'var(--accent-purple)', path: '/loops' },
+            { label: 'Multi-Board Directors', value: stats?.multi_board_directors, color: 'var(--accent-cyan)', path: '/governance' },
+            { label: 'At-Risk Funding', value: stats?.at_risk_funding ? formatCurrency(stats.at_risk_funding) : null, color: 'var(--status-critical)', raw: true },
+          ].map((item, i) => (
+            <div key={i} onClick={() => item.path && navigate(item.path)} style={{ cursor: item.path ? 'pointer' : 'default' }}>
+              <div style={{ fontSize: 11, color: 'var(--text-muted)', marginBottom: 2 }}>{item.label}</div>
+              <div style={{ fontSize: 22, fontWeight: 800, color: item.color }}>
+                {item.value == null ? '…' : item.raw ? item.value : Number(item.value).toLocaleString()}
+              </div>
+            </div>
+          ))}
         </div>
       </div>
 
@@ -154,6 +150,54 @@ export default function Dashboard() {
           </div>
         ))}
       </div>
+
+      {/* Start Here — Featured Cases */}
+      {featured.length > 0 && (
+        <div style={{ marginTop: 28, marginBottom: 0 }}>
+          <h3 style={{ fontSize: 13, fontWeight: 700, color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '0.06em', marginBottom: 14 }}>
+            Start Here — High-Priority Cases
+          </h3>
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(280px, 1fr))', gap: 14 }}>
+            {featured.map((org, i) => (
+              <div
+                key={org.bn || i}
+                onClick={() => navigate(`/entity/${encodeURIComponent(org.bn)}`)}
+                style={{
+                  padding: '16px 20px',
+                  background: 'var(--bg-card)',
+                  border: '1px solid var(--border-primary)',
+                  borderLeft: '3px solid var(--status-critical)',
+                  borderRadius: 'var(--radius-lg)',
+                  cursor: 'pointer',
+                  transition: 'all var(--transition-fast)',
+                }}
+                onMouseEnter={e => { e.currentTarget.style.borderColor = 'var(--status-critical)'; e.currentTarget.style.transform = 'translateY(-2px)'; }}
+                onMouseLeave={e => { e.currentTarget.style.borderColor = 'var(--border-primary)'; e.currentTarget.style.transform = 'translateY(0)'; e.currentTarget.style.borderLeftColor = 'var(--status-critical)'; }}
+              >
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: 8, marginBottom: 8 }}>
+                  <div style={{ fontSize: 14, fontWeight: 700, lineHeight: 1.3, flex: 1 }}>{org.name}</div>
+                  <span style={{ fontSize: 11, padding: '2px 7px', borderRadius: 4, background: 'rgba(239,68,68,0.12)', color: 'var(--status-critical)', border: '1px solid rgba(239,68,68,0.3)', whiteSpace: 'nowrap', flexShrink: 0, fontWeight: 600 }}>
+                    {org.red_flag_count || org.loop_count || 0} flags
+                  </span>
+                </div>
+                <div style={{ display: 'flex', gap: 10, marginBottom: 10, flexWrap: 'wrap' }}>
+                  {(org.flags || []).slice(0, 2).map(f => (
+                    <span key={f} style={{ fontSize: 11, color: 'var(--status-critical)', background: 'rgba(239,68,68,0.08)', padding: '2px 6px', borderRadius: 4 }}>
+                      {f === 'same_year_loop' ? '🔴 Same-year loop' : f === 'loop_participant' ? `🔴 ${org.loop_count} loops` : f === 'high_circular_dependency' ? '🔴 High circular' : '🟡 Low programs'}
+                    </span>
+                  ))}
+                </div>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                  <div style={{ fontSize: 12, color: 'var(--text-muted)', fontFamily: 'var(--font-mono)' }}>
+                    {org.circular_outflow > 0 ? `${fmtDollars(org.circular_outflow)} circular` : `${org.loop_count || 0} loops`}
+                  </div>
+                  <span style={{ fontSize: 12, color: 'var(--accent-purple)', fontWeight: 600 }}>Investigate →</span>
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
 
       {/* Quick Investigation Prompts */}
       <div style={{
