@@ -64,47 +64,48 @@ export default function Dashboard() {
 
   const statCards = [
     {
-      icon: '🏛️', color: 'indigo', label: 'Tracked Entities',
+      icon: '🏛️', color: 'indigo', label: 'Govt-Funded Charities',
       value: formatNumber(stats?.total_entities),
-      subtitle: 'Canonical organizations across all datasets',
+      subtitle: 'CRA-registered charities with recorded government funding',
     },
     {
       icon: '🧟', color: 'rose', label: 'Zombie Recipients',
       value: formatNumber(stats?.zombie_count),
-      subtitle: 'Funded then dissolved/revoked',
+      subtitle: '≥70% govt-dependent charities that stopped filing by 2022',
       onClick: () => navigate('/zombies'),
     },
     {
       icon: '🔄', color: 'purple', label: 'Funding Loops',
       value: formatNumber(stats?.total_funding_loops),
-      subtitle: 'Circular gift patterns detected',
+      subtitle: 'Circular gift patterns detected in CRA gift schedules',
       onClick: () => navigate('/loops'),
     },
     {
       icon: '🕸️', color: 'cyan', label: 'Multi-Board Directors',
       value: formatNumber(stats?.multi_board_directors),
-      subtitle: 'Directors on 3+ funded charity boards',
+      subtitle: 'Individuals on 3+ funded charity boards simultaneously',
       onClick: () => navigate('/governance'),
     },
     {
-      icon: '🇨🇦', color: 'emerald', label: 'Federal Grants',
+      icon: '🇨🇦', color: 'emerald', label: 'Federal Grant Records',
       value: formatNumber(stats?.total_fed_grants),
-      subtitle: 'Records from 51+ departments',
+      subtitle: 'Individual grant & contribution records, 51+ departments',
     },
     {
-      icon: '🏔️', color: 'amber', label: 'Alberta Records',
-      value: formatNumber(stats?.total_ab_grants),
-      subtitle: 'Grant payments tracked',
+      icon: '🏔️', color: 'amber', label: 'Alberta Contract Value',
+      value: stats?.total_ab_contract_value ? fmtDollars(stats.total_ab_contract_value) : formatNumber(stats?.total_ab_grants),
+      subtitle: `${formatNumber(stats?.total_ab_grants)} sole-source contract records`,
     },
     {
-      icon: '📋', color: 'indigo', label: 'Charities',
+      icon: '📋', color: 'indigo', label: 'Registered Charities',
       value: formatNumber(stats?.total_charities),
-      subtitle: 'Registered Canadian charities',
+      subtitle: 'Total CRA-registered charities in dataset',
     },
     {
       icon: '⚠️', color: 'rose', label: 'Sole-Source Contracts',
       value: formatNumber(stats?.total_sole_source),
-      subtitle: 'Non-competitive procurements',
+      subtitle: 'Alberta non-competitive procurement records',
+      onClick: () => navigate('/sole-source'),
     },
   ];
 
@@ -125,8 +126,11 @@ export default function Dashboard() {
           AI Accountability Dashboard · Agency 2026 Ottawa
         </div>
         <div style={{ fontSize: 38, fontWeight: 900, letterSpacing: '-0.02em', lineHeight: 1.15, background: 'var(--gradient-primary)', WebkitBackgroundClip: 'text', WebkitTextFillColor: 'transparent' }}>
-          We analyzed {stats?.total_public_funding ? formatCurrency(stats.total_public_funding) : '$89.4B'} in public funding.<br />
+          We analyzed {stats?.total_public_funding ? formatCurrency(stats.total_public_funding) : '$89.4B'} in public funding.*<br />
           Here is what we found.
+        </div>
+        <div style={{ fontSize: 11, color: 'var(--text-muted)', marginTop: -4 }}>
+          * Sum of peak government funding year per charity from CRA T3010 filings · Federal grants & contributions · Alberta open procurement data
         </div>
         <div style={{ display: 'flex', gap: 32, marginTop: 12, flexWrap: 'wrap' }}>
           {[
@@ -134,7 +138,7 @@ export default function Dashboard() {
             { label: 'Funding Loops', value: stats?.total_funding_loops, color: 'var(--accent-purple)', path: '/loops' },
             { label: 'Multi-Board Directors', value: stats?.multi_board_directors, color: 'var(--accent-cyan)', path: '/governance' },
             { label: 'At-Risk Funding', value: stats?.at_risk_funding ? formatCurrency(stats.at_risk_funding) : null, color: 'var(--status-critical)', raw: true },
-            { label: 'Phantom Tax Receipts', value: loopStats?.phantom_receipts_total ? fmtDollars(loopStats.phantom_receipts_total) : null, color: 'var(--status-critical)', raw: true, path: '/loops' },
+            { label: 'Phantom Receipts (est. upper bound)', value: loopStats?.phantom_receipts_total ? fmtDollars(loopStats.phantom_receipts_total) : null, color: 'var(--status-critical)', raw: true, path: '/loops' },
           ].map((item, i) => (
             <div key={i} onClick={() => item.path && navigate(item.path)} style={{ cursor: item.path ? 'pointer' : 'default' }}>
               <div style={{ fontSize: 11, color: 'var(--text-muted)', marginBottom: 2 }}>{item.label}</div>
@@ -270,7 +274,7 @@ export default function Dashboard() {
         </h3>
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(280px, 1fr))', gap: 12 }}>
           {[
-            { icon: '🧟', title: 'Zombie Recipients', desc: 'Organizations that received $6M+ then vanished', path: '/zombies', color: 'var(--status-critical)' },
+            { icon: '🧟', title: 'Zombie Recipients', desc: 'High govt-dependency charities that received public funds then stopped filing', path: '/zombies', color: 'var(--status-critical)' },
             { icon: '🔄', title: 'Largest Funding Loop', desc: 'Circular gift patterns cycling through multiple charities', path: '/loops', color: 'var(--accent-purple)' },
             { icon: '🕸️', title: 'Top Power Broker', desc: 'Director on multiple funded charity boards — conflicts of interest mapped', path: '/governance', color: 'var(--accent-cyan)' },
             { icon: '🤖', title: 'Ask AI', desc: '"Show me organizations in Alberta that dissolved after receiving funding"', path: '/chat', color: 'var(--accent-indigo)' },

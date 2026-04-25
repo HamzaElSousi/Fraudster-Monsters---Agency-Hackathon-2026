@@ -825,8 +825,23 @@ def get_stats_live() -> dict:
         charity_n = query(f"SELECT COUNT(DISTINCT bn) as n FROM {_read('cra', 'cra_identification')}")
         charity_count = charity_n[0]["n"] if charity_n else 0
 
+        # Charities with at least $1 in recorded government funding — the true scope of what we analyze
+        gov_funded_n = query(f"""
+            SELECT COUNT(DISTINCT bn) as n FROM {_read('cra', 'govt_funding_by_charity')}
+            WHERE TRY_CAST(total_govt AS DOUBLE) > 0
+        """)
+        gov_funded_count = gov_funded_n[0]["n"] if gov_funded_n else 0
+
         sole_n = query(f"SELECT COUNT(*) as n FROM {_read('ab', 'ab_sole_source')}")
         sole_count = sole_n[0]["n"] if sole_n else 0
+
+        # Total dollar value of Alberta sole-source contracts
+        ab_value_r = query(f"""
+            SELECT SUM(TRY_CAST(amount AS DOUBLE)) as total
+            FROM {_read('ab', 'ab_sole_source')}
+            WHERE TRY_CAST(amount AS DOUBLE) > 0
+        """)
+        ab_contract_value = float(ab_value_r[0]["total"] or 0) if ab_value_r else 0.0
 
         fed_n = 0
         if _available("fed", "grants_contributions"):
@@ -870,10 +885,11 @@ def get_stats_live() -> dict:
         total_public = float(funding_r[0]["total"] or 0) if funding_r else 0.0
 
         return {
-            "total_entities": charity_count + sole_count,
+            "total_entities": gov_funded_count,   # charities with recorded govt funding
             "total_funding_loops": loop_n,
             "total_fed_grants": fed_n,
-            "total_ab_grants": sole_count,
+            "total_ab_grants": sole_count,         # count of AB sole-source records
+            "total_ab_contract_value": ab_contract_value,  # dollar value of AB contracts
             "total_sole_source": sole_count,
             "total_charities": charity_count,
             "zombie_count": zombie_n,
