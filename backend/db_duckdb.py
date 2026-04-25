@@ -811,11 +811,14 @@ def get_stats_live() -> dict:
         loops_count = query(f"SELECT COUNT(*) as n FROM {_read('cra', 'loops')}")
         loop_n = loops_count[0]["n"] if loops_count else 0
 
+        # Match governance page filters exactly: non-null, non-empty, length > 1
         dirs = query(f"""
             SELECT COUNT(*) as n FROM (
                 SELECT last_name, first_name
                 FROM {_read('cra', 'cra_directors')}
                 WHERE last_name IS NOT NULL AND first_name IS NOT NULL
+                  AND last_name != '' AND first_name != ''
+                  AND LENGTH(last_name) > 1 AND LENGTH(first_name) > 1
                 GROUP BY last_name, first_name
                 HAVING COUNT(DISTINCT LEFT(bn, 9)) >= 3
             )

@@ -126,11 +126,13 @@ export default function Dashboard() {
           AI Accountability Dashboard · Agency 2026 Ottawa
         </div>
         <div style={{ fontSize: 38, fontWeight: 900, letterSpacing: '-0.02em', lineHeight: 1.15, background: 'var(--gradient-primary)', WebkitBackgroundClip: 'text', WebkitTextFillColor: 'transparent' }}>
-          We analyzed {stats?.total_public_funding ? formatCurrency(stats.total_public_funding) : '$89.4B'} in public funding.*<br />
+          We mapped {formatNumber(stats?.total_charities || 91129)} Canadian charities,{' '}
+          {formatNumber(stats?.total_fed_grants || 1275521)} federal grant records,<br />
+          and {formatNumber(stats?.total_sole_source || 15533)} procurement contracts.
           Here is what we found.
         </div>
         <div style={{ fontSize: 11, color: 'var(--text-muted)', marginTop: -4 }}>
-          * Sum of peak government funding year per charity from CRA T3010 filings · Federal grants & contributions · Alberta open procurement data
+          Sources: CRA T3010 charity filings · Federal Proactive Disclosure (51+ departments) · Alberta Open Procurement Data · All public records
         </div>
         <div style={{ display: 'flex', gap: 32, marginTop: 12, flexWrap: 'wrap' }}>
           {[
