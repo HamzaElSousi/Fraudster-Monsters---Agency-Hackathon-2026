@@ -1,5 +1,20 @@
 import { useState, useEffect } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { fetchAlerts, formatCurrency } from '../api';
+
+function buildNarrative(alert) {
+  const name = alert.canonical_name || 'This organization';
+  const amt = formatCurrency(parseFloat(alert.total_govt_funding) || 0);
+  const pct = parseFloat(alert.govt_share_pct) || 0;
+  const year = alert.last_filing_year || 'an unknown year';
+  const flags = Array.isArray(alert.flags) ? alert.flags : [];
+  const sentences = [];
+  sentences.push(`${name} received ${amt} in tracked government funding, with ${pct.toFixed(1)}% of revenue from public sources.`);
+  if (flags.includes('zombie')) sentences.push(`Despite this dependency, the organization stopped filing tax returns after ${year} — meaning it may no longer exist.`);
+  if (flags.includes('loop')) sentences.push(`Government money passed through this organization in circular funding loops — the same dollars may have generated multiple charitable tax receipts.`);
+  if (flags.includes('governance')) sentences.push(`Directors of this charity simultaneously sit on boards of other government-funded charities, creating a concentrated governance network.`);
+  return sentences.join(' ');
+}
 
 const FLAG_META = {
   zombie: { icon: '🧟', label: 'Zombie Recipient', color: 'var(--status-critical)', bg: 'rgba(239,68,68,0.1)' },
@@ -11,6 +26,7 @@ const FLAG_META = {
 };
 
 export default function Alerts() {
+  const navigate = useNavigate();
   const [data, setData] = useState(null);
   const [loading, setLoading] = useState(true);
   const [minFlags, setMinFlags] = useState(2);
@@ -238,24 +254,19 @@ export default function Alerts() {
                   </span>
                 </div>
 
+                {/* Narrative — always visible */}
+                <div style={{ padding: '0 24px 14px', fontSize: 13, color: 'var(--text-secondary)', lineHeight: 1.6 }}>
+                  {buildNarrative(alert)}
+                </div>
+
                 {/* Expanded detail section */}
                 {isExpanded && (
                   <div style={{ padding: '0 24px 24px', borderTop: `1px solid ${severityBorder}` }}>
                     <div style={{ paddingTop: 16, display: 'flex', flexDirection: 'column', gap: 12 }}>
-                      {/* Flag detail cards */}
-                      {flags.map((flagKey, fi) => {
+                      {flags.map((flagKey) => {
                         const meta = FLAG_META[flagKey] || FLAG_META.zombie;
                         return (
-                          <div
-                            key={flagKey}
-                            style={{
-                              padding: '14px 16px',
-                              background: meta.bg,
-                              border: `1px solid ${meta.color}30`,
-                              borderRadius: 'var(--radius-md)',
-                              borderLeft: `3px solid ${meta.color}`,
-                            }}
-                          >
+                          <div key={flagKey} style={{ padding: '14px 16px', background: meta.bg, border: `1px solid ${meta.color}30`, borderRadius: 'var(--radius-md)', borderLeft: `3px solid ${meta.color}` }}>
                             <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
                               <span style={{ fontSize: 16 }}>{meta.icon}</span>
                               <span style={{ fontSize: 13, fontWeight: 700, color: meta.color }}>{meta.label}</span>
@@ -265,21 +276,18 @@ export default function Alerts() {
                       })}
                     </div>
 
-                    {/* Detail footer */}
-                    <div style={{
-                      marginTop: 16, padding: '12px 14px',
-                      background: 'var(--bg-tertiary)', borderRadius: 'var(--radius-sm)',
-                      display: 'flex', flexWrap: 'wrap', gap: 16,
-                      fontSize: 12, color: 'var(--text-muted)', fontFamily: 'var(--font-mono)',
-                    }}>
+                    <div style={{ marginTop: 16, padding: '12px 14px', background: 'var(--bg-tertiary)', borderRadius: 'var(--radius-sm)', display: 'flex', flexWrap: 'wrap', gap: 16, alignItems: 'center', fontSize: 12, color: 'var(--text-muted)', fontFamily: 'var(--font-mono)' }}>
                       <span>BN: {alert.bn}</span>
-                      {alert.govt_share_pct != null && (
-                        <span>Govt share: {Number(alert.govt_share_pct).toFixed(1)}%</span>
-                      )}
-                      {alert.last_filing_year && (
-                        <span>Last filing: {alert.last_filing_year}</span>
-                      )}
+                      {alert.govt_share_pct != null && <span>Govt share: {Number(alert.govt_share_pct).toFixed(1)}%</span>}
+                      {alert.last_filing_year && <span>Last filing: {alert.last_filing_year}</span>}
                       <span>Total govt funding: {formatCurrency(govtFunding)}</span>
+                      <span style={{ marginLeft: 'auto', fontFamily: 'var(--font-sans)', fontSize: 11 }}>Source: CRA T3010</span>
+                      <button
+                        onClick={(e) => { e.stopPropagation(); navigate(`/entity/${alert.bn}`); }}
+                        style={{ padding: '6px 14px', fontSize: 12, fontWeight: 600, fontFamily: 'var(--font-sans)', background: severityColor, color: '#fff', border: 'none', borderRadius: 'var(--radius-sm)', cursor: 'pointer' }}
+                      >
+                        Investigate →
+                      </button>
                     </div>
                   </div>
                 )}

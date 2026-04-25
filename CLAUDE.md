@@ -61,11 +61,11 @@ If frontend shows blank screen: `window.location.href = 'http://localhost:5173/?
 
 ## Known issues / next improvements
 
-### Filter/graph problems
-- **Loop filters (hops, flow, risk) do not visibly change the graph** — graph data is fetched once on load from `/api/loops/graph` and cached; filters only update the table. Graph needs its own filter-aware refetch or should be removed and replaced with a better viz.
-- **Network graph has repeated/duplicate nodes** — same org appears multiple times when it participates in many loops under slightly different BN formats; backend deduplicates by 9-char prefix but stub nodes still appear.
-- **Classification filter buttons send `high_alert,suspicious` for "Suspicious" tab** but backend `get_loops_enriched_live` only accepts a single classification value — multi-value not handled.
-- **Risk level filter and classification filter both active simultaneously** causes confusing results — they stack without a visual indicator.
+### Filter/graph problems (RESOLVED)
+- ~~Loop filters do not visibly change the graph~~ → **FIXED**: graph computed client-side via `useMemo` from filtered `loopsData`
+- ~~Network graph has repeated/duplicate nodes~~ → **FIXED**: all BNs normalized to 9-char before building nodes
+- ~~Classification filter "Suspicious" tab sent `high_alert,suspicious` multi-value~~ → **FIXED**: tab removed; backend now handles comma-separated OR logic
+- Risk level filter and classification filter stacking without indicator — cosmetic only, both work correctly
 
 ### Data gaps
 - Chat: AI responses are template-only without Bedrock (`ai_enabled: false` in health check)
@@ -177,6 +177,16 @@ Classification: `score >= 6` → High Alert 🔴 · `score >= 3` → Suspicious 
 18. Alerts governance flag definition wrong → `get_alerts_live` was checking `COUNT(DISTINCT LEFT(bn, 9)) >= 1` (everyone); fixed to `>= 3` to match multi-board director definition
 19. Chat.jsx welcome stat calculation mixed incompatible values → fixed to sum only `fedGrants + abGrants` (record counts) instead of adding charities and soleSource counts
 20. get_stats_live governance count missing CTE → added director_boards CTE to ensure each (last_name, first_name, bn_root) counted once before grouping
+21. Entity case file 910 rows for Salvation Army → `funding_history` had no GROUP BY year; added `GROUP BY fiscal_year` + `SUM()` so multi-program-account orgs aggregate to one row per year
+22. Entity case file profile used `LIMIT 1` → grabbed only one program account's revenue/circular_outflow; replaced with two-stage aggregate: `MAX` per BN, then `SUM` across BNs
+23. Entity case file circular_outflow_pct = 107% → cumulative outflow vs annual revenue is apples-to-oranges; suppressed ratio when > 1.0 (physically impossible); no false `high_circular_dependency` flag
+24. Entity case file loop_count = 717 (sum of lcf.loops_count across 180 accounts) → replaced with `COUNT(DISTINCT loop_id)` from `loop_participants`; Salvation Army now shows 196 distinct loops
+25. Alerts zombie false positives (Salvation Army, United Church, Catholic dioceses) → `get_alerts_live` zombie query had no govt dependency threshold; added `govt_share >= 70% AND total_govt >= $100K`; also grouped by 9-char BN root so multi-account orgs use their MOST RECENT filing date
+26. FundingLoops graph not updating with filters → graph was fetched once via `/api/loops/graph`; replaced with `useMemo` computing graph client-side from filtered `loopsData` + `charities` — always in sync
+27. FundingLoops graph duplicate nodes → mixed 9/15-char BNs; all BNs normalized to `bn.slice(0, 9)` before building nodes and links
+28. FundingLoops "Suspicious Loops" tab broken → was setting `classification='high_alert,suspicious'` which backend silently ignored; tab removed; classification buttons at top handle single-value filtering correctly
+29. Backend classification filter accepted only single value → updated to parse comma-separated values with `IN (...)` for OR logic
+30. Alerts page missing narrative and Investigate button → restored `buildNarrative()` function, always-visible paragraph per card, "Investigate →" button linking to `/entity/:bn`, and "Source: CRA T3010" badge
 
 ---
 
