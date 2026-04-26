@@ -10,7 +10,7 @@ import Chat from './pages/Chat';
 import EntityCaseFile from './pages/EntityCaseFile';
 import './index.css';
 
-const API_BASE = import.meta.env.VITE_API_URL || 'http://localhost:8000';
+const API_BASE = import.meta.env.VITE_API_URL || '';
 
 function BackendStatus() {
   const [down, setDown] = useState(false);

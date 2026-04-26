@@ -25,7 +25,7 @@ services:
       context: .
       dockerfile: Dockerfile.frontend
       args:
-        VITE_API_URL: http://localhost:8000
+        VITE_API_URL: ""
     ports:
       - "3000:80"
     depends_on:

@@ -61,7 +61,7 @@ def _base() -> str:
 def get_conn() -> duckdb.DuckDBPyConnection:
     global _conn
     if _conn is None:
-        db_path = os.path.join(_base(), "hackathon.duckdb")
+        db_path = os.environ.get("DUCKDB_PATH") or os.path.join(_base(), "hackathon.duckdb")
         _conn = duckdb.connect(db_path)
         _conn.execute("SET threads=4; SET memory_limit='3GB';")
     return _conn
