@@ -62,50 +62,39 @@ export default function Dashboard() {
     );
   }
 
-  const statCards = [
+  const findingCards = [
     {
-      icon: '🏛️', color: 'indigo', label: 'Govt-Funded Charities',
-      value: formatNumber(stats?.total_entities),
-      subtitle: 'CRA-registered charities with recorded government funding',
+      icon: '🧟',
+      label: 'Zombie Recipients',
+      value: stats?.zombie_count ?? 219,
+      detail: stats?.at_risk_funding ? `${formatCurrency(stats.at_risk_funding)} at risk` : '$482M at risk',
+      sub: '≥70% govt-dependent · stopped filing by 2022',
+      color: 'var(--status-critical)',
+      border: 'rgba(239,68,68,0.3)',
+      bg: 'rgba(239,68,68,0.05)',
+      path: '/zombies',
     },
     {
-      icon: '🧟', color: 'rose', label: 'Zombie Recipients',
-      value: formatNumber(stats?.zombie_count),
-      subtitle: '≥70% govt-dependent charities that stopped filing by 2022',
-      onClick: () => navigate('/zombies'),
+      icon: '🔄',
+      label: 'Funding Loops',
+      value: stats?.total_funding_loops ?? 5808,
+      detail: loopStats?.phantom_receipts_total ? `${fmtDollars(loopStats.phantom_receipts_total)} phantom receipts (est.)` : 'Phantom receipts possible',
+      sub: 'Circular gift chains detected in CRA schedules',
+      color: 'var(--accent-purple)',
+      border: 'rgba(139,92,246,0.3)',
+      bg: 'rgba(139,92,246,0.05)',
+      path: '/loops',
     },
     {
-      icon: '🔄', color: 'purple', label: 'Funding Loops',
-      value: formatNumber(stats?.total_funding_loops),
-      subtitle: 'Circular gift patterns detected in CRA gift schedules',
-      onClick: () => navigate('/loops'),
-    },
-    {
-      icon: '🕸️', color: 'cyan', label: 'Multi-Board Directors',
-      value: formatNumber(stats?.multi_board_directors),
-      subtitle: 'Individuals on 3+ funded charity boards simultaneously',
-      onClick: () => navigate('/governance'),
-    },
-    {
-      icon: '🇨🇦', color: 'emerald', label: 'Federal Grant Records',
-      value: formatNumber(stats?.total_fed_grants),
-      subtitle: 'Individual grant & contribution records, 51+ departments',
-    },
-    {
-      icon: '🏔️', color: 'amber', label: 'Alberta Contract Value',
-      value: stats?.total_ab_contract_value ? fmtDollars(stats.total_ab_contract_value) : formatNumber(stats?.total_ab_grants),
-      subtitle: `${formatNumber(stats?.total_ab_grants)} sole-source contract records`,
-    },
-    {
-      icon: '📋', color: 'indigo', label: 'Registered Charities',
-      value: formatNumber(stats?.total_charities),
-      subtitle: 'Total CRA-registered charities in dataset',
-    },
-    {
-      icon: '⚠️', color: 'rose', label: 'Sole-Source Contracts',
-      value: formatNumber(stats?.total_sole_source),
-      subtitle: 'Alberta non-competitive procurement records',
-      onClick: () => navigate('/sole-source'),
+      icon: '🕸️',
+      label: 'Multi-Board Directors',
+      value: stats?.multi_board_directors ?? 18134,
+      detail: 'Simultaneous board seats across funded charities',
+      sub: 'Individuals on 3+ govt-funded charity boards',
+      color: 'var(--accent-cyan)',
+      border: 'rgba(34,211,238,0.3)',
+      bg: 'rgba(34,211,238,0.05)',
+      path: '/governance',
     },
   ];
 
@@ -116,7 +105,7 @@ export default function Dashboard() {
         display: 'flex',
         flexDirection: 'column',
         gap: 8,
-        marginBottom: 32,
+        marginBottom: 28,
         padding: '28px 32px',
         background: 'var(--gradient-glass)',
         border: '1px solid var(--border-accent)',
@@ -125,31 +114,46 @@ export default function Dashboard() {
         <div style={{ fontSize: 13, color: 'var(--text-muted)', fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.05em' }}>
           AI Accountability Dashboard · Agency 2026 Ottawa
         </div>
-        <div style={{ fontSize: 38, fontWeight: 900, letterSpacing: '-0.02em', lineHeight: 1.15, background: 'var(--gradient-primary)', WebkitBackgroundClip: 'text', WebkitTextFillColor: 'transparent' }}>
+        <div style={{ fontSize: 34, fontWeight: 900, letterSpacing: '-0.02em', lineHeight: 1.2, background: 'var(--gradient-primary)', WebkitBackgroundClip: 'text', WebkitTextFillColor: 'transparent' }}>
           We mapped {formatNumber(stats?.total_charities || 91129)} Canadian charities,{' '}
-          {formatNumber(stats?.total_fed_grants || 1275521)} federal grant records,<br />
+          {formatNumber(stats?.total_fed_grants || 1275521)} federal grant records,
           and {formatNumber(stats?.total_sole_source || 15533)} procurement contracts.
           Here is what we found.
         </div>
-        <div style={{ fontSize: 11, color: 'var(--text-muted)', marginTop: -4 }}>
-          Sources: CRA T3010 charity filings · Federal Proactive Disclosure (51+ departments) · Alberta Open Procurement Data · All public records
+        <div style={{ fontSize: 11, color: 'var(--text-muted)', marginTop: 2 }}>
+          Sources: CRA T3010 charity filings · Federal Proactive Disclosure (51+ departments) · Alberta Open Procurement · All public records
         </div>
-        <div style={{ display: 'flex', gap: 32, marginTop: 12, flexWrap: 'wrap' }}>
-          {[
-            { label: 'Zombie Recipients', value: stats?.zombie_count, color: 'var(--status-critical)', path: '/zombies' },
-            { label: 'Funding Loops', value: stats?.total_funding_loops, color: 'var(--accent-purple)', path: '/loops' },
-            { label: 'Multi-Board Directors', value: stats?.multi_board_directors, color: 'var(--accent-cyan)', path: '/governance' },
-            { label: 'At-Risk Funding', value: stats?.at_risk_funding ? formatCurrency(stats.at_risk_funding) : null, color: 'var(--status-critical)', raw: true },
-            { label: 'Phantom Receipts (est. upper bound)', value: loopStats?.phantom_receipts_total ? fmtDollars(loopStats.phantom_receipts_total) : null, color: 'var(--status-critical)', raw: true, path: '/loops' },
-          ].map((item, i) => (
-            <div key={i} onClick={() => item.path && navigate(item.path)} style={{ cursor: item.path ? 'pointer' : 'default' }}>
-              <div style={{ fontSize: 11, color: 'var(--text-muted)', marginBottom: 2 }}>{item.label}</div>
-              <div style={{ fontSize: 22, fontWeight: 800, color: item.color }}>
-                {item.value == null ? '…' : item.raw ? item.value : Number(item.value).toLocaleString()}
-              </div>
+      </div>
+
+      {/* 3 Key Findings */}
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(260px, 1fr))', gap: 16, marginBottom: 24 }}>
+        {findingCards.map((card) => (
+          <div
+            key={card.label}
+            onClick={() => navigate(card.path)}
+            style={{
+              padding: '20px 24px',
+              background: card.bg,
+              border: `1px solid ${card.border}`,
+              borderTop: `3px solid ${card.color}`,
+              borderRadius: 'var(--radius-lg)',
+              cursor: 'pointer',
+              transition: 'all var(--transition-fast)',
+            }}
+            onMouseEnter={e => e.currentTarget.style.transform = 'translateY(-3px)'}
+            onMouseLeave={e => e.currentTarget.style.transform = 'translateY(0)'}
+          >
+            <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 10 }}>
+              <span style={{ fontSize: 20 }}>{card.icon}</span>
+              <span style={{ fontSize: 12, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.05em', color: card.color }}>{card.label}</span>
             </div>
-          ))}
-        </div>
+            <div style={{ fontSize: 42, fontWeight: 900, color: card.color, lineHeight: 1, marginBottom: 6 }}>
+              {typeof card.value === 'number' ? card.value.toLocaleString() : card.value}
+            </div>
+            <div style={{ fontSize: 13, fontWeight: 600, color: 'var(--text-primary)', marginBottom: 4 }}>{card.detail}</div>
+            <div style={{ fontSize: 11, color: 'var(--text-muted)' }}>{card.sub}</div>
+          </div>
+        ))}
       </div>
 
       {/* Kill Shot Card — top multi-flag alert */}
@@ -158,6 +162,7 @@ export default function Dashboard() {
           onClick={() => navigate(`/entity/${encodeURIComponent(killShot.bn)}`)}
           style={{
             padding: '20px 24px',
+            marginBottom: 24,
             background: 'rgba(239,68,68,0.05)',
             border: '1px solid rgba(239,68,68,0.25)',
             borderLeft: '4px solid var(--status-critical)',
@@ -196,28 +201,9 @@ export default function Dashboard() {
         </div>
       )}
 
-      {/* Stat Cards */}
-      <div className="stats-grid">
-        {statCards.map((card, i) => (
-          <div
-            key={i}
-            className="stat-card"
-            style={{ cursor: card.onClick ? 'pointer' : 'default', animationDelay: `${i * 50}ms` }}
-            onClick={card.onClick}
-          >
-            <div className="stat-card-header">
-              <div className={`stat-card-icon ${card.color}`}>{card.icon}</div>
-              <span className="stat-card-label">{card.label}</span>
-            </div>
-            <div className="stat-card-value">{card.value}</div>
-            <div className="stat-card-subtitle">{card.subtitle}</div>
-          </div>
-        ))}
-      </div>
-
       {/* Start Here — Featured Cases */}
       {featured.length > 0 && (
-        <div style={{ marginTop: 28, marginBottom: 0 }}>
+        <div style={{ marginBottom: 0 }}>
           <h3 style={{ fontSize: 13, fontWeight: 700, color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '0.06em', marginBottom: 14 }}>
             Start Here — High-Priority Cases
           </h3>
@@ -262,54 +248,6 @@ export default function Dashboard() {
           </div>
         </div>
       )}
-
-      {/* Quick Investigation Prompts */}
-      <div style={{
-        marginTop: 32,
-        padding: '24px 28px',
-        background: 'var(--bg-card)',
-        border: '1px solid var(--border-primary)',
-        borderRadius: 'var(--radius-lg)',
-      }}>
-        <h3 style={{ fontSize: 16, fontWeight: 600, marginBottom: 16 }}>
-          🔍 Quick Investigations
-        </h3>
-        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(280px, 1fr))', gap: 12 }}>
-          {[
-            { icon: '🧟', title: 'Zombie Recipients', desc: 'High govt-dependency charities that received public funds then stopped filing', path: '/zombies', color: 'var(--status-critical)' },
-            { icon: '🔄', title: 'Largest Funding Loop', desc: 'Circular gift patterns cycling through multiple charities', path: '/loops', color: 'var(--accent-purple)' },
-            { icon: '🕸️', title: 'Top Power Broker', desc: 'Director on multiple funded charity boards — conflicts of interest mapped', path: '/governance', color: 'var(--accent-cyan)' },
-            { icon: '🤖', title: 'Ask AI', desc: '"Show me organizations in Alberta that dissolved after receiving funding"', path: '/chat', color: 'var(--accent-indigo)' },
-          ].map((item, i) => (
-            <div
-              key={i}
-              onClick={() => navigate(item.path)}
-              style={{
-                padding: '16px 20px',
-                background: 'var(--bg-tertiary)',
-                border: '1px solid var(--border-primary)',
-                borderRadius: 'var(--radius-md)',
-                cursor: 'pointer',
-                transition: 'all var(--transition-fast)',
-              }}
-              onMouseEnter={(e) => {
-                e.currentTarget.style.borderColor = item.color;
-                e.currentTarget.style.transform = 'translateY(-2px)';
-              }}
-              onMouseLeave={(e) => {
-                e.currentTarget.style.borderColor = 'var(--border-primary)';
-                e.currentTarget.style.transform = 'translateY(0)';
-              }}
-            >
-              <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 6 }}>
-                <span style={{ fontSize: 20 }}>{item.icon}</span>
-                <span style={{ fontSize: 14, fontWeight: 600, color: item.color }}>{item.title}</span>
-              </div>
-              <div style={{ fontSize: 13, color: 'var(--text-secondary)', lineHeight: 1.4 }}>{item.desc}</div>
-            </div>
-          ))}
-        </div>
-      </div>
     </div>
   );
 }

@@ -404,71 +404,76 @@ def get_loop_graph_live(limit: int = 50) -> dict:
     """
     loop_rows = query(sql_loops)
 
-    # Collect unique BNs from all loop paths
-    bns = set()
+    # Collect unique 9-char BN roots from all loop paths
+    bn9s = set()
     for l in loop_rows:
-        bns.update(l.get("path_bns") or [])
+        for bn in (l.get("path_bns") or []):
+            if bn:
+                bn9s.add(str(bn)[:9])
 
     nodes = []
     links = []
 
-    if bns:
-        safe_bns = [b for b in bns if b and re.match(r'^[A-Za-z0-9]{9,15}$', str(b))]
-        bn_list = "','".join(list(safe_bns)[:300])
+    if bn9s:
+        safe_bn9s = [b for b in bn9s if b and re.match(r'^[A-Za-z0-9]{9}$', str(b))]
+        bn_list = "','".join(safe_bn9s[:300])
         node_sql = f"""
             SELECT
-                bn,
-                bn as id,
-                legal_name as name,
-                TRY_CAST(revenue AS DOUBLE) as revenue,
-                TRY_CAST(circular_outflow AS DOUBLE) as circular_outflow,
-                loops_count,
+                LEFT(bn, 9) as bn,
+                LEFT(bn, 9) as id,
+                MAX(legal_name) as name,
+                SUM(TRY_CAST(revenue AS DOUBLE)) as revenue,
+                SUM(TRY_CAST(circular_outflow AS DOUBLE)) as circular_outflow,
+                SUM(loops_count) as loops_count,
                 CASE
-                    WHEN TRY_CAST(circular_outflow AS DOUBLE) > 0
-                     AND TRY_CAST(revenue AS DOUBLE) > 0
-                     AND TRY_CAST(circular_outflow AS DOUBLE) / TRY_CAST(revenue AS DOUBLE) > 0.3
+                    WHEN SUM(TRY_CAST(circular_outflow AS DOUBLE)) > 0
+                     AND SUM(TRY_CAST(revenue AS DOUBLE)) > 0
+                     AND SUM(TRY_CAST(circular_outflow AS DOUBLE)) / SUM(TRY_CAST(revenue AS DOUBLE)) > 0.3
                         THEN 'high'
-                    WHEN TRY_CAST(circular_outflow AS DOUBLE) > 50000 THEN 'medium'
+                    WHEN SUM(TRY_CAST(circular_outflow AS DOUBLE)) > 50000 THEN 'medium'
                     ELSE 'low'
                 END as risk
             FROM {lcf}
-            WHERE bn IN ('{bn_list}')
+            WHERE LEFT(bn, 9) IN ('{bn_list}')
+            GROUP BY LEFT(bn, 9)
         """
         nodes = query(node_sql)
-        # Add fallback stub nodes for BNs not found in loop_charity_financials
-        found_bns = {n["bn"] for n in nodes}
-        stub_bns = [bn for bn in bns if bn not in found_bns]
-        # Try to resolve stub BN names from cra_identification
+        # Add fallback stub nodes for BN roots not found in loop_charity_financials
+        found_bn9s = {n["bn"] for n in nodes}
+        stub_bn9s = [bn for bn in bn9s if bn not in found_bn9s]
         stub_name_map: dict[str, str] = {}
-        if stub_bns:
+        if stub_bn9s:
             try:
                 ident = _read("cra", "cra_identification")
-                stub_bn_list = "','".join(stub_bns[:200])
+                stub_bn_list = "','".join(stub_bn9s[:200])
                 name_rows = query(f"""
-                    SELECT bn, legal_name FROM {ident}
-                    WHERE bn IN ('{stub_bn_list}')
-                    QUALIFY ROW_NUMBER() OVER (PARTITION BY bn ORDER BY fiscal_year DESC) = 1
+                    SELECT LEFT(bn, 9) as bn9, MAX(legal_name) as name
+                    FROM {ident}
+                    WHERE LEFT(bn, 9) IN ('{stub_bn_list}')
+                    GROUP BY LEFT(bn, 9)
                 """)
-                stub_name_map = {r["bn"]: r["legal_name"] for r in name_rows if r.get("legal_name")}
+                stub_name_map = {r["bn9"]: r["name"] for r in name_rows if r.get("name")}
             except Exception:
                 pass
-        for bn in stub_bns:
+        for bn9 in stub_bn9s:
             nodes.append({
-                "bn": bn, "id": bn,
-                "name": stub_name_map.get(bn, bn[:9] + "…"),
+                "bn": bn9, "id": bn9,
+                "name": stub_name_map.get(bn9, bn9 + "…"),
                 "revenue": 0, "circular_outflow": 0,
                 "loops_count": 1, "risk": "low",
             })
 
     for l in loop_rows:
         path = l.get("path_bns") or []
-        for i in range(len(path) - 1):
-            links.append({
-                "source": str(path[i]),
-                "target": str(path[i + 1]),
-                "flow": float(l.get("bottleneck_amt") or 0),
-                "loop_id": l.get("id"),
-            })
+        path9 = [str(bn)[:9] for bn in path if bn]
+        for i in range(len(path9) - 1):
+            if path9[i] != path9[i + 1]:
+                links.append({
+                    "source": path9[i],
+                    "target": path9[i + 1],
+                    "flow": float(l.get("bottleneck_amt") or 0),
+                    "loop_id": l.get("id"),
+                })
 
     # Enrich loop rows
     for l in loop_rows:
@@ -485,7 +490,8 @@ def get_governance_live(min_boards: int = 3, limit: int = 50) -> list[dict]:
     dirs = _read("cra", "cra_directors")
     gov = _read("cra", "govt_funding_by_charity")
 
-    # Step 1: Get multi-board directors
+    # Step 1: Get multi-board directors — restricted to govt-funded charities only.
+    # This eliminates common-name false positives from the 91K+ total charity universe.
     sql_directors = f"""
         WITH director_boards AS (
             SELECT
@@ -496,6 +502,11 @@ def get_governance_live(min_boards: int = 3, limit: int = 50) -> list[dict]:
             WHERE last_name IS NOT NULL AND first_name IS NOT NULL
               AND last_name != '' AND first_name != ''
               AND LENGTH(last_name) > 1 AND LENGTH(first_name) > 1
+              AND LEFT(bn, 9) IN (
+                  SELECT DISTINCT LEFT(bn, 9)
+                  FROM {gov}
+                  WHERE TRY_CAST(total_govt AS DOUBLE) > 0
+              )
             GROUP BY last_name, first_name, LEFT(bn, 9)
         )
         SELECT
@@ -657,31 +668,80 @@ def get_sole_source_live(min_ratio: float = 3.0, limit: int = 50) -> list[dict]:
 
 def get_sole_source_stats_live() -> dict:
     ss = _read("ab", "ab_sole_source")
-    sql = f"""
+    total_sql = f"""
         SELECT
             COUNT(*) as total_contracts,
             SUM(TRY_CAST(amount AS DOUBLE)) as total_value,
-            COUNT(DISTINCT vendor) as unique_vendors,
-            COUNT(DISTINCT ministry) as departments,
             COUNT(CASE WHEN TRY_CAST(amount AS DOUBLE) BETWEEN 40000 AND 49999 THEN 1 END) as near_threshold
         FROM {ss}
         WHERE TRY_CAST(amount AS DOUBLE) > 0
     """
-    rows = query(sql)
+    rows = query(total_sql)
     if not rows:
         return {}
     r = rows[0]
     total_contracts = int(r.get("total_contracts") or 0)
     total_value = float(r.get("total_value") or 0)
+
+    ratio_sql = f"""
+        WITH vendor_totals AS (
+            SELECT vendor, ministry,
+                COUNT(*) as contract_count,
+                SUM(TRY_CAST(amount AS DOUBLE)) as total_amount,
+                MIN(TRY_CAST(amount AS DOUBLE)) as min_contract
+            FROM {ss}
+            WHERE TRY_CAST(amount AS DOUBLE) >= 1000
+              AND vendor IS NOT NULL AND vendor != ''
+            GROUP BY vendor, ministry
+            HAVING COUNT(*) >= 2 AND MIN(TRY_CAST(amount AS DOUBLE)) >= 1000
+        )
+        SELECT
+            COUNT(CASE WHEN total_amount / min_contract >= 5 THEN 1 END) as over_5x,
+            COUNT(CASE WHEN total_amount / min_contract >= 10 THEN 1 END) as over_10x,
+            ROUND(AVG(LEAST(total_amount / min_contract, 1000)), 1) as avg_ratio
+        FROM vendor_totals
+    """
+    ratio_rows = query(ratio_sql)
+    ratio_r = ratio_rows[0] if ratio_rows else {}
+
+    top_sql = f"""
+        WITH vendor_totals AS (
+            SELECT vendor, ministry,
+                COUNT(*) as contract_count,
+                SUM(TRY_CAST(amount AS DOUBLE)) as total_amount,
+                MIN(TRY_CAST(amount AS DOUBLE)) as min_contract
+            FROM {ss}
+            WHERE TRY_CAST(amount AS DOUBLE) >= 1000
+              AND vendor IS NOT NULL AND vendor != ''
+            GROUP BY vendor, ministry
+            HAVING COUNT(*) >= 2 AND MIN(TRY_CAST(amount AS DOUBLE)) >= 1000
+        )
+        SELECT vendor, ministry, total_amount, min_contract,
+               ROUND(total_amount / min_contract, 1) as growth_ratio,
+               contract_count
+        FROM vendor_totals
+        WHERE total_amount >= 1000000
+        ORDER BY total_amount DESC
+        LIMIT 1
+    """
+    top_rows = query(top_sql)
+    top_r = top_rows[0] if top_rows else {}
+
     return {
         "total_sole_source_contracts": total_contracts,
         "total_original_value": total_value,
         "total_amended_value": total_value,
-        "avg_amendment_ratio": 1.0,
-        "contracts_over_5x": 0,
-        "contracts_over_10x": 0,
+        "avg_amendment_ratio": float(ratio_r.get("avg_ratio") or 1.0),
+        "contracts_over_5x": int(ratio_r.get("over_5x") or 0),
+        "contracts_over_10x": int(ratio_r.get("over_10x") or 0),
         "contracts_near_threshold": int(r.get("near_threshold") or 0),
         "total_at_risk": total_value,
+        "top_offender_vendor": top_r.get("vendor") or "",
+        "top_offender_ministry": top_r.get("ministry") or "",
+        "top_offender_min_contract": float(top_r.get("min_contract") or 0),
+        "top_offender_total": float(top_r.get("total_amount") or 0),
+        "top_offender_growth": float(top_r.get("growth_ratio") or 0),
+        "top_offender_contracts": int(top_r.get("contract_count") or 0),
     }
 
 
@@ -816,25 +876,27 @@ def get_stats_live() -> dict:
         loops_count = query(f"SELECT COUNT(*) as n FROM {_read('cra', 'loops')}")
         loop_n = loops_count[0]["n"] if loops_count else 0
 
-        # Match governance page filters exactly: non-null, non-empty, length > 1
-        # Must use CTE to ensure each (last_name, first_name, bn_root) is counted only once
+        # Count (last_name, first_name) pairs on 3+ distinct GOVERNMENT-FUNDED charity boards.
+        # Restricting to govt-funded charities eliminates common-name false positives from
+        # the ~91K charity universe (most are small volunteer orgs with no govt money).
         dirs = query(f"""
             SELECT COUNT(*) as n FROM (
-                WITH director_boards AS (
-                    SELECT
-                        last_name, first_name,
-                        LEFT(bn, 9) as bn_root
-                    FROM {_read('cra', 'cra_directors')}
-                    WHERE last_name IS NOT NULL AND first_name IS NOT NULL
-                      AND last_name != '' AND first_name != ''
-                      AND LENGTH(last_name) > 1 AND LENGTH(first_name) > 1
-                    GROUP BY last_name, first_name, LEFT(bn, 9)
-                )
                 SELECT last_name, first_name
-                FROM director_boards
+                FROM (
+                    SELECT DISTINCT d.last_name, d.first_name, LEFT(d.bn, 9) as bn_root
+                    FROM {_read('cra', 'cra_directors')} d
+                    WHERE d.last_name IS NOT NULL AND d.first_name IS NOT NULL
+                      AND d.last_name != '' AND d.first_name != ''
+                      AND LENGTH(d.last_name) > 1 AND LENGTH(d.first_name) > 1
+                      AND LEFT(d.bn, 9) IN (
+                          SELECT DISTINCT LEFT(bn, 9)
+                          FROM {_read('cra', 'govt_funding_by_charity')}
+                          WHERE TRY_CAST(total_govt AS DOUBLE) > 0
+                      )
+                ) t
                 GROUP BY last_name, first_name
                 HAVING COUNT(DISTINCT bn_root) >= 3
-            )
+            ) final
         """)
         dir_n = dirs[0]["n"] if dirs else 0
 
@@ -1398,6 +1460,106 @@ def get_entity_case_file_live(bn: str) -> dict:
     # circular_outflow in lcf is cumulative across years; ratio is only coherent when <= 1.0
     circ_pct = round(circ / rev, 3) if rev > 0 and circ / rev <= 1.0 else 0
 
+    # Zombie status
+    ident_tbl = _read("cra", "cra_identification")
+    zombie_rows = query(f"""
+        WITH last_filing AS (
+            SELECT LEFT(bn, 9) as bn9, MAX(fiscal_year) as last_year
+            FROM {ident_tbl}
+            GROUP BY LEFT(bn, 9)
+        ),
+        best_govt AS (
+            SELECT LEFT(bn, 9) as bn9,
+                   MAX(TRY_CAST(total_govt AS DOUBLE)) as total_govt,
+                   MAX(TRY_CAST(govt_share_of_rev AS DOUBLE)) as govt_share
+            FROM {gfbc_tbl}
+            GROUP BY LEFT(bn, 9)
+        )
+        SELECT bg.total_govt, bg.govt_share, lf.last_year
+        FROM best_govt bg
+        JOIN last_filing lf ON lf.bn9 = bg.bn9
+        WHERE bg.bn9 = '{bn9}'
+    """)
+    zombie_r = zombie_rows[0] if zombie_rows else {}
+    govt_share_val = float(zombie_r.get("govt_share") or 0)
+    total_govt_val = float(zombie_r.get("total_govt") or 0)
+    last_year_val = int(zombie_r.get("last_year") or 9999)
+    is_zombie = govt_share_val >= 70.0 and total_govt_val >= 100000 and last_year_val <= 2022
+    zombie_status = {
+        "is_zombie": is_zombie,
+        "last_filing_year": last_year_val if last_year_val < 9999 else None,
+        "govt_share_pct": round(govt_share_val, 1),
+        "total_govt_funding": total_govt_val,
+    }
+
+    # Directors for this entity + their board counts
+    dirs_tbl = _read("cra", "cra_directors")
+    directors = query(f"""
+        WITH entity_dirs AS (
+            SELECT DISTINCT last_name, first_name, MAX(position) as position
+            FROM {dirs_tbl}
+            WHERE LEFT(bn, 9) = '{bn9}'
+              AND last_name IS NOT NULL AND last_name != ''
+              AND first_name IS NOT NULL AND first_name != ''
+            GROUP BY last_name, first_name
+        ),
+        all_boards AS (
+            SELECT last_name, first_name, COUNT(DISTINCT LEFT(bn, 9)) as board_count
+            FROM {dirs_tbl}
+            WHERE last_name IS NOT NULL AND last_name != ''
+              AND first_name IS NOT NULL AND first_name != ''
+              AND LENGTH(last_name) > 1 AND LENGTH(first_name) > 1
+            GROUP BY last_name, first_name
+        )
+        SELECT ed.last_name, ed.first_name, ed.position,
+               COALESCE(ab.board_count, 1) as board_count
+        FROM entity_dirs ed
+        LEFT JOIN all_boards ab ON ab.last_name = ed.last_name AND ab.first_name = ed.first_name
+        ORDER BY board_count DESC
+        LIMIT 15
+    """)
+
+    # Federal grants matched by business number
+    federal_grants = []
+    try:
+        fed_tbl = _read("fed", "grants_contributions")
+        fed_rows = query(f"""
+            SELECT
+                COALESCE(owner_org_title, owner_org) as department,
+                TRY_CAST(EXTRACT(YEAR FROM TRY_CAST(agreement_start_date AS TIMESTAMP)) AS INTEGER) as fiscal_year,
+                SUM(TRY_CAST(agreement_value AS DOUBLE)) as amount,
+                MAX(prog_name_en) as program
+            FROM {fed_tbl}
+            WHERE TRY_CAST(agreement_value AS DOUBLE) > 0
+              AND LEFT(COALESCE(recipient_business_number, ''), 9) = '{bn9}'
+            GROUP BY COALESCE(owner_org_title, owner_org),
+                     TRY_CAST(EXTRACT(YEAR FROM TRY_CAST(agreement_start_date AS TIMESTAMP)) AS INTEGER)
+            ORDER BY amount DESC
+            LIMIT 10
+        """)
+        federal_grants = fed_rows if fed_rows else []
+    except Exception:
+        federal_grants = []
+
+    # Loop partners (co-participants in same loops)
+    loop_partners = []
+    try:
+        partner_rows = query(f"""
+            SELECT DISTINCT LEFT(p2.bn, 9) as partner_bn,
+                   MAX(COALESCE(lcf.legal_name, LEFT(p2.bn, 9))) as partner_name
+            FROM {lp_tbl} p1
+            JOIN {lp_tbl} p2 ON p1.loop_id = p2.loop_id
+            LEFT JOIN {lcf_tbl} lcf ON LEFT(lcf.bn, 9) = LEFT(p2.bn, 9)
+            WHERE LEFT(p1.bn, 9) = '{bn9}'
+              AND LEFT(p2.bn, 9) != '{bn9}'
+            GROUP BY LEFT(p2.bn, 9)
+            ORDER BY partner_name
+            LIMIT 10
+        """)
+        loop_partners = partner_rows if partner_rows else []
+    except Exception:
+        loop_partners = []
+
     flags = []
     if loops or distinct_loop_count > 0:       flags.append("loop_participant")
     if any(l.get("same_year") for l in loops): flags.append("same_year_loop")
@@ -1419,6 +1581,10 @@ def get_entity_case_file_live(bn: str) -> dict:
         "program_pct":         round(prog / exp, 3) if exp > 0 else 0,
         "flags":               flags,
         "red_flag_count":      len(flags),
+        "zombie_status":       zombie_status,
+        "directors":           directors,
+        "federal_grants":      federal_grants,
+        "loop_partners":       loop_partners,
     }
 
 
