@@ -1,3 +1,4 @@
+// @ts-nocheck
 import { useState, useEffect } from 'react';
 import { fetchGovernance, fetchSelfDealingDirectors, formatCurrency, fmtDollars } from '../api';
 

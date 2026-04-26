@@ -681,7 +681,35 @@ def get_entity_case_file(bn: str):
     """Full accountability dossier for a single organization by BN."""
     if len(bn) < 9:
         raise HTTPException(400, "Invalid BN format — must be at least 9 characters")
-    return _duck.cached(f"entity:{bn}", _duck.get_entity_case_file_live, bn)
+    data = _duck.cached(f"entity:{bn}", _duck.get_entity_case_file_live, bn)
+    # Append risk score
+    try:
+        from risk_scorer import calculate_score, get_triggered_flags
+        result = calculate_score(data)
+        data["risk_score"]    = result["score"]
+        data["risk_tier"]     = result["tier"]
+        data["risk_breakdown"] = result["breakdown"]
+        data["risk_flags"]    = get_triggered_flags(data, result["breakdown"])
+    except Exception as e:
+        print(f"[risk_scorer] entity scoring error: {e}")
+        data.setdefault("risk_score", 0)
+        data.setdefault("risk_tier", "low")
+        data.setdefault("risk_breakdown", {})
+        data.setdefault("risk_flags", [])
+    return data
+
+
+# ── Flagged Orgs Feed ─────────────────────────────────────────────────────────
+@app.get("/api/flagged-orgs")
+def get_flagged_orgs(
+    limit:  int = Query(default=50, ge=1, le=200),
+    filter: str = Query(default="all", max_length=20),
+    sort:   str = Query(default="risk_score", max_length=20),
+):
+    """Risk-scored org feed for the homepage. filter: all|zombie|loop|duplicate|governance."""
+    cache_key = f"flagged_orgs:{filter}:{sort}"
+    orgs = _duck.cached(cache_key, _duck.get_flagged_orgs_live, limit, filter, sort)
+    return {"orgs": orgs, "total": len(orgs)}
 
 
 # ── Dashboard Featured Cases ──────────────────────────────────────────────────

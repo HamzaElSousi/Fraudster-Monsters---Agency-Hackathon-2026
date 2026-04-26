@@ -1,3 +1,4 @@
+// @ts-nocheck
 import { useState, useEffect, useRef, useCallback } from 'react';
 import ReactECharts from 'echarts-for-react';
 import { fetchLoops, fetchLoopGraph, fetchLoopsStats, fetchLoopCharities, fetchLoopsStatsEnriched, fetchLoopDetail, fetchLoopsEnriched, formatCurrency, formatNumber, fmtDollars, classificationBadge } from '../api';

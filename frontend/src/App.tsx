@@ -9,6 +9,7 @@ import SoleSource from './pages/SoleSource';
 import Chat from './pages/Chat';
 import EntityCaseFile from './pages/EntityCaseFile';
 import DuplicativeFunding from './pages/DuplicativeFunding';
+import Methodology from './pages/Methodology';
 import './index.css';
 
 const API_BASE = import.meta.env.VITE_API_URL || '';
@@ -241,6 +242,12 @@ function Sidebar() {
           <span className="nav-link-icon">🤖</span>
           Ask AI
         </NavLink>
+
+        <div className="sidebar-section-label">About</div>
+        <NavLink to="/about" className={({ isActive }) => `nav-link ${isActive ? 'active' : ''}`}>
+          <span className="nav-link-icon">📋</span>
+          Methodology
+        </NavLink>
       </nav>
 
       <div className="sidebar-footer">
@@ -271,6 +278,7 @@ const PAGE_TITLES = {
   '/chat': 'AI Investigator',
   '/entity': 'Entity Case File',
   '/duplicative-funding': 'Cross-Government Funding — Challenges #6 + #8',
+  '/about': 'Methodology — How AuditLens Works',
 };
 
 const PAGE_CLASSES = {
@@ -313,6 +321,7 @@ function MainLayout() {
             <Route path="/chat" element={<Chat />} />
             <Route path="/entity/:bn" element={<EntityCaseFile />} />
             <Route path="/duplicative-funding" element={<DuplicativeFunding />} />
+            <Route path="/about" element={<Methodology />} />
           </Routes>
         </div>
       </main>

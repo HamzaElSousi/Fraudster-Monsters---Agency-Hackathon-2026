@@ -1807,4 +1807,119 @@ def get_dashboard_featured_cases_live() -> list[dict]:
         return rows
     except Exception as e:
         print(f"[DuckDB] get_dashboard_featured_cases_live error: {e}")
+
+
+def get_flagged_orgs_live(limit: int = 100, filter_flag: str = "all", sort_by: str = "risk_score") -> list[dict]:
+    """
+    Returns risk-scored orgs for the homepage flagged feed.
+    Joins entity_golden_records with zombie/loop/governance signals to compute
+    a 0-100 risk score inline. Python-side scoring via risk_scorer.calculate_score().
+    """
+    from risk_scorer import calculate_score, get_triggered_flags
+
+    entities_tbl = _read("general", "entity_golden_records")
+    govt_tbl     = _read("cra", "govt_funding_by_charity")
+    dirs_tbl     = _read("cra", "cra_directors")
+
+    try:
+        rows = query(f"""
+            WITH
+            zombie_data AS (
+                SELECT
+                    LEFT(bn, 9) as bn9,
+                    MAX(CASE WHEN total_revenue > 0 THEN total_govt / total_revenue ELSE 0 END) as govt_share,
+                    MAX(fiscal_year) as last_year,
+                    MAX(total_govt) as total_govt
+                FROM {govt_tbl}
+                GROUP BY LEFT(bn, 9)
+            ),
+            loop_data AS (
+                SELECT
+                    LEFT(bn, 9) as bn9,
+                    COUNT(DISTINCT loop_id) as loop_count
+                FROM {_read("cra", "loop_participants")}
+                GROUP BY LEFT(bn, 9)
+            ),
+            dir_data AS (
+                SELECT
+                    LEFT(bn, 9) as bn9,
+                    MAX(board_count) as max_boards
+                FROM (
+                    SELECT d.first_name, d.last_name, LEFT(d.bn, 9) as bn9,
+                           COUNT(DISTINCT LEFT(d2.bn, 9)) as board_count
+                    FROM {dirs_tbl} d
+                    JOIN {dirs_tbl} d2 ON d.first_name = d2.first_name AND d.last_name = d2.last_name
+                    WHERE d.first_name != '' AND d.last_name != ''
+                    GROUP BY d.first_name, d.last_name, LEFT(d.bn, 9)
+                ) sub
+                GROUP BY bn9
+            )
+            SELECT
+                e.bn_root,
+                e.canonical_name,
+                e.entity_type,
+                e.cra_profile->>'city' as city,
+                e.cra_profile->>'province' as province,
+                TRY_CAST(e.fed_profile->>'total_grants' AS DOUBLE) as fed_total,
+                TRY_CAST(e.ab_profile->>'total_grants' AS DOUBLE) as ab_total,
+                TRY_CAST(e.fed_profile->>'total_grants' AS DOUBLE) +
+                TRY_CAST(e.ab_profile->>'total_grants' AS DOUBLE) as combined_funding,
+                COALESCE(z.govt_share, 0) as govt_share,
+                COALESCE(z.last_year, 9999) as last_year,
+                COALESCE(z.total_govt, 0) as total_govt,
+                COALESCE(l.loop_count, 0) as loop_count,
+                COALESCE(d.max_boards, 0) as max_director_boards
+            FROM {entities_tbl} e
+            LEFT JOIN zombie_data z ON z.bn9 = e.bn_root
+            LEFT JOIN loop_data l ON l.bn9 = e.bn_root
+            LEFT JOIN dir_data d ON d.bn9 = e.bn_root
+            WHERE e.entity_type NOT IN ('government')
+              AND e.canonical_name IS NOT NULL
+              AND e.canonical_name != ''
+              AND (
+                  COALESCE(z.govt_share, 0) >= 0.5
+                  OR COALESCE(l.loop_count, 0) > 0
+                  OR COALESCE(d.max_boards, 0) >= 3
+                  OR (
+                      TRY_CAST(e.fed_profile->>'total_grants' AS DOUBLE) > 100000
+                      AND TRY_CAST(e.ab_profile->>'total_grants' AS DOUBLE) > 100000
+                  )
+              )
+            LIMIT {min(limit * 3, 600)}
+        """)
+    except Exception as e:
+        print(f"[DuckDB] get_flagged_orgs_live query error: {e}")
         return []
+
+    # Score each org
+    scored = []
+    for r in rows:
+        r["fed_total"]   = float(r.get("fed_total") or 0)
+        r["ab_total"]    = float(r.get("ab_total") or 0)
+        r["combined_funding"] = float(r.get("combined_funding") or 0)
+        r["govt_share"]  = float(r.get("govt_share") or 0)
+        r["total_govt"]  = float(r.get("total_govt") or 0)
+        r["loop_count"]  = int(r.get("loop_count") or 0)
+        r["max_director_boards"] = int(r.get("max_director_boards") or 0)
+        r["last_year"]   = int(r.get("last_year") or 9999)
+
+        result = calculate_score(r)
+        r["risk_score"]    = result["score"]
+        r["tier"]          = result["tier"]
+        r["risk_breakdown"] = result["breakdown"]
+        r["flags"]         = get_triggered_flags(r, result["breakdown"])
+        scored.append(r)
+
+    # Filter
+    if filter_flag and filter_flag != "all":
+        scored = [r for r in scored if filter_flag in r["flags"]]
+
+    # Sort
+    if sort_by == "funding_amount":
+        scored.sort(key=lambda r: r["combined_funding"], reverse=True)
+    elif sort_by == "recent":
+        scored.sort(key=lambda r: r["last_year"] if r["last_year"] < 9999 else 0, reverse=True)
+    else:
+        scored.sort(key=lambda r: r["risk_score"], reverse=True)
+
+    return scored[:limit]
