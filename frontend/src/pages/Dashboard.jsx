@@ -66,8 +66,8 @@ export default function Dashboard() {
     {
       icon: '🧟',
       label: 'Zombie Recipients',
-      value: stats?.zombie_count ?? 219,
-      detail: stats?.at_risk_funding ? `${formatCurrency(stats.at_risk_funding)} at risk` : '$482M at risk',
+      value: stats?.zombie_count,
+      detail: stats?.at_risk_funding ? `${formatCurrency(stats.at_risk_funding)} at risk` : null,
       sub: '≥70% govt-dependent · stopped filing by 2022',
       color: 'var(--status-critical)',
       border: 'rgba(239,68,68,0.3)',
@@ -77,8 +77,8 @@ export default function Dashboard() {
     {
       icon: '🔄',
       label: 'Funding Loops',
-      value: stats?.total_funding_loops ?? 5808,
-      detail: loopStats?.phantom_receipts_total ? `${fmtDollars(loopStats.phantom_receipts_total)} phantom receipts (est.)` : 'Phantom receipts possible',
+      value: stats?.total_funding_loops,
+      detail: loopStats?.phantom_receipts_total ? `${fmtDollars(loopStats.phantom_receipts_total)} phantom receipts (est.)` : null,
       sub: 'Circular gift chains detected in CRA schedules',
       color: 'var(--accent-purple)',
       border: 'rgba(139,92,246,0.3)',
@@ -88,9 +88,9 @@ export default function Dashboard() {
     {
       icon: '🕸️',
       label: 'Multi-Board Directors',
-      value: stats?.multi_board_directors ?? 18134,
-      detail: 'Simultaneous board seats across funded charities',
-      sub: 'Individuals on 3+ govt-funded charity boards',
+      value: stats?.multi_board_directors,
+      detail: 'Directors on 5+ govt-funded charity boards',
+      sub: 'High-confidence: 5+ boards makes coincidental name match unlikely',
       color: 'var(--accent-cyan)',
       border: 'rgba(34,211,238,0.3)',
       bg: 'rgba(34,211,238,0.05)',
@@ -115,9 +115,9 @@ export default function Dashboard() {
           AI Accountability Dashboard · Agency 2026 Ottawa
         </div>
         <div style={{ fontSize: 34, fontWeight: 900, letterSpacing: '-0.02em', lineHeight: 1.2, background: 'var(--gradient-primary)', WebkitBackgroundClip: 'text', WebkitTextFillColor: 'transparent' }}>
-          We mapped {formatNumber(stats?.total_charities || 91129)} Canadian charities,{' '}
-          {formatNumber(stats?.total_fed_grants || 1275521)} federal grant records,
-          and {formatNumber(stats?.total_sole_source || 15533)} procurement contracts.
+          We mapped {stats ? formatNumber(stats.total_charities) : '…'} Canadian charities,{' '}
+          {stats ? formatNumber(stats.total_fed_grants) : '…'} federal grant records,
+          and {stats ? formatNumber(stats.total_sole_source) : '…'} procurement contracts.
           Here is what we found.
         </div>
         <div style={{ fontSize: 11, color: 'var(--text-muted)', marginTop: 2 }}>
@@ -148,9 +148,9 @@ export default function Dashboard() {
               <span style={{ fontSize: 12, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.05em', color: card.color }}>{card.label}</span>
             </div>
             <div style={{ fontSize: 42, fontWeight: 900, color: card.color, lineHeight: 1, marginBottom: 6 }}>
-              {typeof card.value === 'number' ? card.value.toLocaleString() : card.value}
+              {card.value != null ? card.value.toLocaleString() : '…'}
             </div>
-            <div style={{ fontSize: 13, fontWeight: 600, color: 'var(--text-primary)', marginBottom: 4 }}>{card.detail}</div>
+            <div style={{ fontSize: 13, fontWeight: 600, color: 'var(--text-primary)', marginBottom: 4 }}>{card.detail || ' '}</div>
             <div style={{ fontSize: 11, color: 'var(--text-muted)' }}>{card.sub}</div>
           </div>
         ))}

@@ -10,9 +10,14 @@ services:
     volumes:
       - ./data:/data:ro              # JSONL data files (read-only)
       - duckdb_vol:/app/duckdb_cache # persist DuckDB file between restarts
+    env_file:
+      - path: .env
+        required: false   # AI keys: ANTHROPIC_API_KEY, AWS_*, BEDROCK_MODEL_ID
+      - path: backend/.env
+        required: false   # DB_CONNECTION_STRING (gitignored — copy from backend/.env.example)
     environment:
-      DATA_DIR: /data
-      DUCKDB_PATH: /app/duckdb_cache/hackathon.duckdb
+      DATA_DIR: /data                                  # override env_file for Docker paths
+      DUCKDB_PATH: /app/duckdb_cache/hackathon.duckdb  # override env_file for Docker paths
     restart: unless-stopped
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:8000/api/health"]
@@ -25,7 +30,7 @@ services:
       context: .
       dockerfile: Dockerfile.frontend
       args:
-        VITE_API_URL: ""
+        VITE_API_URL: ""   # empty = relative /api/ calls, proxied by nginx to backend
     ports:
       - "3000:80"
     depends_on:

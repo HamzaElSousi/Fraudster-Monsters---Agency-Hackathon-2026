@@ -54,6 +54,45 @@ def _no_data():
     return {"error": "No data source configured", "results": [], "count": 0}
 
 
+def _pg_entity_search(q: str, limit: int = 10) -> list[dict]:
+    """Search entity_golden_records for cross-dataset entity matches (PG only)."""
+    if not _pg_connected:
+        return []
+    conn_str = os.getenv("DB_CONNECTION_STRING", "")
+    if not conn_str or "PASSWORD" in conn_str:
+        return []
+    try:
+        import psycopg2
+        conn = psycopg2.connect(conn_str, connect_timeout=5)
+        cur = conn.cursor()
+        cur.execute("""
+            SELECT canonical_name, bn_root, entity_type,
+                   dataset_sources, source_link_count, confidence
+            FROM general.entity_golden_records
+            WHERE canonical_name ILIKE %s OR bn_root ILIKE %s
+            ORDER BY confidence DESC NULLS LAST, source_link_count DESC
+            LIMIT %s
+        """, (f'%{q}%', f'%{q}%', limit))
+        cols = [d[0] for d in cur.description]
+        rows = [dict(zip(cols, row)) for row in cur.fetchall()]
+        conn.close()
+        return [
+            {
+                "canonical_name": r["canonical_name"],
+                "name":           r["canonical_name"],
+                "bn":             r["bn_root"],
+                "entity_type":    r["entity_type"] or "organization",
+                "dataset_sources": r["dataset_sources"] or [],
+                "source_link_count": r["source_link_count"] or 0,
+                "confidence":     float(r["confidence"] or 0),
+            }
+            for r in rows
+        ]
+    except Exception as e:
+        print(f"[PG entity search error] {e}")
+        return []
+
+
 # ── App Setup ────────────────────────────────────────────────────────────────
 @asynccontextmanager
 async def lifespan(app: FastAPI):
@@ -805,7 +844,7 @@ def template_query(message: str) -> dict:
     elif any(w in msg for w in ["sole source", "no-bid", "amendment", "contract", "vendor"]):
         data = _data_sole_source(min_ratio=3.0, limit=20)
         return {
-            "answer": f"**Sole-source contract analysis**: Alberta's dataset contains **{data['stats'].get('total_sole_source_contracts', 15533):,} sole-source contracts**. I've identified patterns of vendor concentration and near-threshold contract splitting.",
+            "answer": f"**Sole-source contract analysis**: Alberta's dataset contains **{data['stats'].get('total_sole_source_contracts', 0):,} sole-source contracts**. I've identified patterns of vendor concentration and near-threshold contract splitting.",
             "data_type": "sole_source",
             "data": data["results"][:10],
             "sql_hint": "Queried ab_sole_source for vendor concentration and threshold proximity",
@@ -847,7 +886,10 @@ def global_search(q: str = Query(...), limit: int = Query(10)):
         return {"results": {}, "total": 0, "query": q}
 
     q_lower = q.lower()
-    results = {"zombies": [], "loops": [], "governance": [], "sole_source": [], "alerts": []}
+    results = {"entities": [], "zombies": [], "loops": [], "governance": [], "sole_source": [], "alerts": []}
+
+    # PostgreSQL cross-dataset entity search (confidence-ranked, alias-aware)
+    results["entities"] = _pg_entity_search(q, limit=limit)
     fetch = limit * 8  # over-fetch then filter in Python
 
     try:

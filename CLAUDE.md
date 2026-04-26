@@ -51,7 +51,7 @@ If frontend shows blank screen: `window.location.href = 'http://localhost:5173/?
 | Govt-funded charities | 45,933 | `COUNT(DISTINCT bn)` from `govt_funding_by_charity WHERE total_govt > 0` |
 | Zombie recipients | 219 | govt_share ≥ 70%, min $100K, stopped filing by 2022 |
 | Funding loops | 5,808 | `COUNT(*)` from `cra__loops` |
-| Multi-board directors | 18,134 | name-match, 3+ distinct BN roots, govt-funded charities only |
+| Multi-board directors headline stat | computed | name-match, 5+ distinct BN roots, govt-funded charities only (stat); governance page browses at 3+ |
 | Federal grant records | 1,275,521 | `COUNT(*)` from `fed__grants_contributions` |
 | AB sole-source records | 15,533 | `COUNT(*)` from `ab__ab_sole_source` (real data, not hardcoded) |
 | AB contract value | $18.2B | `SUM(amount)` from `ab__ab_sole_source` (real data, not hardcoded) |
@@ -197,6 +197,19 @@ Classification: `score >= 6` → High Alert 🔴 · `score >= 3` → Suspicious 
 35. PostgreSQL not connected → updated `backend/.env` with real Render.com connection string; added `backend/.env` load to `main.py`; PG probe at startup stores 89 tables across `cra/ab/fed/general` schemas; `/api/health` now returns `pg_connected` + `pg_tables`
 36. Loop graph had 17 duplicate Salvation Army nodes → `get_loop_graph_live` used raw 15-char BNs from `path_bns`; fixed to normalise all BNs to `[:9]` before building nodes/links and `GROUP BY LEFT(bn,9)` in node SQL; node count reduced from 44 → 28 distinct orgs
 37. `multi_board_directors` stat showing 37,481 (inflated) → name-only matching across all 91K charities; restricted to govt-funded charities only (`LEFT(bn,9) IN (SELECT ... WHERE total_govt > 0)`); applied same filter to `get_governance_live` Step 1; stat now 18,134 — real, computable, and scoped to the relevant population
+38. Hardcoded WSL absolute path in `db_duckdb._base()` → replaced with `os.path.dirname(os.path.dirname(os.path.abspath(__file__)))` so DATA_DIR defaults to `<repo_root>/data` on any machine; Docker and CI work without manually setting DATA_DIR
+39. `docker-compose.yml` missing env vars → added `env_file: [.env, backend/.env]` to backend service so DB_CONNECTION_STRING and AI keys are passed into container; `environment` block overrides Docker-specific paths (DATA_DIR, DUCKDB_PATH)
+40. `vite.config.js` had no dev proxy → added `server.proxy` for `/api` → `http://localhost:8000`; development now works without VITE_API_URL; Docker nginx still handles production proxying
+41. Hardcoded fallback numbers in Dashboard.jsx and SoleSource.jsx → replaced `|| 15533` / `?? 219` etc. with null-safe `?.` and `?? '…'`; values come from API only, no fabricated fallbacks
+42. Hardcoded `15533` in main.py chat response → changed fallback to `0`
+43. `/api/search` DuckDB-only, no cross-dataset results → added `_pg_entity_search()` in `main.py` that queries `general.entity_golden_records` via PostgreSQL when connected; results prepended under `"entities"` key, confidence-ranked; graceful fallback to DuckDB-only when PG is down
+44. Search dropdown showed all categories as equal → App.jsx now renders `entities` section first with `✦` icon and CRA/Federal/Alberta dataset source pills; click still navigates to `/entity/:bn`
+45. Governance self-dealing mode showed blank positions → `get_director_loop_intersections_live()` CTE now includes `LIST(DISTINCT position)` in `multi_board`; frontend maps `sd.positions || []` instead of hardcoded `[]`
+46. Self-dealing filter returned 0 results (regression) → `mb.positions` was in SELECT but not GROUP BY in `get_director_loop_intersections_live()` → DuckDB error silently caught; fixed GROUP BY; also changed HAVING `>= 2` to `>= 1` so "loop exposure" shows directors with any loop-connected org
+47. Loops graph started too zoomed in → added `zoom: 0.6` to graph series, reduced repulsion 400→200, tightened edgeLength [100,200]→[80,150], increased gravity 0.1→0.15
+48. Multi-board director count label overclaimed → updated Governance page header to note name-matching methodology and approximate nature; renamed "Self-dealing" filter to "Loop Exposure"
+49. Multi-board directors stat inflated at 3+ boards → raised headline stat threshold to 5+ boards in `get_stats_live()`; governance page keeps 3+ default for browsing; Dashboard label updated to "5+ boards"
+50. docker-compose.yml env_file hard error for teammates without .env files → added `required: false` to both `.env` and `backend/.env` entries so the app still starts without credentials
 
 ---
 

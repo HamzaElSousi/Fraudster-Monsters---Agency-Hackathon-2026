@@ -55,7 +55,9 @@ def cached(key: str, fn, *args):
 
 
 def _base() -> str:
-    return os.getenv("DATA_DIR", "/mnt/c/Users/Hamza/Desktop/Current Project/AI Accountability Hackathon/data")
+    # Default: <repo_root>/data — works on any machine without DATA_DIR set
+    repo_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+    return os.getenv("DATA_DIR", os.path.join(repo_root, "data"))
 
 
 def get_conn() -> duckdb.DuckDBPyConnection:
@@ -876,9 +878,10 @@ def get_stats_live() -> dict:
         loops_count = query(f"SELECT COUNT(*) as n FROM {_read('cra', 'loops')}")
         loop_n = loops_count[0]["n"] if loops_count else 0
 
-        # Count (last_name, first_name) pairs on 3+ distinct GOVERNMENT-FUNDED charity boards.
-        # Restricting to govt-funded charities eliminates common-name false positives from
-        # the ~91K charity universe (most are small volunteer orgs with no govt money).
+        # Count (last_name, first_name) pairs on 5+ distinct GOVERNMENT-FUNDED charity boards.
+        # Using 5+ boards (vs 3+) dramatically reduces common-name false positives: the probability
+        # of two unrelated people sharing a name AND appearing on 5+ separate funded boards is very low.
+        # Governance page still defaults to 3+ for browsing; this stat is the high-confidence headline.
         dirs = query(f"""
             SELECT COUNT(*) as n FROM (
                 SELECT last_name, first_name
@@ -895,7 +898,7 @@ def get_stats_live() -> dict:
                       )
                 ) t
                 GROUP BY last_name, first_name
-                HAVING COUNT(DISTINCT bn_root) >= 3
+                HAVING COUNT(DISTINCT bn_root) >= 5
             ) final
         """)
         dir_n = dirs[0]["n"] if dirs else 0
@@ -1313,7 +1316,8 @@ def get_director_loop_intersections_live(min_boards: int = 2, limit: int = 50) -
             SELECT
                 LOWER(TRIM(first_name)) as fn,
                 LOWER(TRIM(last_name))  as ln,
-                LEFT(bn, 9)             as bn_root
+                LEFT(bn, 9)             as bn_root,
+                COALESCE(position, '')  as position
             FROM {dir_tbl}
             WHERE last_name IS NOT NULL AND first_name IS NOT NULL
               AND last_name != '' AND first_name != ''
@@ -1322,7 +1326,8 @@ def get_director_loop_intersections_live(min_boards: int = 2, limit: int = 50) -
         multi_board AS (
             SELECT fn, ln,
                    COUNT(DISTINCT bn_root) as board_count,
-                   LIST(DISTINCT bn_root ORDER BY bn_root) as bn_roots
+                   LIST(DISTINCT bn_root ORDER BY bn_root) as bn_roots,
+                   LIST(DISTINCT position ORDER BY position) as positions
             FROM director_bns
             GROUP BY fn, ln
             HAVING COUNT(DISTINCT bn_root) >= {int(min_boards)}
@@ -1337,17 +1342,18 @@ def get_director_loop_intersections_live(min_boards: int = 2, limit: int = 50) -
             JOIN {loops_tbl} l ON l.id = lp.loop_id
             LEFT JOIN {lf_tbl} lf ON lf.loop_id = lp.loop_id
             GROUP BY mb.fn, mb.ln, lp.loop_id, l.total_flow, lf.same_year
-            HAVING COUNT(DISTINCT LEFT(lp.bn, 9)) >= 2
+            HAVING COUNT(DISTINCT LEFT(lp.bn, 9)) >= 1
         )
         SELECT
             mb.fn as first_name, mb.ln as last_name,
             mb.board_count,
+            mb.positions,
             COUNT(DISTINCT li.loop_id)  as self_dealing_loops,
             COALESCE(SUM(li.loop_flow), 0) as controlled_flow,
             mb.bn_roots
         FROM multi_board mb
         LEFT JOIN loop_intersect li ON li.fn = mb.fn AND li.ln = mb.ln
-        GROUP BY mb.fn, mb.ln, mb.board_count, mb.bn_roots
+        GROUP BY mb.fn, mb.ln, mb.board_count, mb.bn_roots, mb.positions
         HAVING COUNT(DISTINCT li.loop_id) > 0
         ORDER BY self_dealing_loops DESC, mb.board_count DESC
         LIMIT {int(limit)}
@@ -1363,6 +1369,7 @@ def get_director_loop_intersections_live(min_boards: int = 2, limit: int = 50) -
                 }
                 for bn in bn_roots
             ]
+            r["positions"]          = [p for p in (r.get("positions") or []) if p]
             r["self_dealing_loops"] = int(r.get("self_dealing_loops") or 0)
             r["board_count"]        = int(r.get("board_count") or 0)
             r["controlled_flow"]    = float(r.get("controlled_flow") or 0)

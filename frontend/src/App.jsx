@@ -126,30 +126,61 @@ function Sidebar() {
               zIndex: 100,
               marginTop: 4,
             }}>
-              {searchResults.total === 0 ? (
+              {searchResults.total === 0 && !(searchResults.results?.entities?.length > 0) ? (
                 <div style={{ padding: 12, fontSize: 13, color: 'var(--text-muted)' }}>No results found</div>
               ) : (
-                Object.entries(searchResults.results).map(([type, items]) => (
-                  items.length > 0 && (
-                    <div key={type}>
-                      <div style={{ padding: '8px 12px', fontSize: 11, color: 'var(--text-muted)', textTransform: 'uppercase', background: 'var(--bg-tertiary)' }}>
-                        {type.replace('_', ' ')} ({items.length})
+                <>
+                  {/* Entities first — PG cross-dataset, confidence-ranked */}
+                  {(searchResults.results?.entities || []).length > 0 && (
+                    <div>
+                      <div style={{ padding: '8px 12px', fontSize: 11, color: 'var(--accent-cyan)', textTransform: 'uppercase', background: 'var(--bg-tertiary)', fontWeight: 700, letterSpacing: '0.05em' }}>
+                        ✦ Entities ({searchResults.results.entities.length})
                       </div>
-                      {items.map((item, i) => (
+                      {searchResults.results.entities.map((item, i) => (
                         <div
                           key={i}
-                          onClick={() => handleResultClick(type, item)}
+                          onClick={() => handleResultClick('entities', item)}
                           style={{ padding: '8px 12px', fontSize: 13, cursor: 'pointer', borderBottom: '1px solid var(--border-primary)' }}
                           onMouseEnter={(e) => e.currentTarget.style.background = 'var(--bg-tertiary)'}
                           onMouseLeave={(e) => e.currentTarget.style.background = 'transparent'}
                         >
-                          <div>{item.canonical_name || item.vendor || item.path_display?.slice(0, 50) || `${item.first_name} ${item.last_name}`}</div>
-                          {item.bn && <div style={{ fontSize: 11, color: 'var(--text-muted)', fontFamily: 'var(--font-mono)', marginTop: 1 }}>{item.bn} · View Case File →</div>}
+                          <div style={{ fontWeight: 600, marginBottom: 3 }}>{item.canonical_name}</div>
+                          <div style={{ display: 'flex', gap: 4, flexWrap: 'wrap', alignItems: 'center' }}>
+                            {(item.dataset_sources || []).map(src => (
+                              <span key={src} style={{ fontSize: 10, padding: '1px 5px', borderRadius: 3, background: 'rgba(34,211,238,0.12)', color: 'var(--accent-cyan)', border: '1px solid rgba(34,211,238,0.25)', fontWeight: 600 }}>
+                                {src}
+                              </span>
+                            ))}
+                            {item.bn && <span style={{ fontSize: 10, color: 'var(--text-muted)', fontFamily: 'var(--font-mono)' }}>{item.bn}</span>}
+                            <span style={{ fontSize: 10, color: 'var(--accent-cyan)', marginLeft: 'auto' }}>View Case File →</span>
+                          </div>
                         </div>
                       ))}
                     </div>
-                  )
-                ))
+                  )}
+                  {/* Per-category DuckDB results */}
+                  {Object.entries(searchResults.results).filter(([t]) => t !== 'entities').map(([type, items]) => (
+                    items.length > 0 && (
+                      <div key={type}>
+                        <div style={{ padding: '8px 12px', fontSize: 11, color: 'var(--text-muted)', textTransform: 'uppercase', background: 'var(--bg-tertiary)' }}>
+                          {type.replace('_', ' ')} ({items.length})
+                        </div>
+                        {items.map((item, i) => (
+                          <div
+                            key={i}
+                            onClick={() => handleResultClick(type, item)}
+                            style={{ padding: '8px 12px', fontSize: 13, cursor: 'pointer', borderBottom: '1px solid var(--border-primary)' }}
+                            onMouseEnter={(e) => e.currentTarget.style.background = 'var(--bg-tertiary)'}
+                            onMouseLeave={(e) => e.currentTarget.style.background = 'transparent'}
+                          >
+                            <div>{item.canonical_name || item.vendor || item.path_display?.slice(0, 50) || `${item.first_name} ${item.last_name}`}</div>
+                            {item.bn && <div style={{ fontSize: 11, color: 'var(--text-muted)', fontFamily: 'var(--font-mono)', marginTop: 1 }}>{item.bn} · View Case File →</div>}
+                          </div>
+                        ))}
+                      </div>
+                    )
+                  ))}
+                </>
               )}
             </div>
           )}

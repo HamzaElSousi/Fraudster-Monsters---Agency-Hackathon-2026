@@ -40,7 +40,7 @@ export default function Governance() {
         first_name: sd.first_name,
         last_name: sd.last_name,
         board_count: sd.board_count,
-        positions: [],
+        positions: sd.positions || [],
         organizations: (sd.organizations || []).map(o => ({
           bn_root: o.bn,
           name: o.name,
@@ -72,8 +72,10 @@ export default function Governance() {
             Challenge #6 — Related Parties & Governance Networks
           </div>
           <div style={{ fontSize: 14, color: 'var(--text-secondary)', lineHeight: 1.5 }}>
-            Directors sitting on multiple boards simultaneously. Self-dealing detected when their
-            organizations appear together in the same circular funding loop.
+            Directors sitting on 3+ govt-funded charity boards simultaneously, identified by
+            name-matching across CRA T3010 filings. Count is approximate — common names may
+            represent multiple individuals. "Loop Exposure" flags directors whose organizations
+            appear in circular funding loops.
           </div>
         </div>
         <div style={{ display: 'flex', gap: 24, flexWrap: 'wrap' }}>
@@ -83,14 +85,14 @@ export default function Governance() {
               {loading ? '…' : filtered.length.toLocaleString()}
             </div>
           </div>
-          <div style={{ textAlign: 'center' }} title="Directors whose multiple organizations appear together in the same funding loop">
-            <div style={{ fontSize: 11, color: 'var(--text-muted)' }}>Self-Dealing Directors</div>
+          <div style={{ textAlign: 'center' }} title="Directors whose organizations appear in funding loops">
+            <div style={{ fontSize: 11, color: 'var(--text-muted)' }}>Loop-Exposed Directors</div>
             <div style={{ fontSize: 22, fontWeight: 800, color: 'var(--status-critical)' }}>
               {selfDealingData ? selfDealingData.count.toLocaleString() : '…'}
             </div>
           </div>
-          <div style={{ textAlign: 'center' }} title="Total flow through loops where self-dealing directors control multiple participants">
-            <div style={{ fontSize: 11, color: 'var(--text-muted)' }}>Controlled Flows</div>
+          <div style={{ textAlign: 'center' }} title="Total flow through loops involving these directors' organizations">
+            <div style={{ fontSize: 11, color: 'var(--text-muted)' }}>Exposed Flow</div>
             <div style={{ fontSize: 22, fontWeight: 800, color: 'var(--status-critical)' }}>
               {selfDealingData ? fmtDollars(totalControlledFlow) : '…'}
             </div>
@@ -127,7 +129,7 @@ export default function Governance() {
             style={{ width: 15, height: 15, cursor: 'pointer', accentColor: 'var(--status-critical)' }}
           />
           <span style={{ color: selfDealingOnly ? 'var(--status-critical)' : 'var(--text-secondary)', fontWeight: selfDealingOnly ? 600 : 400 }}>
-            Self-dealing only
+            Loop Exposure only
             {selfDealingData && <span style={{ marginLeft: 4, color: 'var(--status-critical)' }}>({selfDealingData.count})</span>}
           </span>
         </label>
@@ -185,13 +187,13 @@ export default function Governance() {
                       {dir.first_name} {dir.last_name}
                       {isSelfDealing && (
                         <span style={{ fontSize: 11, padding: '2px 7px', borderRadius: 4, background: 'rgba(239,68,68,0.15)', color: 'var(--status-critical)', border: '1px solid var(--status-critical)', fontWeight: 600 }}>
-                          🔴 Loop Intersection
+                          🔄 Loop Exposure
                         </span>
                       )}
                     </div>
                     <div style={{ fontSize: 12, color: 'var(--text-muted)' }}>
                       {posLabel || 'Director'} · {dir.board_count} boards
-                      {isSelfDealing && <span style={{ marginLeft: 8, color: 'var(--status-critical)' }}>· {sdRecord.self_dealing_loops} self-dealing loops · {fmtDollars(sdRecord.controlled_flow)} controlled</span>}
+                      {isSelfDealing && <span style={{ marginLeft: 8, color: 'var(--status-critical)' }}>· {sdRecord.self_dealing_loops} loop connections · {fmtDollars(sdRecord.controlled_flow)} flow</span>}
                     </div>
                   </div>
                 </div>

@@ -404,13 +404,14 @@ function GraphTab({ graphData }) {
     series: [{
       type: 'graph',
       layout: 'force',
+      zoom: 0.6,
       roam: true,
       draggable: true,
       animation: true,
       force: {
-        repulsion: 400,
-        edgeLength: [100, 200],
-        gravity: 0.1,
+        repulsion: 200,
+        edgeLength: [80, 150],
+        gravity: 0.15,
         layoutAnimation: true,
       },
       data: nodes.map(n => ({

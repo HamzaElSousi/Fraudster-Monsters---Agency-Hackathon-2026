@@ -58,7 +58,7 @@ export default function SoleSource() {
           Contract Creep — The Amendment Game
         </div>
         <div style={{ fontSize: 16, fontWeight: 400, color: 'var(--text-primary)', lineHeight: 1.7, marginBottom: 12 }}>
-          Alberta has <strong>{(stats.total_sole_source_contracts || 15533).toLocaleString()}</strong> sole-source contracts on record.{' '}
+          Alberta has <strong>{stats.total_sole_source_contracts?.toLocaleString() ?? '…'}</strong> sole-source contracts on record.{' '}
           {over5x > 0
             ? <><strong style={{ color: 'var(--status-critical)' }}>{over5x.toLocaleString()} vendor–department pairs</strong> accumulated 5× or more total value through repeat sole-source awards — bypassing Alberta's competitive bidding threshold.</>
             : <>Contracts are analyzed for vendor concentration patterns and splitting just below Alberta's competitive bidding threshold.</>
@@ -70,7 +70,7 @@ export default function SoleSource() {
         </div>
         <div style={{ display: 'flex', gap: 24, flexWrap: 'wrap' }}>
           {[
-            { label: 'Total Contracts', value: (stats.total_sole_source_contracts || 15533).toLocaleString(), color: 'var(--accent-amber)' },
+            { label: 'Total Contracts', value: stats.total_sole_source_contracts?.toLocaleString() ?? '—', color: 'var(--accent-amber)' },
             { label: '5x+ Growth Cases', value: over5x > 0 ? over5x.toLocaleString() : '—', color: 'var(--status-critical)' },
             { label: 'Near Threshold ($40–50K)', value: stats.contracts_near_threshold != null ? stats.contracts_near_threshold.toLocaleString() : '—', color: 'var(--status-medium)' },
             { label: 'Total Contract Value', value: stats.total_at_risk ? formatCurrency(stats.total_at_risk) : '—', color: 'var(--text-primary)' },
