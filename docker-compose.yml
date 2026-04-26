@@ -8,16 +8,15 @@ services:
     ports:
       - "8000:8000"
     volumes:
-      - ./data:/data:ro              # JSONL data files (read-only)
-      - duckdb_vol:/app/duckdb_cache # persist DuckDB file between restarts
+      - ./data:/data                 # JSONL + pre-built hackathon.duckdb (needs write for DuckDB WAL)
     env_file:
       - path: .env
         required: false   # AI keys: ANTHROPIC_API_KEY, AWS_*, BEDROCK_MODEL_ID
       - path: backend/.env
         required: false   # DB_CONNECTION_STRING (gitignored — copy from backend/.env.example)
     environment:
-      DATA_DIR: /data                                  # override env_file for Docker paths
-      DUCKDB_PATH: /app/duckdb_cache/hackathon.duckdb  # override env_file for Docker paths
+      DATA_DIR: /data
+      DUCKDB_PATH: /data/hackathon.duckdb  # use pre-built DB — no slow first-run JSONL reload
     restart: unless-stopped
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:8000/api/health"]
@@ -38,6 +37,3 @@ services:
         condition: service_healthy
     restart: unless-stopped
 
-volumes:
-  duckdb_vol:
-    # Persists the .duckdb file so JSONL preload (~2min) only happens once

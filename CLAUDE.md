@@ -210,6 +210,7 @@ Classification: `score >= 6` → High Alert 🔴 · `score >= 3` → Suspicious 
 48. Multi-board director count label overclaimed → updated Governance page header to note name-matching methodology and approximate nature; renamed "Self-dealing" filter to "Loop Exposure"
 49. Multi-board directors stat inflated at 3+ boards → raised headline stat threshold to 5+ boards in `get_stats_live()`; governance page keeps 3+ default for browsing; Dashboard label updated to "5+ boards"
 50. docker-compose.yml env_file hard error for teammates without .env files → added `required: false` to both `.env` and `backend/.env` entries so the app still starts without credentials
+51. Docker zombie count = 0 (discrepancy vs start.sh) → root cause: fresh `duckdb_vol` has no pre-built tables; large JSONL loads triggered lazily on first request exceed nginx 30s timeout; error cached as `{}`; zombie_count falls back to 0. Fix: DUCKDB_PATH now points to `./data/hackathon.duckdb` (pre-built, same as local); removed separate duckdb_vol volume; nginx proxy_read_timeout raised 30s→120s
 
 ---
 
