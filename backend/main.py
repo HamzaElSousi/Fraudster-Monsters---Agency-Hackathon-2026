@@ -558,38 +558,38 @@ async def llm_enhanced_query(message: str) -> dict:
 
     data_type = "help"
     data_results = []
-    context_data = {"stats": get_stats()}
+    context_data = {"stats": _data_stats()}
 
     if any(w in msg_lower for w in ["zombie", "dissolved", "ceased", "revoked", "dead", "vanish"]):
-        d = get_zombies(min_funding=100000, limit=20)
+        d = _data_zombies(min_funding=100000, limit=20)
         context_data["zombies"] = d["results"][:8]
         data_type = "zombies"
         data_results = d["results"][:5]
     elif any(w in msg_lower for w in ["loop", "circular", "cycle", "round-trip", "gifting"]):
-        d = get_funding_loops(min_hops=2, max_hops=6, limit=20)
+        d = _data_loops(min_hops=2, max_hops=6, limit=20)
         context_data["loops"] = d["results"][:8]
         data_type = "loops"
         data_results = d["results"][:5]
     elif any(w in msg_lower for w in ["director", "board", "governance", "related", "control", "conflict"]):
-        d = get_governance_networks(min_boards=3, limit=20)
+        d = _data_governance(min_boards=3, limit=20)
         context_data["governance"] = d["results"][:5]
         data_type = "governance"
         data_results = d["results"][:5]
     elif any(w in msg_lower for w in ["sole source", "no-bid", "amendment", "contract", "vendor", "procurement"]):
-        d = get_sole_source(min_ratio=3.0, limit=20)
+        d = _data_sole_source(min_ratio=3.0, limit=20)
         context_data["sole_source"] = d["results"][:8]
         data_type = "sole_source"
         data_results = d["results"][:5]
     elif any(w in msg_lower for w in ["alert", "flag", "worst", "critical", "intersection", "multi"]):
-        d = get_alerts(min_flags=2, limit=20)
+        d = _data_alerts(min_flags=2, limit=20)
         context_data["alerts"] = d["results"][:8]
         data_type = "alerts"
         data_results = d["results"][:5]
     elif any(w in msg_lower for w in ["overview", "summary", "total", "how much", "stats"]):
         data_type = "stats"
     else:
-        context_data["zombies"] = get_zombies(min_funding=500000, limit=3)["results"]
-        context_data["loops"] = get_funding_loops(limit=3)["results"]
+        context_data["zombies"] = _data_zombies(min_funding=500000, limit=3)["results"]
+        context_data["loops"] = _data_loops(limit=3)["results"]
 
     # Build human-readable key findings summary
     key_findings = []
@@ -718,12 +718,41 @@ async def _call_anthropic(system: str, user_content: str, api_key: str) -> str:
     return response.content[0].text
 
 
+# ── Internal data helpers (plain Python types — safe to call from non-route code) ─
+def _data_zombies(min_funding: float = 100000, limit: int = 20) -> dict:
+    results = _duck.cached(f"zombies:{min_funding}:{limit}", _duck.get_zombies_live, min_funding, limit)
+    return {"results": results, "count": len(results)}
+
+def _data_loops(min_hops: int = 2, max_hops: int = 6, limit: int = 20) -> dict:
+    results = _duck.cached(
+        f"loops_enriched:{min_hops}:{max_hops}:0:0:False:::{limit}",
+        _duck.get_loops_enriched_live, min_hops, max_hops, 0, 0, False, "", "", limit,
+    )
+    return {"results": results, "count": len(results)}
+
+def _data_governance(min_boards: int = 3, limit: int = 20) -> dict:
+    results = _duck.cached(f"governance:{min_boards}:{limit}", _duck.get_governance_live, min_boards, limit)
+    return {"results": results, "count": len(results)}
+
+def _data_sole_source(min_ratio: float = 3.0, limit: int = 20) -> dict:
+    results = _duck.cached(f"sole_source:{min_ratio}:{limit}", _duck.get_sole_source_live, min_ratio, limit)
+    stats = _duck.cached("sole_source_stats", _duck.get_sole_source_stats_live)
+    return {"results": results, "stats": stats, "count": len(results)}
+
+def _data_alerts(min_flags: int = 2, limit: int = 20) -> dict:
+    results = _duck.cached(f"alerts:{min_flags}:{limit}", _duck.get_alerts_live, min_flags, limit)
+    return {"results": results, "count": len(results)}
+
+def _data_stats() -> dict:
+    return _duck.cached("stats", _duck.get_stats_live) or {}
+
+
 def template_query(message: str) -> dict:
     """Fallback when no AI key is configured."""
     msg = message.lower()
 
     if any(w in msg for w in ["zombie", "dissolved", "ceased", "revoked", "dead"]):
-        data = get_zombies(min_funding=100000, limit=20)
+        data = _data_zombies(min_funding=100000, limit=20)
         return {
             "answer": f"I found **{data['count']} zombie recipients** — organizations that received significant public funding and then had their charitable status revoked or annulled.",
             "data_type": "zombies",
@@ -732,7 +761,7 @@ def template_query(message: str) -> dict:
             "follow_up": ["Show me the top 5 by funding amount", "Which ones were in Alberta?", "What was their last filing year?"],
         }
     elif any(w in msg for w in ["loop", "circular", "cycle", "round-trip", "gifting circle"]):
-        data = get_funding_loops(min_hops=2, max_hops=6, limit=20)
+        data = _data_loops(min_hops=2, max_hops=6, limit=20)
         return {
             "answer": f"I detected **{data['count']} funding loops** in the charity sector. These are circular gift flows where money moves from Charity A → B → C → back to A.",
             "data_type": "loops",
@@ -741,7 +770,7 @@ def template_query(message: str) -> dict:
             "follow_up": ["Show me the largest loop by dollar amount", "Which charities appear in multiple loops?", "Are any loops same-year transactions?"],
         }
     elif any(w in msg for w in ["director", "board", "governance", "related part", "network", "control"]):
-        data = get_governance_networks(min_boards=3, limit=20)
+        data = _data_governance(min_boards=3, limit=20)
         return {
             "answer": f"I found **{data['count']} individuals** who sit on 3+ charity boards simultaneously. Some control organizations that fund each other, creating potential conflicts of interest.",
             "data_type": "governance",
@@ -750,7 +779,7 @@ def template_query(message: str) -> dict:
             "follow_up": ["Who controls the most funding?", "Do any of these directors' organizations fund each other?", "Show me the governance network graph"],
         }
     elif any(w in msg for w in ["sole source", "no-bid", "amendment", "contract", "vendor"]):
-        data = get_sole_source(min_ratio=3.0, limit=20)
+        data = _data_sole_source(min_ratio=3.0, limit=20)
         return {
             "answer": f"**Sole-source contract analysis**: Alberta's dataset contains **{data['stats'].get('total_sole_source_contracts', 15533):,} sole-source contracts**. I've identified patterns of vendor concentration and near-threshold contract splitting.",
             "data_type": "sole_source",
@@ -759,7 +788,7 @@ def template_query(message: str) -> dict:
             "follow_up": ["Show me contracts near the $50K competitive threshold", "Which departments rely most on sole-source?", "Find contract splitting patterns"],
         }
     elif any(w in msg for w in ["alert", "flag", "critical", "worst", "multi", "intersection"]):
-        data = get_alerts(min_flags=2, limit=20)
+        data = _data_alerts(min_flags=2, limit=20)
         return {
             "answer": f"**Multi-flag alert analysis**: I found **{data['count']} entities** flagged across multiple challenge categories simultaneously — the highest-priority accountability failures.",
             "data_type": "alerts",
@@ -768,7 +797,7 @@ def template_query(message: str) -> dict:
             "follow_up": ["Show me entities with 3+ flags", "Which director controls the most flagged entities?", "Show me the funding loop with zombie participants"],
         }
     elif any(w in msg for w in ["how much", "total", "spending", "overview", "summary"]):
-        stats = get_stats()
+        stats = _data_stats()
         return {
             "answer": f"**Platform Overview**: Tracking {stats.get('total_entities', 'N/A'):,} organizations across CRA charity filings, {stats.get('total_fed_grants', 'N/A'):,} federal grants, and {stats.get('total_ab_grants', 'N/A'):,} Alberta grant payments.",
             "data_type": "stats",
