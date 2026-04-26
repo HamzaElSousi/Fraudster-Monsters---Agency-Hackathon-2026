@@ -34,7 +34,12 @@ _PRELOAD_TABLES = [
     ("cra", "loop_edge_year_flows"),
     ("cra", "identified_hubs"),
     ("cra", "scc_summary"),
+    ("cra", "cra_directors"),
+    ("cra", "cra_identification"),
+    ("cra", "govt_funding_by_charity"),
     ("ab", "ab_sole_source"),
+    ("general", "entity_golden_records"),
+    ("fed", "grants_contributions"),
 ]
 
 # Result cache: key → (timestamp, result)
@@ -104,7 +109,7 @@ def _ensure_table(schema: str, table: str) -> str:
         print(f"[DuckDB] Loading {tname} ...", flush=True)
         with _conn_lock:
             db = get_conn()
-            db.execute(f"CREATE TABLE IF NOT EXISTS {tname} AS SELECT * FROM read_json_auto('{p}', format=newline_delimited)")
+            db.execute(f"CREATE TABLE IF NOT EXISTS {tname} AS SELECT * FROM read_json_auto('{p}', format=newline_delimited, union_by_name=true)")
         _loaded_tables.add(tname)
         print(f"[DuckDB] {tname} ready ({time.time()-t0:.1f}s)", flush=True)
         return tname
@@ -559,6 +564,130 @@ def get_governance_live(min_boards: int = 3, limit: int = 50) -> list[dict]:
         })
 
     return results
+
+
+# ── Duplicative Funding (Challenge #8) ───────────────────────────────────────
+
+def get_duplicative_funding_live(min_fed: float = 1_000_000, min_ab: float = 1_000_000, limit: int = 200) -> list[dict]:
+    """Orgs receiving federal + Alberta + CRA funding simultaneously."""
+    tbl = _read("general", "entity_golden_records")
+    rows = query(f"""
+        SELECT
+            id,
+            bn_root,
+            canonical_name,
+            entity_type,
+            dataset_sources,
+            cra_profile->>'city' as city,
+            cra_profile->>'province' as province,
+            TRY_CAST(fed_profile->>'total_grants' AS DOUBLE) as fed_total,
+            TRY_CAST(fed_profile->>'grant_count' AS INTEGER) as fed_grant_count,
+            fed_profile->'top_departments' as fed_departments,
+            TRY_CAST(ab_profile->>'total_grants' AS DOUBLE) as ab_total,
+            TRY_CAST(ab_profile->>'payment_count' AS INTEGER) as ab_payment_count,
+            ab_profile->'ministries' as ab_ministries,
+            TRY_CAST(fed_profile->>'total_grants' AS DOUBLE) +
+            TRY_CAST(ab_profile->>'total_grants' AS DOUBLE) as combined_gov_funding,
+            ROUND(
+                TRY_CAST(ab_profile->>'total_grants' AS DOUBLE) /
+                NULLIF(
+                    TRY_CAST(fed_profile->>'total_grants' AS DOUBLE) +
+                    TRY_CAST(ab_profile->>'total_grants' AS DOUBLE), 0
+                ) * 100
+            , 1) as ab_pct,
+            aliases,
+            llm_authored
+        FROM {tbl}
+        WHERE list_contains(dataset_sources, 'ab')
+          AND list_contains(dataset_sources, 'cra')
+          AND list_contains(dataset_sources, 'fed')
+          AND entity_type NOT IN ('government')
+          AND canonical_name NOT ILIKE '%university%'
+          AND canonical_name NOT ILIKE '%college%'
+          AND canonical_name NOT ILIKE '%school division%'
+          AND TRY_CAST(fed_profile->>'total_grants' AS DOUBLE) > {min_fed}
+          AND TRY_CAST(ab_profile->>'total_grants' AS DOUBLE) > {min_ab}
+        ORDER BY combined_gov_funding DESC
+        LIMIT {limit}
+    """)
+    for r in rows:
+        r["fed_total"] = float(r.get("fed_total") or 0)
+        r["ab_total"] = float(r.get("ab_total") or 0)
+        r["combined_gov_funding"] = float(r.get("combined_gov_funding") or 0)
+        r["ab_pct"] = float(r.get("ab_pct") or 0)
+    return rows
+
+
+def get_duplicative_funding_stats_live() -> dict:
+    """Aggregate headline numbers for the duplicative funding page — no hardcoding."""
+    tbl = _read("general", "entity_golden_records")
+    rows = query(f"""
+        SELECT
+            COUNT(*) as total_orgs,
+            SUM(TRY_CAST(fed_profile->>'total_grants' AS DOUBLE)) as total_fed,
+            SUM(TRY_CAST(ab_profile->>'total_grants' AS DOUBLE)) as total_ab,
+            SUM(
+                TRY_CAST(fed_profile->>'total_grants' AS DOUBLE) +
+                TRY_CAST(ab_profile->>'total_grants' AS DOUBLE)
+            ) as total_combined
+        FROM {tbl}
+        WHERE list_contains(dataset_sources, 'ab')
+          AND list_contains(dataset_sources, 'cra')
+          AND list_contains(dataset_sources, 'fed')
+          AND entity_type NOT IN ('government')
+          AND canonical_name NOT ILIKE '%university%'
+          AND canonical_name NOT ILIKE '%college%'
+          AND canonical_name NOT ILIKE '%school division%'
+          AND TRY_CAST(fed_profile->>'total_grants' AS DOUBLE) > 0
+          AND TRY_CAST(ab_profile->>'total_grants' AS DOUBLE) > 0
+    """)
+    r = rows[0] if rows else {}
+    return {
+        "total_orgs": int(r.get("total_orgs") or 0),
+        "total_fed": float(r.get("total_fed") or 0),
+        "total_ab": float(r.get("total_ab") or 0),
+        "total_combined": float(r.get("total_combined") or 0),
+    }
+
+
+def get_related_parties_live(min_orgs: int = 3, limit: int = 50) -> list[dict]:
+    """Directors sitting on multiple orgs that each receive fed + AB funding (Challenge #6 cross-gov).
+    Returns organizations and bn_roots as parallel lists ordered by canonical_name so index i = same org."""
+    directors_tbl = _read("cra", "cra_directors")
+    entities_tbl = _read("general", "entity_golden_records")
+    rows = query(f"""
+        WITH org_data AS (
+            SELECT DISTINCT
+                d.first_name,
+                d.last_name,
+                e.canonical_name,
+                e.bn_root,
+                TRY_CAST(e.fed_profile->>'total_grants' AS DOUBLE) +
+                TRY_CAST(e.ab_profile->>'total_grants' AS DOUBLE) as combined
+            FROM {directors_tbl} d
+            JOIN {entities_tbl} e ON e.bn_root = LEFT(d.bn, 9)
+            WHERE list_contains(e.dataset_sources, 'ab')
+              AND list_contains(e.dataset_sources, 'fed')
+              AND e.entity_type NOT IN ('government')
+              AND TRY_CAST(e.fed_profile->>'total_grants' AS DOUBLE) > 100000
+              AND TRY_CAST(e.ab_profile->>'total_grants' AS DOUBLE) > 100000
+        )
+        SELECT
+            first_name,
+            last_name,
+            COUNT(*) as org_count,
+            SUM(combined) as total_gov_funding,
+            LIST(canonical_name ORDER BY canonical_name) as organizations,
+            LIST(bn_root ORDER BY canonical_name) as bn_roots
+        FROM org_data
+        GROUP BY first_name, last_name
+        HAVING COUNT(*) >= {min_orgs}
+        ORDER BY total_gov_funding DESC
+        LIMIT {limit}
+    """)
+    for r in rows:
+        r["total_gov_funding"] = float(r.get("total_gov_funding") or 0)
+    return rows
 
 
 # ── Sole Source / Amendment Creep (Challenge #4) ─────────────────────────────

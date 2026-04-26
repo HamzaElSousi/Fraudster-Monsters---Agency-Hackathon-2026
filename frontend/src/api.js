@@ -164,3 +164,39 @@ export const fetchEntityCaseFile = (bn) =>
 // 5 pre-ranked orgs for Dashboard "Start Here" cards
 export const fetchDashboardFeatured = () =>
   fetch(`${API_BASE}/api/dashboard/featured`).then(r => r.json());
+
+// ── Challenge 8 + 6 — Duplicative Funding & Related Parties ─────────────────
+
+export async function fetchDuplicativeFunding(minFed = 1000000, minAb = 1000000, limit = 200) {
+  const res = await fetch(`${API_BASE}/api/duplicative-funding?min_fed=${minFed}&min_ab=${minAb}&limit=${limit}`);
+  if (!res.ok) throw new Error('Failed to fetch duplicative funding');
+  return res.json();
+}
+
+export async function fetchDuplicativeFundingStats() {
+  const res = await fetch(`${API_BASE}/api/duplicative-funding/stats`);
+  if (!res.ok) throw new Error('Failed to fetch funding stats');
+  return res.json();
+}
+
+export async function fetchRelatedParties(minOrgs = 3, limit = 50) {
+  const res = await fetch(`${API_BASE}/api/related-parties?min_orgs=${minOrgs}&limit=${limit}`);
+  if (!res.ok) throw new Error('Failed to fetch related parties');
+  return res.json();
+}
+
+export async function fetchEntitySummary(data) {
+  const res = await fetch(`${API_BASE}/api/entity-summary`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(data),
+  });
+  if (!res.ok) return { summary: '' };
+  return res.json();
+}
+
+export async function fetchDuplicativeFundingSummary() {
+  const res = await fetch(`${API_BASE}/api/duplicative-funding/summary`, { method: 'POST' });
+  if (!res.ok) return { summary: '' };
+  return res.json();
+}

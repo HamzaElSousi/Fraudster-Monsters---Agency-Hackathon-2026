@@ -83,6 +83,15 @@ app.add_middleware(
 )
 
 
+#---Verify DuckDB availability and preload tables on startup---
+@app.get("/api/debug/tables")
+def get_tables():
+    return _duck.query("SHOW TABLES")
+
+@app.get("/api/debug/golden-records")
+def debug_golden_records():
+    return _duck.query("SELECT * FROM general__entity_golden_records LIMIT 2")
+
 # ── Dashboard Stats ──────────────────────────────────────────────────────────
 @app.get("/api/stats")
 def get_stats():
@@ -405,6 +414,117 @@ def get_alerts(
     if results is None:
         return _no_data()
     return {"results": results, "count": len(results), "query_mode": "live"}
+
+
+# ── Duplicative Funding (Challenge #8) ───────────────────────────────────────
+
+@app.get("/api/duplicative-funding/stats")
+def get_duplicative_funding_stats():
+    if not DUCKDB_MODE:
+        return _no_data()
+    return _duck.cached("duplicative_funding_stats", _duck.get_duplicative_funding_stats_live)
+
+
+@app.get("/api/duplicative-funding")
+def get_duplicative_funding(
+    min_fed: float = Query(1_000_000, ge=0),
+    min_ab: float = Query(1_000_000, ge=0),
+    limit: int = Query(200, ge=1, le=500),
+):
+    if not DUCKDB_MODE:
+        return _no_data()
+    cache_key = f"duplicative_funding:{min_fed}:{min_ab}:{limit}"
+    results = _duck.cached(cache_key, _duck.get_duplicative_funding_live, min_fed, min_ab, limit)
+    return {"results": results, "count": len(results), "query_mode": "duckdb-live"}
+
+
+@app.get("/api/related-parties")
+def get_related_parties(
+    min_orgs: int = Query(3, ge=2, le=20),
+    limit: int = Query(50, ge=1, le=500),
+):
+    if not DUCKDB_MODE:
+        return _no_data()
+    cache_key = f"related_parties:{min_orgs}:{limit}"
+    results = _duck.cached(cache_key, _duck.get_related_parties_live, min_orgs, limit)
+    return {"results": results, "count": len(results), "query_mode": "duckdb-live"}
+
+
+@app.post("/api/entity-summary")
+async def get_entity_summary(body: dict):
+    """Per-org Gemini narrative: 2-sentence accountability summary for a specific organization."""
+    name = body.get("name", "")
+    fed_total = float(body.get("fed_total") or 0)
+    ab_total = float(body.get("ab_total") or 0)
+    fed_departments = body.get("fed_departments") or []
+    ab_ministries = body.get("ab_ministries") or []
+    entity_type = body.get("entity_type", "")
+    city = body.get("city", "")
+
+    gemini_key = os.getenv("GEMINI_API_KEY", "")
+    if not gemini_key or not name:
+        return {"summary": ""}
+
+    try:
+        import httpx
+        fed_dept_str = json.dumps(fed_departments) if isinstance(fed_departments, list) else str(fed_departments)
+        ab_min_str = json.dumps(ab_ministries) if isinstance(ab_ministries, list) else str(ab_ministries)
+        prompt = (
+            f"Organization: {name} ({entity_type}, {city})\n"
+            f"Federal funding: ${fed_total:,.0f} from departments: {fed_dept_str}\n"
+            f"Alberta funding: ${ab_total:,.0f} from ministries: {ab_min_str}\n\n"
+            "In 2 sentences, explain why this organization's dual-government funding pattern is "
+            "noteworthy from an accountability perspective. Be specific about the departments and "
+            "dollar amounts. Plain text only, no markdown."
+        )
+        async with httpx.AsyncClient(timeout=12) as client:
+            r = await client.post(
+                f"https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key={gemini_key}",
+                json={"contents": [{"parts": [{"text": prompt}]}]},
+            )
+        text = r.json()["candidates"][0]["content"]["parts"][0]["text"]
+        return {"summary": text.strip()}
+    except Exception as e:
+        print(f"[Gemini] entity-summary error for {name}: {e}")
+        return {"summary": ""}
+
+
+@app.post("/api/duplicative-funding/summary")
+async def get_duplicative_funding_summary():
+    """AI-generated investigative narrative from top dual-funded orgs + cross-org directors."""
+    if not DUCKDB_MODE:
+        return {"summary": ""}
+
+    top_orgs = _duck.get_duplicative_funding_live(min_fed=10_000_000, min_ab=10_000_000, limit=5)
+    top_directors = _duck.get_related_parties_live(min_orgs=3, limit=3)
+
+    gemini_key = os.getenv("GEMINI_API_KEY", "")
+    if not gemini_key:
+        return {"summary": ""}
+
+    try:
+        import httpx
+        orgs_data = [{"name": o["canonical_name"], "fed": o["fed_total"], "ab": o["ab_total"]} for o in top_orgs]
+        dirs_data = [{"name": d["first_name"] + " " + d["last_name"], "orgs": d["org_count"], "funding": d["total_gov_funding"]} for d in top_directors]
+        prompt = (
+            "You are an investigative analyst for a Canadian government accountability tool.\n"
+            "Based on these real findings from public government data:\n\n"
+            "Top dual-funded organizations:\n" + json.dumps(orgs_data, indent=2) + "\n\n"
+            "Top cross-org directors:\n" + json.dumps(dirs_data, indent=2) + "\n\n"
+            "Write a 2-3 sentence investigative summary highlighting the most significant findings about "
+            "organizations receiving funding from both federal and Alberta governments simultaneously, "
+            "and any notable governance overlap. Be specific, cite names and dollar amounts. Plain text only, no markdown."
+        )
+        async with httpx.AsyncClient(timeout=15) as client:
+            r = await client.post(
+                f"https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key={gemini_key}",
+                json={"contents": [{"parts": [{"text": prompt}]}]},
+            )
+        text = r.json()["candidates"][0]["content"]["parts"][0]["text"]
+        return {"summary": text.strip()}
+    except Exception as e:
+        print(f"[Gemini] duplicative-funding summary error: {e}")
+        return {"summary": ""}
 
 
 # ── Sole Source / Amendment Creep ────────────────────────────────────────────
