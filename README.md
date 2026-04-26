@@ -34,14 +34,27 @@ All data is from **official Canadian government open data portals** — nothing 
 
 The `data/` directory is **not committed** (10GB — too large for git). You need it to run the app.
 
-**Option A — Hackathon shared drive**: Download the pre-processed `data/` folder from the team shared drive and place it at `data/` in the project root.
+**Hackathon shared drive**: The pre-processed dataset is available via the Agency 2026 group chat link:
 
-**Option B — Raw sources**:
-- CRA T3010: [open.canada.ca/data/en/dataset/...](https://open.canada.ca)
+> **[Download data folder from Google Drive](https://drive.google.com/file/d/1D3vb9x7WF2cEtt44n70nzHGXsAbLtaFQ/view)**
+
+Download it and extract/place the contents so your project root has a `data/` folder structured as:
+
+```
+data/
+├── cra/        # CRA T3010 JSONL files
+├── fed/        # Federal grants JSONL
+└── ab/         # Alberta procurement JSONL
+```
+
+`data/hackathon.duckdb` is auto-created on first backend run — do not copy it between machines.
+
+**Raw sources (if needed)**:
+- CRA T3010: [open.canada.ca](https://open.canada.ca)
 - Federal grants: [search.open.canada.ca/grants/](https://search.open.canada.ca/grants/)
 - Alberta contracts: [open.alberta.ca](https://open.alberta.ca)
 
-> The app expects `data/hackathon.duckdb` (auto-created on first run) plus JSONL files at `data/cra/`, `data/fed/`, `data/ab/`.
+> The app expects JSONL files at `data/cra/`, `data/fed/`, `data/ab/`. `data/hackathon.duckdb` is auto-created on first run (~2 min).
 
 ---
 
@@ -55,8 +68,8 @@ The `data/` directory is **not committed** (10GB — too large for git). You nee
 ### 1. Clone and set up
 
 ```bash
-git clone <repo-url>
-cd "AI Accountability Hackathon"
+git clone https://github.com/HamzaElSousi/Fraudster-Monsters---Agency-Hackathon-2026.git
+cd Fraudster-Monsters---Agency-Hackathon-2026
 ```
 
 ### 2. Configure environment
@@ -69,9 +82,10 @@ cp backend/.env.example backend/.env
 ### 3. Place data files
 
 ```bash
-# Drop the data/ folder (from shared drive) into the project root
-ls data/hackathon.duckdb   # should exist after first backend run
-ls data/cra/loops.jsonl    # spot check
+# Download from the Google Drive link above and extract into the project root
+# Then verify:
+ls data/cra/loops.jsonl    # spot check — should exist before first run
+# data/hackathon.duckdb is auto-created on first backend start (do not copy it)
 ```
 
 ### 4. Start everything
