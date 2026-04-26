@@ -8,7 +8,8 @@ services:
     ports:
       - "8000:8000"
     volumes:
-      - ./data:/data                 # JSONL + pre-built hackathon.duckdb (needs write for DuckDB WAL)
+      - ./data:/data:ro              # JSONL data files (read-only)
+      - duckdb_vol:/app/duckdb_cache # isolated writable DuckDB cache (no conflict with start.sh)
     env_file:
       - path: .env
         required: false   # AI keys: ANTHROPIC_API_KEY, AWS_*, BEDROCK_MODEL_ID
@@ -16,13 +17,14 @@ services:
         required: false   # DB_CONNECTION_STRING (gitignored — copy from backend/.env.example)
     environment:
       DATA_DIR: /data
-      DUCKDB_PATH: /data/hackathon.duckdb  # use pre-built DB — no slow first-run JSONL reload
+      DUCKDB_PATH: /app/duckdb_cache/hackathon.duckdb
     restart: unless-stopped
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:8000/api/health"]
-      interval: 10s
-      timeout: 5s
-      retries: 5
+      interval: 15s
+      timeout: 10s
+      retries: 20
+      start_period: 120s   # allow time for entrypoint DB copy + preload on first run
 
   frontend:
     build:
@@ -37,3 +39,7 @@ services:
         condition: service_healthy
     restart: unless-stopped
 
+volumes:
+  duckdb_vol:
+    # Isolated DuckDB cache — entrypoint.sh copies pre-built hackathon.duckdb here on first start.
+    # Keeps Docker from conflicting with any local start.sh process that holds the file open.

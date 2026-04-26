@@ -210,7 +210,7 @@ Classification: `score >= 6` → High Alert 🔴 · `score >= 3` → Suspicious 
 48. Multi-board director count label overclaimed → updated Governance page header to note name-matching methodology and approximate nature; renamed "Self-dealing" filter to "Loop Exposure"
 49. Multi-board directors stat inflated at 3+ boards → raised headline stat threshold to 5+ boards in `get_stats_live()`; governance page keeps 3+ default for browsing; Dashboard label updated to "5+ boards"
 50. docker-compose.yml env_file hard error for teammates without .env files → added `required: false` to both `.env` and `backend/.env` entries so the app still starts without credentials
-51. Docker zombie count = 0 (discrepancy vs start.sh) → root cause: fresh `duckdb_vol` has no pre-built tables; large JSONL loads triggered lazily on first request exceed nginx 30s timeout; error cached as `{}`; zombie_count falls back to 0. Fix: DUCKDB_PATH now points to `./data/hackathon.duckdb` (pre-built, same as local); removed separate duckdb_vol volume; nginx proxy_read_timeout raised 30s→120s
+51. Docker zombie=0, directors=37,481 (discrepancy vs start.sh) → two root causes: (1) file lock conflict — Docker and start.sh both open same `hackathon.duckdb`; DuckDB is single-writer, Docker fails to open → `get_stats_live()` returns `{}` → `if live:` is falsy → PG fallback runs with wrong queries (old threshold 3, no govt-funded filter → 37,481; wrong zombie definition → 0). (2) PG fallback had stale query definitions. Fix: `entrypoint.sh` copies pre-built `hackathon.duckdb` to isolated `duckdb_vol` on first Docker start; `get_stats()` now returns DuckDB result directly (no PG fallback in DuckDB mode); PG fallback `gov_sql` updated to match DuckDB definitions
 
 ---
 

@@ -159,9 +159,10 @@ def debug_golden_records():
 @app.get("/api/stats")
 def get_stats():
     if DUCKDB_MODE:
-        live = _duck.cached("stats", _duck.get_stats_live)
-        if live:
-            return live
+        # Always return DuckDB result — never fall through to PG fallback, which uses
+        # different query definitions (old threshold, no govt-funded filter) and produces
+        # inconsistent numbers.
+        return _duck.cached("stats", _duck.get_stats_live) or {}
 
     results = {}
     queries = {
@@ -193,8 +194,13 @@ def get_stats():
             SELECT d.last_name, d.first_name, COUNT(DISTINCT LEFT(d.bn, 9)) as boards
             FROM cra.cra_directors d
             WHERE d.last_name IS NOT NULL AND d.first_name IS NOT NULL
+              AND LENGTH(d.last_name) > 1 AND LENGTH(d.first_name) > 1
+              AND LEFT(d.bn, 9) IN (
+                  SELECT DISTINCT LEFT(bn, 9) FROM cra.govt_funding_by_charity
+                  WHERE COALESCE(total_govt::numeric, 0) > 0
+              )
             GROUP BY d.last_name, d.first_name
-            HAVING COUNT(DISTINCT LEFT(d.bn, 9)) >= 3
+            HAVING COUNT(DISTINCT LEFT(d.bn, 9)) >= 5
         ) multi_board
     """
     row = query_db(gov_sql)
