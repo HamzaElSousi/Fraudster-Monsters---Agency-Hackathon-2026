@@ -34,6 +34,7 @@ function Sidebar() {
   const [searchQuery, setSearchQuery] = useState('');
   const [searchResults, setSearchResults] = useState(null);
   const [searching, setSearching] = useState(false);
+  const [pgConnected, setPgConnected] = useState(false);
   const navigate = useNavigate();
 
   useEffect(() => {
@@ -45,6 +46,11 @@ function Sidebar() {
     fetch(`${API_BASE}/api/stats`)
       .then(r => r.json())
       .then(setNavStats)
+      .catch(() => {});
+
+    fetch(`${API_BASE}/api/health`)
+      .then(r => r.json())
+      .then(d => setPgConnected(d.pg_connected || false))
       .catch(() => {});
   }, []);
 
@@ -70,11 +76,12 @@ function Sidebar() {
   const handleResultClick = (type, item) => {
     setSearchQuery('');
     setSearchResults(null);
-    if (type === 'zombies') navigate('/zombies');
+    if (item.bn) navigate(`/entity/${encodeURIComponent(item.bn)}`);
     else if (type === 'loops') navigate('/loops');
     else if (type === 'governance') navigate('/governance');
     else if (type === 'sole_source') navigate('/sole-source');
     else if (type === 'alerts') navigate('/alerts');
+    else navigate('/zombies');
   };
 
   return (
@@ -137,7 +144,8 @@ function Sidebar() {
                           onMouseEnter={(e) => e.currentTarget.style.background = 'var(--bg-tertiary)'}
                           onMouseLeave={(e) => e.currentTarget.style.background = 'transparent'}
                         >
-                          {item.canonical_name || item.vendor || item.path_display?.slice(0, 50) || `${item.first_name} ${item.last_name}`}
+                          <div>{item.canonical_name || item.vendor || item.path_display?.slice(0, 50) || `${item.first_name} ${item.last_name}`}</div>
+                          {item.bn && <div style={{ fontSize: 11, color: 'var(--text-muted)', fontFamily: 'var(--font-mono)', marginTop: 1 }}>{item.bn} · View Case File →</div>}
                         </div>
                       ))}
                     </div>
@@ -205,12 +213,17 @@ function Sidebar() {
       </nav>
 
       <div className="sidebar-footer">
-        <div className="sidebar-mode-badge mock">
-          ⚡ Live Data
+        <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
+          <div className="sidebar-mode-badge mock">⚡ Live Data</div>
+          {pgConnected && (
+            <div className="sidebar-mode-badge mock" style={{ background: 'rgba(34,211,238,0.15)', color: 'var(--accent-cyan)', border: '1px solid rgba(34,211,238,0.3)' }}>
+              ✓ Dual-DB
+            </div>
+          )}
         </div>
         <div style={{ marginTop: 8, fontSize: 11, lineHeight: 1.4 }}>
-          {navStats ? `${((navStats.total_fed_grants || 0) + (navStats.total_sole_source || 0) + (navStats.total_charities || 0)).toLocaleString()} records` : '…'} · 4 datasets<br />
-          CRA · Federal · Alberta · Entity Resolution
+          {navStats ? `${((navStats.total_fed_grants || 0) + (navStats.total_sole_source || 0) + (navStats.total_charities || 0)).toLocaleString()} records` : '…'} · {pgConnected ? '5' : '4'} datasets<br />
+          CRA · Federal · Alberta{pgConnected ? ' · PostgreSQL' : ' · Entity Resolution'}
         </div>
       </div>
     </aside>

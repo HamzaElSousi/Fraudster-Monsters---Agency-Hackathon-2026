@@ -14,11 +14,16 @@ from fastapi import FastAPI, Query, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from dotenv import load_dotenv
 
-# Load .env from project root (parent directory)
+# Load .env from project root, then backend-specific (backend overrides root)
 load_dotenv(os.path.join(os.path.dirname(__file__), "..", ".env"))
+load_dotenv(os.path.join(os.path.dirname(__file__), ".env"), override=True)
 
 import db_duckdb as _duck
 DUCKDB_MODE = _duck.is_available()
+
+# PostgreSQL probe results (populated at startup)
+_pg_connected = False
+_pg_tables: list[str] = []
 
 
 # ── Database Connection (PostgreSQL fallback) ────────────────────────────────
@@ -52,6 +57,7 @@ def _no_data():
 # ── App Setup ────────────────────────────────────────────────────────────────
 @asynccontextmanager
 async def lifespan(app: FastAPI):
+    global _pg_connected, _pg_tables
     if DUCKDB_MODE:
         print(f"[START] DuckDB mode — loading tables from {_duck._base()}")
         # Run synchronous preload in a thread so the event loop stays responsive,
@@ -64,6 +70,24 @@ async def lifespan(app: FastAPI):
             print("[START] PostgreSQL mode — using shared DB")
         else:
             print("[START] WARNING: no data source configured")
+    # Non-blocking PostgreSQL probe (always, even in DuckDB mode — cross-reference value)
+    conn_str = os.getenv("DB_CONNECTION_STRING", "")
+    if conn_str and "PASSWORD" not in conn_str:
+        try:
+            import psycopg2 as _pg2
+            pg_conn = await asyncio.to_thread(
+                lambda: _pg2.connect(conn_str, connect_timeout=8)
+            )
+            cur = pg_conn.cursor()
+            cur.execute("SELECT table_schema || '.' || table_name FROM information_schema.tables WHERE table_schema NOT IN ('pg_catalog','information_schema') ORDER BY table_schema, table_name")
+            _pg_tables = [row[0] for row in cur.fetchall()]
+            pg_conn.close()
+            _pg_connected = True
+            print(f"[START] PostgreSQL connected — {len(_pg_tables)} tables: {_pg_tables[:5]}...")
+        except Exception as e:
+            print(f"[START] PostgreSQL probe failed: {e}")
+            _pg_connected = False
+            _pg_tables = []
     yield
     print("Shutting down...")
 
@@ -989,6 +1013,9 @@ def health():
         "status": "healthy",
         "query_mode": mode,
         "ai_enabled": has_ai,
+        "pg_connected": _pg_connected,
+        "pg_tables": _pg_tables,
+        "pg_table_count": len(_pg_tables),
         "timestamp": datetime.utcnow().isoformat(),
         "version": "1.0.0",
     }

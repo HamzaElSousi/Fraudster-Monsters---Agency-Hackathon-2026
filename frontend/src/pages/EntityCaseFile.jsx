@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import ReactECharts from 'echarts-for-react';
-import { fetchEntityCaseFile, fmtDollars } from '../api';
+import { fetchEntityCaseFile, fmtDollars, formatCurrency } from '../api';
 
 const FLAG_LABELS = {
   same_year_loop:           { icon: '🔴', level: 'critical', text: () => 'Same-year funding loop detected — phantom tax receipts possible' },
@@ -124,6 +124,32 @@ export default function EntityCaseFile() {
         </div>
       </div>
 
+      {/* Zombie Status Banner */}
+      {entity.zombie_status?.is_zombie && (
+        <div style={{
+          padding: '14px 20px',
+          background: 'rgba(239,68,68,0.08)',
+          border: '1px solid rgba(239,68,68,0.3)',
+          borderLeft: '4px solid var(--status-critical)',
+          borderRadius: 'var(--radius-lg)',
+          display: 'flex',
+          alignItems: 'center',
+          gap: 12,
+        }}>
+          <span style={{ fontSize: 22 }}>🧟</span>
+          <div>
+            <div style={{ fontSize: 13, fontWeight: 700, color: 'var(--status-critical)', marginBottom: 2 }}>
+              ZOMBIE RECIPIENT — Last filed {entity.zombie_status.last_filing_year}
+            </div>
+            <div style={{ fontSize: 12, color: 'var(--text-secondary)' }}>
+              Received <strong>{formatCurrency(entity.zombie_status.total_govt_funding || 0)}</strong> in public funds while{' '}
+              <strong>{entity.zombie_status.govt_share_pct?.toFixed(0)}% government-dependent</strong>, then stopped filing.
+              Source: CRA T3010
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* Two-column: flags + funding chart */}
       <div style={{ display: 'grid', gridTemplateColumns: '280px 1fr', gap: 16 }}>
         {/* Red Flags Panel */}
@@ -185,6 +211,116 @@ export default function EntityCaseFile() {
               ))}
             </tbody>
           </table>
+        </div>
+      )}
+
+      {/* Directors */}
+      {(entity.directors || []).length > 0 && (
+        <div className="card" style={{ padding: 20 }}>
+          <h3 style={{ margin: '0 0 16px', fontSize: 12, textTransform: 'uppercase', letterSpacing: 1, color: 'var(--text-muted)', fontWeight: 700 }}>
+            Board of Directors ({entity.directors.length})
+          </h3>
+          <table className="data-table">
+            <thead>
+              <tr>
+                <th>Name</th>
+                <th>Position</th>
+                <th title="Number of government-funded charity boards this person sits on">Boards</th>
+              </tr>
+            </thead>
+            <tbody>
+              {entity.directors.map((d, i) => {
+                const multiBoard = (d.board_count || 1) >= 3;
+                return (
+                  <tr key={i}>
+                    <td style={{ fontWeight: 600 }}>{d.first_name} {d.last_name}</td>
+                    <td style={{ color: 'var(--text-secondary)' }}>{d.position || '—'}</td>
+                    <td>
+                      <span
+                        style={{
+                          padding: '2px 8px', borderRadius: 4, fontSize: 11, fontWeight: 700,
+                          background: multiBoard ? 'rgba(239,68,68,0.12)' : 'var(--bg-tertiary)',
+                          color: multiBoard ? 'var(--status-critical)' : 'var(--text-muted)',
+                          cursor: multiBoard ? 'pointer' : 'default',
+                        }}
+                        onClick={() => multiBoard && navigate('/governance')}
+                        title={multiBoard ? 'Sits on multiple funded boards — view in Governance' : ''}
+                      >
+                        {multiBoard ? '🕸️ ' : ''}{d.board_count || 1} board{(d.board_count || 1) !== 1 ? 's' : ''}
+                      </span>
+                    </td>
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
+        </div>
+      )}
+
+      {/* Federal Grants */}
+      {(entity.federal_grants || []).length > 0 && (
+        <div className="card" style={{ padding: 20 }}>
+          <h3 style={{ margin: '0 0 4px', fontSize: 12, textTransform: 'uppercase', letterSpacing: 1, color: 'var(--text-muted)', fontWeight: 700 }}>
+            Federal Grants Received
+          </h3>
+          <div style={{ fontSize: 12, color: 'var(--text-muted)', marginBottom: 14 }}>
+            Total: <strong style={{ color: 'var(--text-primary)' }}>
+              {formatCurrency(entity.federal_grants.reduce((s, r) => s + (r.amount || 0), 0))}
+            </strong> · Source: Federal Proactive Disclosure
+          </div>
+          <table className="data-table">
+            <thead>
+              <tr>
+                <th>Department</th>
+                <th>Year</th>
+                <th>Amount</th>
+                <th>Program</th>
+              </tr>
+            </thead>
+            <tbody>
+              {entity.federal_grants.map((g, i) => (
+                <tr key={i}>
+                  <td style={{ fontSize: 12 }}>{g.department || '—'}</td>
+                  <td style={{ fontFamily: 'var(--font-mono)', fontSize: 12 }}>{g.fiscal_year || '—'}</td>
+                  <td style={{ fontWeight: 700, fontFamily: 'var(--font-mono)' }}>{fmtDollars(g.amount || 0)}</td>
+                  <td style={{ color: 'var(--text-muted)', fontSize: 12, maxWidth: 200, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{g.program || '—'}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
+
+      {/* Loop Partners */}
+      {(entity.loop_partners || []).length > 0 && (
+        <div className="card" style={{ padding: 20 }}>
+          <h3 style={{ margin: '0 0 12px', fontSize: 12, textTransform: 'uppercase', letterSpacing: 1, color: 'var(--text-muted)', fontWeight: 700 }}>
+            Connected Through Funding Loops
+          </h3>
+          <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8 }}>
+            {entity.loop_partners.map((p, i) => (
+              <span
+                key={i}
+                onClick={() => navigate(`/entity/${encodeURIComponent(p.partner_bn)}`)}
+                style={{
+                  padding: '6px 12px',
+                  background: 'rgba(139,92,246,0.1)',
+                  border: '1px solid rgba(139,92,246,0.25)',
+                  borderRadius: 'var(--radius-md)',
+                  fontSize: 12,
+                  cursor: 'pointer',
+                  color: 'var(--accent-purple)',
+                  fontWeight: 500,
+                  transition: 'all var(--transition-fast)',
+                }}
+                onMouseEnter={e => e.currentTarget.style.background = 'rgba(139,92,246,0.2)'}
+                onMouseLeave={e => e.currentTarget.style.background = 'rgba(139,92,246,0.1)'}
+                title={`BN: ${p.partner_bn}`}
+              >
+                🔄 {p.partner_name || p.partner_bn}
+              </span>
+            ))}
+          </div>
         </div>
       )}
 

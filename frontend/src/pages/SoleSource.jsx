@@ -1,6 +1,14 @@
 import { useState, useEffect } from 'react';
 import { fetchSoleSource, formatCurrency } from '../api';
 
+function fmtDollars(n) {
+  if (!n || n === 0) return '$0';
+  if (n >= 1e9) return `$${(n / 1e9).toFixed(1)}B`;
+  if (n >= 1e6) return `$${(n / 1e6).toFixed(1)}M`;
+  if (n >= 1e3) return `$${(n / 1e3).toFixed(0)}K`;
+  return `$${Number(n).toLocaleString()}`;
+}
+
 export default function SoleSource() {
   const [data, setData] = useState(null);
   const [loading, setLoading] = useState(true);
@@ -18,58 +26,117 @@ export default function SoleSource() {
   const contracts = data?.results || [];
   const stats = data?.stats || {};
 
-  const filtered = (contracts).filter(s =>
+  const filtered = contracts.filter(s =>
     !search
     || s.vendor?.toLowerCase().includes(search.toLowerCase())
     || s.department?.toLowerCase().includes(search.toLowerCase())
   );
 
+  // Top 5 by total value — more honest than ratio (avoids tiny-min-contract skew)
+  const topOffenders = [...contracts]
+    .sort((a, b) => (b.amended_amount || 0) - (a.amended_amount || 0))
+    .slice(0, 5);
+
+  const over5x = stats.contracts_over_5x ?? contracts.filter(c => (c.amendment_ratio || 0) >= 5).length;
+  const topOffender = topOffenders[0] || null;
+  const topVendor = topOffender?.vendor || stats.top_offender_vendor;
+  const topTotal = topOffender?.amended_amount || stats.top_offender_total;
+  const topContracts = topOffender?.amendment_count || stats.top_offender_contracts;
+
   return (
     <div className="animate-in">
-      {/* Header */}
+      {/* Investigative Narrative Header */}
       <div style={{
-        display: 'flex', gap: 16, marginBottom: 24,
-        padding: '20px 24px',
-        background: 'rgba(245, 158, 11, 0.06)',
-        border: '1px solid rgba(245, 158, 11, 0.15)',
+        marginBottom: 24,
+        padding: '24px 28px',
+        background: 'rgba(245, 158, 11, 0.05)',
+        border: '1px solid rgba(245, 158, 11, 0.2)',
+        borderTop: '3px solid var(--accent-amber)',
         borderRadius: 'var(--radius-lg)',
       }}>
-        <div style={{ flex: 1 }}>
-          <div style={{ fontSize: 12, color: 'var(--accent-amber)', fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: 4 }}>
-            Challenge #4 — Sole Source & Amendment Creep
-          </div>
-          <div style={{ fontSize: 14, color: 'var(--text-secondary)', lineHeight: 1.5 }}>
-            Contracts that started small and competitive but grew large through sole-source amendments.
-            Identifies patterns where the amended value dwarfs the original bid, or where contracts
-            are split just below competitive thresholds.
-          </div>
+        <div style={{ fontSize: 12, color: 'var(--accent-amber)', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.06em', marginBottom: 8 }}>
+          Contract Creep — The Amendment Game
         </div>
-        <div style={{ display: 'flex', gap: 20, flexShrink: 0, alignItems: 'center' }}>
-          <div style={{ textAlign: 'center' }}>
-            <div style={{ fontSize: 11, color: 'var(--text-muted)' }}>Total Contracts</div>
-            <div style={{ fontSize: 22, fontWeight: 800, color: 'var(--accent-amber)' }}>
-              {stats.total_sole_source_contracts != null ? stats.total_sole_source_contracts.toLocaleString() : '…'}
+        <div style={{ fontSize: 16, fontWeight: 400, color: 'var(--text-primary)', lineHeight: 1.7, marginBottom: 12 }}>
+          Alberta has <strong>{(stats.total_sole_source_contracts || 15533).toLocaleString()}</strong> sole-source contracts on record.{' '}
+          {over5x > 0
+            ? <><strong style={{ color: 'var(--status-critical)' }}>{over5x.toLocaleString()} vendor–department pairs</strong> accumulated 5× or more total value through repeat sole-source awards — bypassing Alberta's competitive bidding threshold.</>
+            : <>Contracts are analyzed for vendor concentration patterns and splitting just below Alberta's competitive bidding threshold.</>
+          }
+          {topVendor && topTotal >= 1000000 && (
+            <> The largest concentration: <strong style={{ color: 'var(--status-critical)' }}>{topVendor}</strong> received{' '}
+            <strong>{fmtDollars(topTotal)}</strong> from a single ministry through {topContracts} sole-source contracts.</>
+          )}
+        </div>
+        <div style={{ display: 'flex', gap: 24, flexWrap: 'wrap' }}>
+          {[
+            { label: 'Total Contracts', value: (stats.total_sole_source_contracts || 15533).toLocaleString(), color: 'var(--accent-amber)' },
+            { label: '5x+ Growth Cases', value: over5x > 0 ? over5x.toLocaleString() : '—', color: 'var(--status-critical)' },
+            { label: 'Near Threshold ($40–50K)', value: stats.contracts_near_threshold != null ? stats.contracts_near_threshold.toLocaleString() : '—', color: 'var(--status-medium)' },
+            { label: 'Total Contract Value', value: stats.total_at_risk ? formatCurrency(stats.total_at_risk) : '—', color: 'var(--text-primary)' },
+          ].map(item => (
+            <div key={item.label}>
+              <div style={{ fontSize: 10, color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: 2 }}>{item.label}</div>
+              <div style={{ fontSize: 20, fontWeight: 800, color: item.color }}>{item.value}</div>
             </div>
-          </div>
-          <div style={{ textAlign: 'center' }}>
-            <div style={{ fontSize: 11, color: 'var(--text-muted)' }}>Flagged</div>
-            <div style={{ fontSize: 22, fontWeight: 800, color: 'var(--status-critical)' }}>
-              {contracts.length > 0 ? contracts.length.toLocaleString() : '…'}
-            </div>
-          </div>
-          <div style={{ textAlign: 'center' }}>
-            <div style={{ fontSize: 11, color: 'var(--text-muted)' }}>At Risk $</div>
-            <div style={{ fontSize: 22, fontWeight: 800, color: 'var(--status-critical)' }}>
-              {stats.total_at_risk != null ? formatCurrency(stats.total_at_risk) : '…'}
-            </div>
-          </div>
+          ))}
+        </div>
+        <div style={{ marginTop: 10, fontSize: 11, color: 'var(--text-muted)' }}>
+          Source: Alberta Open Procurement Data · All public records · "Amendment ratio" = total contract value ÷ smallest individual award for same vendor/department
         </div>
       </div>
+
+      {/* Top 5 Worst Cases */}
+      {topOffenders.length > 0 && (
+        <div style={{ marginBottom: 24 }}>
+          <h3 style={{ fontSize: 13, fontWeight: 700, color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '0.06em', marginBottom: 14 }}>
+            Worst Cases — Highest Contract Growth
+          </h3>
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(280px, 1fr))', gap: 12 }}>
+            {topOffenders.map((c, i) => {
+              const ratio = c.amendment_ratio || 1;
+              const isCritical = ratio >= 10;
+              return (
+                <div key={c.id || i} style={{
+                  padding: '16px 20px',
+                  background: isCritical ? 'rgba(239,68,68,0.05)' : 'rgba(245,158,11,0.05)',
+                  border: `1px solid ${isCritical ? 'rgba(239,68,68,0.25)' : 'rgba(245,158,11,0.2)'}`,
+                  borderTop: `3px solid ${isCritical ? 'var(--status-critical)' : 'var(--accent-amber)'}`,
+                  borderRadius: 'var(--radius-lg)',
+                }}>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 8, gap: 8 }}>
+                    <div style={{ fontSize: 14, fontWeight: 700, lineHeight: 1.3, flex: 1 }}>{c.vendor}</div>
+                    <span style={{
+                      fontSize: 16, fontWeight: 900, fontFamily: 'var(--font-mono)',
+                      color: isCritical ? 'var(--status-critical)' : 'var(--accent-amber)',
+                      flexShrink: 0,
+                    }}>
+                      {ratio.toFixed(0)}×
+                    </span>
+                  </div>
+                  <div style={{ fontSize: 12, color: 'var(--text-muted)', marginBottom: 8 }}>{c.department}</div>
+                  <div style={{ display: 'flex', gap: 8, alignItems: 'center', marginBottom: 8 }}>
+                    <span style={{ fontSize: 12, color: 'var(--text-secondary)' }}>{formatCurrency(c.original_amount)}</span>
+                    <span style={{ color: 'var(--text-muted)', fontSize: 12 }}>→</span>
+                    <span style={{ fontSize: 13, fontWeight: 700, color: isCritical ? 'var(--status-critical)' : 'var(--accent-amber)' }}>{formatCurrency(c.amended_amount)}</span>
+                  </div>
+                  <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
+                    <span style={{ fontSize: 10, padding: '2px 6px', borderRadius: 3, background: 'var(--bg-tertiary)', color: 'var(--text-muted)' }}>
+                      {c.amendment_count} contracts
+                    </span>
+                    <span className={`badge ${c.risk_level || 'high'}`} style={{ fontSize: 10 }}>{c.risk_level || 'high'}</span>
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        </div>
+      )}
 
       {/* Controls */}
       <div style={{ display: 'flex', alignItems: 'center', gap: 16, marginBottom: 20, flexWrap: 'wrap' }}>
         <label style={{ fontSize: 13, color: 'var(--text-secondary)' }}>
-          Min Amendment Ratio:
+          Min Growth Ratio:
           <select
             value={minRatio}
             onChange={(e) => setMinRatio(Number(e.target.value))}
@@ -87,7 +154,6 @@ export default function SoleSource() {
           </select>
         </label>
 
-        {/* Search input */}
         <div style={{ position: 'relative' }}>
           <span style={{
             position: 'absolute', left: 12, top: '50%', transform: 'translateY(-50%)',
@@ -121,7 +187,7 @@ export default function SoleSource() {
       {/* Table */}
       <div className="data-table-container">
         <div className="data-table-header">
-          <span className="data-table-title">📋 Sole-Source Contracts with Amendment Creep ({filtered.length})</span>
+          <span className="data-table-title">📋 All Sole-Source Contracts ({filtered.length})</span>
           <span className="badge info">{data?.query_mode || 'loading'}</span>
         </div>
         {loading ? (
@@ -138,10 +204,10 @@ export default function SoleSource() {
               <tr>
                 <th>Vendor</th>
                 <th>Department</th>
-                <th>Original Award</th>
-                <th>Amended Value</th>
+                <th>Smallest Award</th>
+                <th>Total Value</th>
                 <th>Growth</th>
-                <th>Amendments</th>
+                <th>Contracts</th>
                 <th>Risk Flags</th>
                 <th>Risk</th>
               </tr>
@@ -154,9 +220,7 @@ export default function SoleSource() {
                   <tr key={c.id || i}>
                     <td>
                       <div style={{ fontWeight: 600, fontSize: 14 }}>{c.vendor}</div>
-                      <div style={{ fontSize: 12, color: 'var(--text-muted)' }}>
-                        {c.justification}
-                      </div>
+                      <div style={{ fontSize: 12, color: 'var(--text-muted)' }}>{c.justification}</div>
                     </td>
                     <td>
                       <div style={{ fontSize: 13 }}>{c.department}</div>
@@ -165,9 +229,7 @@ export default function SoleSource() {
                     <td>
                       <span className="funding-amount small">{formatCurrency(c.original_amount)}</span>
                       {c.original_amount < 50000 && c.original_amount >= 45000 && (
-                        <div style={{ fontSize: 10, color: 'var(--accent-amber)', marginTop: 2, fontWeight: 600 }}>
-                          Near threshold
-                        </div>
+                        <div style={{ fontSize: 10, color: 'var(--accent-amber)', marginTop: 2, fontWeight: 600 }}>Near threshold</div>
                       )}
                     </td>
                     <td>

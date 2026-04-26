@@ -120,7 +120,21 @@ Visit **http://localhost:5173**
 | AI | AWS Bedrock Converse API (primary) · Anthropic SDK (fallback) |
 | Deploy | Docker · nginx (optional) |
 
-**No PostgreSQL required.** DuckDB reads the JSONL files directly and caches them in `data/hackathon.duckdb` on first run.
+**Dual database support**: DuckDB reads the JSONL files directly and caches them in `data/hackathon.duckdb` on first run. PostgreSQL integration via shared Render.com database provides dual-verification (see [PostgreSQL Connection](#postgresql-connection) below).
+
+---
+
+## PostgreSQL Connection
+
+The shared Render.com PostgreSQL database is now connected and verified at startup:
+
+| Component | Details |
+|-----------|---------|
+| **Connection** | Real Render.com connection string loaded from `backend/.env` |
+| **Tables** | 89 tables across 4 schemas: `cra`, `ab`, `fed`, `general` |
+| **Entity resolution** | `general.entity_golden_records` and `general.vw_entity_search` enable cross-dataset matching |
+| **Backend behavior** | `.env` loaded from both root AND `backend/` directory (backend-specific vars override root) |
+| **Health check** | `GET /api/health` returns `pg_connected: true/false` + `pg_table_count` to verify connection |
 
 ---
 

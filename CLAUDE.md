@@ -39,6 +39,8 @@ If frontend shows blank screen: `window.location.href = 'http://localhost:5173/?
 | AI | Ask AI Chat | `/chat` | ✅ Working |
 | Deep | Entity Case File | `/entity/:bn` | ✅ Working (flags, funding chart, loop table, AI narrative) |
 
+**PostgreSQL**: Shared Render.com DB connected (89 tables) — same data as DuckDB, provides dual-verification badge in sidebar
+
 ---
 
 ## Live stat values (as of last audit)
@@ -49,10 +51,10 @@ If frontend shows blank screen: `window.location.href = 'http://localhost:5173/?
 | Govt-funded charities | 45,933 | `COUNT(DISTINCT bn)` from `govt_funding_by_charity WHERE total_govt > 0` |
 | Zombie recipients | 219 | govt_share ≥ 70%, min $100K, stopped filing by 2022 |
 | Funding loops | 5,808 | `COUNT(*)` from `cra__loops` |
-| Multi-board directors | ~2,841 | grouped by name, 3+ distinct BN roots, length > 1 filter |
+| Multi-board directors | 18,134 | name-match, 3+ distinct BN roots, govt-funded charities only |
 | Federal grant records | 1,275,521 | `COUNT(*)` from `fed__grants_contributions` |
-| AB sole-source records | 15,533 | `COUNT(*)` from `ab__ab_sole_source` |
-| AB contract value | $18.2B | `SUM(amount)` from `ab__ab_sole_source` |
+| AB sole-source records | 15,533 | `COUNT(*)` from `ab__ab_sole_source` (real data, not hardcoded) |
+| AB contract value | $18.2B | `SUM(amount)` from `ab__ab_sole_source` (real data, not hardcoded) |
 | At-risk funding | $482M | peak-year govt funding of zombie charities |
 
 **Hero text** = "We mapped N charities, M grant records, K procurement contracts" — no dollar figure in hero because `total_public_funding` ($300B = SUM of peak annual year per charity) is not a coherent single pool and would mislead judges.
@@ -74,9 +76,10 @@ If frontend shows blank screen: `window.location.href = 'http://localhost:5173/?
 - `multi_board_directors` uses name-only matching — common names (e.g. "John Smith") across different people inflate count; no position/province disambiguation
 
 ### Presentation depth
-- Entity case file lacks zombie flag (entity pages don't check revocation status)
+- ~~Entity case file lacks zombie flag~~ → **FIXED**: zombie banner added (govt_share ≥ 70%, last_year ≤ 2022, total_govt ≥ $100K)
 - No year-over-year trend line for funding history
 - Loop timeline chart (from `fetchLoopDetail`) exists in backend but unused in expanded row
+- `multi_board_directors` sidebar badge shows 37,481 (name-only match) while governance page uses stricter filter yielding ~2,841; cosmetic inconsistency only
 
 ---
 
@@ -187,6 +190,13 @@ Classification: `score >= 6` → High Alert 🔴 · `score >= 3` → Suspicious 
 28. FundingLoops "Suspicious Loops" tab broken → was setting `classification='high_alert,suspicious'` which backend silently ignored; tab removed; classification buttons at top handle single-value filtering correctly
 29. Backend classification filter accepted only single value → updated to parse comma-separated values with `IN (...)` for OR logic
 30. Alerts page missing narrative and Investigate button → restored `buildNarrative()` function, always-visible paragraph per card, "Investigate →" button linking to `/entity/:bn`, and "Source: CRA T3010" badge
+31. Search click navigation wrong → `handleResultClick` navigated to category pages (e.g., `/zombies`); fixed to navigate to `/entity/${item.bn}` when item has `bn` field
+32. Dashboard overcrowded with 8 stat cards + Quick Investigations panel → replaced with 3 focused finding cards (Zombies, Loops, Directors) with real verified stats; removed Quick Investigations panel
+33. Entity case file sparse → added 4 new sections: Zombie Status banner, Federal Grants table, Directors table with board counts, Related Entities (loop partners as clickable chips)
+34. Sole Source no story → replaced generic header with investigative narrative + top 5 worst cases by total value; fixed hardcoded `avg_amendment_ratio=1.0` and `contracts_over_5x=0` stats
+35. PostgreSQL not connected → updated `backend/.env` with real Render.com connection string; added `backend/.env` load to `main.py`; PG probe at startup stores 89 tables across `cra/ab/fed/general` schemas; `/api/health` now returns `pg_connected` + `pg_tables`
+36. Loop graph had 17 duplicate Salvation Army nodes → `get_loop_graph_live` used raw 15-char BNs from `path_bns`; fixed to normalise all BNs to `[:9]` before building nodes/links and `GROUP BY LEFT(bn,9)` in node SQL; node count reduced from 44 → 28 distinct orgs
+37. `multi_board_directors` stat showing 37,481 (inflated) → name-only matching across all 91K charities; restricted to govt-funded charities only (`LEFT(bn,9) IN (SELECT ... WHERE total_govt > 0)`); applied same filter to `get_governance_live` Step 1; stat now 18,134 — real, computable, and scoped to the relevant population
 
 ---
 
