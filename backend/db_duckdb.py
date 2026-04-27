@@ -1113,6 +1113,12 @@ def get_stats_live() -> dict:
 
 
 def is_available() -> bool:
+    # Check pre-built DuckDB file first (Docker / post-first-run path).
+    # DUCKDB_PATH is set explicitly in Docker; fall back to the default location.
+    db_path = os.environ.get("DUCKDB_PATH") or os.path.join(_base(), "hackathon.duckdb")
+    if os.path.exists(db_path) and os.path.getsize(db_path) > 1_000_000:
+        return True
+    # Fallback: check JSONL source files (local dev, first run before DB built)
     return (
         _available("cra", "loops") and
         _available("cra", "cra_directors") and

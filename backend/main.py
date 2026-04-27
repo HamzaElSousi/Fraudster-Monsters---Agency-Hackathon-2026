@@ -33,8 +33,12 @@ def get_db_connection():
     import psycopg2
     conn_str = os.getenv("DB_CONNECTION_STRING")
     if not conn_str:
-        raise HTTPException(500, "DB_CONNECTION_STRING not configured")
-    return psycopg2.connect(conn_str)
+        return None
+    try:
+        return psycopg2.connect(conn_str, connect_timeout=5)
+    except Exception as e:
+        print(f"[PG] Connection failed: {e}")
+        return None
 
 
 def query_db(sql, params=None):

@@ -47,14 +47,14 @@ data/
 └── ab/         # Alberta procurement JSONL
 ```
 
-`data/hackathon.duckdb` is auto-created on first backend run — do not copy it between machines.
+`data/hackathon.duckdb` is a **pre-built file** included in the shared drive download. It is used as a read-only source — the backend copies it to an isolated cache on first run. Do not delete it from `data/`.
 
 **Raw sources (if needed)**:
 - CRA T3010: [open.canada.ca](https://open.canada.ca)
 - Federal grants: [search.open.canada.ca/grants/](https://search.open.canada.ca/grants/)
 - Alberta contracts: [open.alberta.ca](https://open.alberta.ca)
 
-> The app expects JSONL files at `data/cra/`, `data/fed/`, `data/ab/`. `data/hackathon.duckdb` is auto-created on first run (~2 min).
+> The app expects JSONL files at `data/cra/`, `data/fed/`, `data/ab/`. `data/hackathon.duckdb` must be present — it is included in the shared drive download.
 
 ---
 
@@ -85,7 +85,7 @@ cp backend/.env.example backend/.env
 # Download from the Google Drive link above and extract into the project root
 # Then verify:
 ls data/cra/loops.jsonl    # spot check — should exist before first run
-# data/hackathon.duckdb is auto-created on first backend start (do not copy it)
+ls data/hackathon.duckdb   # pre-built DuckDB — must be present
 ```
 
 ### 4. Start everything
@@ -207,10 +207,36 @@ Check `GET /api/health` → `ai_enabled: true/false` to see which mode is active
 
 ## Docker (Alternative)
 
+Docker and `start.sh` can now run **simultaneously** without conflict — the backend container copies `data/hackathon.duckdb` to an isolated Docker volume (`duckdb_vol`) on first start, so there is no file-lock collision with any local process.
+
+### First-time / clean start
+
 ```bash
-docker-compose up --build
-# Backend on :8000, Frontend on :80 via nginx
+# If you ran Docker before this fix, remove the old empty volume first:
+docker compose down -v
+
+# Rebuild images (picks up entrypoint.sh and Dockerfile changes):
+docker compose build
+
+# Start — first run copies hackathon.duckdb to isolated cache (~30s), then loads:
+docker compose up
 ```
+
+Backend on **:8000**, frontend on **:3000** via nginx.
+
+### Subsequent starts
+
+```bash
+docker compose up
+# Uses cached duckdb_vol — starts in seconds
+```
+
+### How it works
+
+- `entrypoint.sh` checks if `/app/duckdb_cache/hackathon.duckdb` exists in the volume
+- If not, it copies from `/data/hackathon.duckdb` (read-only bind mount of `data/`)
+- Then starts uvicorn — single worker, DuckDB is single-writer
+- The `duckdb_vol` volume is completely isolated from `data/hackathon.duckdb` on the host
 
 ---
 
@@ -236,7 +262,7 @@ See `backend/.env.example` for the full list. Key ones:
 | Govt-funded charities | 45,933 | Charities with any govt revenue in any year |
 | Zombie recipients | 219 | ≥70% govt revenue + ≥$100K + stopped filing by 2022 |
 | Funding loops | 5,808 | Confirmed circular gift cycles in CRA T3010 |
-| Multi-board directors | ~2,841 | Directors appearing on 3+ distinct charity boards |
+| Multi-board directors | 3,444 | Directors on 5+ distinct govt-funded charity boards (name-matched, approx.) |
 | Federal grant records | 1,275,521 | Rows in federal proactive disclosure dataset |
 | AB sole-source records | 15,533 | Alberta no-bid contracts |
 | AB contract value | $18.2B | Total value of sole-source contracts |
@@ -248,7 +274,7 @@ See `backend/.env.example` for the full list. Key ones:
 ## For New Team Members
 
 1. **Read `CLAUDE.md`** — it has the full technical reference: every bug fixed, every gotcha, all SQL patterns, data schema notes.
-2. **The backend is single-writer** — DuckDB holds an exclusive lock. Don't try to open `hackathon.duckdb` directly while the server is running.
+2. **The backend is single-writer** — DuckDB holds an exclusive lock. Don't try to open `data/hackathon.duckdb` directly while the server is running. Docker uses a separate isolated copy in `duckdb_vol` — safe to run both simultaneously.
 3. **Cache TTL is 10 minutes** — restart backend after any backend code change to bust the cache.
 4. **BN format** — CRA uses 9-char roots (`107951618`) and 15-char program accounts (`107951618RR0001`). Always normalize with `LEFT(bn, 9)` when joining across tables.
 5. **Frontend env** — use `import.meta.env.VITE_*`, never `process.env.*` (Vite, not CRA).
