@@ -3,6 +3,12 @@
 
 ---
 
+## Working conventions
+
+- **Never start servers, Docker containers, or background processes** unless the user explicitly asks. Make code changes and tell the user what command to run.
+
+---
+
 ## Stack
 
 - **Backend**: FastAPI + DuckDB (embedded, queries JSONL directly, no PostgreSQL needed)
