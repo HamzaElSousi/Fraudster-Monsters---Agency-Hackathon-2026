@@ -941,16 +941,23 @@ def get_alerts_live(min_flags: int = 2, limit: int = 20) -> list[dict]:
         print(f"[DuckDB] alerts loop_bns error: {e}")
 
     # Step 3: Get multi-board director BNs as a Python set
-    # Only include directors with 3+ boards (to match get_governance_live definition)
+    # Find all BNs associated with directors who sit on 3+ boards.
     gov_bns_set: set[str] = set()
     try:
         gov_rows = query(f"""
-            SELECT DISTINCT LEFT(bn, 9) as bn_root
-            FROM {dirs}
-            WHERE last_name IS NOT NULL AND first_name IS NOT NULL
-              AND LENGTH(last_name) > 1 AND LENGTH(first_name) > 1
-            GROUP BY last_name, first_name, LEFT(bn, 9)
-            HAVING COUNT(DISTINCT LEFT(bn, 9)) >= 3
+            WITH multi_directors AS (
+                SELECT last_name, first_name
+                FROM {dirs}
+                WHERE last_name IS NOT NULL AND first_name IS NOT NULL
+                  AND LENGTH(last_name) > 1 AND LENGTH(first_name) > 1
+                GROUP BY last_name, first_name
+                HAVING COUNT(DISTINCT LEFT(bn, 9)) >= 3
+            )
+            SELECT DISTINCT LEFT(d.bn, 9) as bn_root
+            FROM {dirs} d
+            JOIN multi_directors md
+              ON d.last_name = md.last_name AND d.first_name = md.first_name
+            WHERE d.last_name IS NOT NULL AND d.first_name IS NOT NULL
         """)
         gov_bns_set = {r["bn_root"][:9] for r in gov_rows if r.get("bn_root")}
     except Exception as e:
