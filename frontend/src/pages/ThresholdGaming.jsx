@@ -1,6 +1,27 @@
 import { useState, useEffect } from 'react';
 import { fetchThresholdGaming, formatCurrency } from '../api';
 
+function MethodologyPanel() {
+  const [open, setOpen] = useState(false);
+  return (
+    <div style={{ marginBottom: 20, border: '1px solid var(--border-primary)', borderRadius: 'var(--radius-lg)', overflow: 'hidden' }}>
+      <button onClick={() => setOpen(o => !o)} style={{ width: '100%', padding: '12px 20px', background: 'var(--bg-tertiary)', border: 'none', cursor: 'pointer', textAlign: 'left', display: 'flex', justifyContent: 'space-between', alignItems: 'center', color: 'var(--text-secondary)', fontSize: 13, fontWeight: 600 }}>
+        <span>How we detected this — Challenge #9 Threshold Gaming</span>
+        <span style={{ fontSize: 11, transform: open ? 'rotate(180deg)' : 'none', display: 'inline-block', transition: 'transform 0.2s' }}>▼</span>
+      </button>
+      {open && (
+        <div style={{ padding: '16px 20px', background: 'var(--bg-card)', borderTop: '1px solid var(--border-primary)', fontSize: 13, color: 'var(--text-secondary)', lineHeight: 1.8 }}>
+          <div style={{ marginBottom: 10 }}><strong style={{ color: 'var(--text-primary)' }}>Data source:</strong> Federal Proactive Disclosure — 1,275,521 grants and contributions records from 51+ federal departments (<code>fed__grants_contributions</code>).</div>
+          <div style={{ marginBottom: 10 }}><strong style={{ color: 'var(--text-primary)' }}>Thresholds monitored:</strong> <strong>$25,000</strong>, <strong>$100,000</strong>, and <strong>$1,000,000</strong> — the three levels at which federal departments must proactively disclose grants to the public. Awards above these thresholds are reported individually; below them, they may be batched or omitted.</div>
+          <div style={{ marginBottom: 10 }}><strong style={{ color: 'var(--text-primary)' }}>Detection window:</strong> We flag grants whose value falls between 85% and 99.9% of a threshold — the zone where a recipient or program officer could have stayed just below a reporting requirement. A minimum of 3 such grants for the same recipient–department pair is required before flagging, to eliminate coincidence.</div>
+          <div style={{ marginBottom: 10 }}><strong style={{ color: 'var(--text-primary)' }}>Connection to financial crime:</strong> "Structuring" — deliberately splitting or sizing transactions to stay below a reporting threshold — is a recognized financial crime pattern (Proceeds of Crime Act, FINTRAC). This analysis applies the same detection logic to government grant data to surface similar patterns.</div>
+          <div style={{ color: 'var(--text-muted)', fontSize: 12 }}><strong>Limitations:</strong> Program officers and recipients often cannot control grant amounts, which are set by program rules. Some clustering in the 85–99.9% band is coincidental or reflects standard program grant sizes. Flags are statistical indicators, not evidence of intent. The analysis does not distinguish between recurring grants from multi-year programs and individual awards.</div>
+        </div>
+      )}
+    </div>
+  );
+}
+
 function fmtDollars(n) {
   if (!n || n === 0) return '$0';
   if (n >= 1e9) return `$${(n / 1e9).toFixed(1)}B`;
@@ -10,9 +31,9 @@ function fmtDollars(n) {
 }
 
 function riskBadge(count) {
-  if (count >= 10) return { label: '🔴 High', color: 'var(--status-critical)', bg: 'rgba(239,68,68,0.12)' };
-  if (count >= 5)  return { label: '🟡 Medium', color: 'var(--status-medium)', bg: 'rgba(234,179,8,0.12)' };
-  return { label: '⚪ Low', color: 'var(--text-muted)', bg: 'var(--bg-tertiary)' };
+  if (count >= 10) return { label: ' High', color: 'var(--status-critical)', bg: 'rgba(239,68,68,0.12)' };
+  if (count >= 5)  return { label: ' Medium', color: 'var(--status-medium)', bg: 'rgba(234,179,8,0.12)' };
+  return { label: 'LOW', color: 'var(--text-muted)', bg: 'var(--bg-tertiary)' };
 }
 
 function fmtThreshold(t) {
@@ -92,6 +113,8 @@ export default function ThresholdGaming() {
         </div>
       </div>
 
+      <MethodologyPanel />
+
       {/* Controls */}
       <div style={{ display: 'flex', alignItems: 'center', gap: 16, marginBottom: 20, flexWrap: 'wrap' }}>
         <div style={{ display: 'flex', gap: 6 }}>
@@ -121,7 +144,7 @@ export default function ThresholdGaming() {
         </div>
 
         <div style={{ position: 'relative' }}>
-          <span style={{ position: 'absolute', left: 12, top: '50%', transform: 'translateY(-50%)', color: 'var(--text-muted)', fontSize: 13 }}>🔍</span>
+          <span style={{ position: 'absolute', left: 12, top: '50%', transform: 'translateY(-50%)', color: 'var(--text-muted)', fontSize: 13 }}></span>
           <input
             type="text"
             placeholder="Search recipient or department..."
@@ -143,11 +166,11 @@ export default function ThresholdGaming() {
       {/* Table */}
       <div className="data-table-container">
         <div className="data-table-header">
-          <span className="data-table-title">📊 Threshold Gaming Detections ({filtered.length})</span>
+          <span className="data-table-title">Threshold Gaming Detections ({filtered.length})</span>
         </div>
         {error ? (
           <div style={{ padding: 32, textAlign: 'center', background: 'rgba(239,68,68,0.08)', border: '1px solid rgba(239,68,68,0.3)', borderRadius: 'var(--radius-lg)', margin: 16 }}>
-            <div style={{ fontSize: 20, marginBottom: 8 }}>⚠️ Data Load Failed</div>
+            <div style={{ fontSize: 20, marginBottom: 8 }}>Data Load Failed</div>
             <div style={{ color: 'var(--status-critical)', fontFamily: 'var(--font-mono)', fontSize: 13, marginBottom: 8 }}>{error}</div>
             <div style={{ color: 'var(--text-muted)', fontSize: 12 }}>Check that the backend is running at <code>http://localhost:8000/api/threshold-gaming</code></div>
           </div>

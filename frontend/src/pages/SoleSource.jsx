@@ -1,6 +1,27 @@
 import { useState, useEffect } from 'react';
 import { fetchSoleSource, formatCurrency } from '../api';
 
+function MethodologyPanel() {
+  const [open, setOpen] = useState(false);
+  return (
+    <div style={{ marginBottom: 20, border: '1px solid var(--border-primary)', borderRadius: 'var(--radius-lg)', overflow: 'hidden' }}>
+      <button onClick={() => setOpen(o => !o)} style={{ width: '100%', padding: '12px 20px', background: 'var(--bg-tertiary)', border: 'none', cursor: 'pointer', textAlign: 'left', display: 'flex', justifyContent: 'space-between', alignItems: 'center', color: 'var(--text-secondary)', fontSize: 13, fontWeight: 600 }}>
+        <span>How we detected this — Challenge #4 Sole-Source Contracts</span>
+        <span style={{ fontSize: 11, transform: open ? 'rotate(180deg)' : 'none', display: 'inline-block', transition: 'transform 0.2s' }}>▼</span>
+      </button>
+      {open && (
+        <div style={{ padding: '16px 20px', background: 'var(--bg-card)', borderTop: '1px solid var(--border-primary)', fontSize: 13, color: 'var(--text-secondary)', lineHeight: 1.8 }}>
+          <div style={{ marginBottom: 10 }}><strong style={{ color: 'var(--text-primary)' }}>Data source:</strong> Alberta Open Data — public procurement records (<code>ab__ab_sole_source</code>), 15,533 contracts from provincial ministries and agencies.</div>
+          <div style={{ marginBottom: 10 }}><strong style={{ color: 'var(--text-primary)' }}>Method:</strong> Records are grouped by <code>(vendor, department)</code> pair. The "amendment ratio" is calculated as <code>total combined value ÷ smallest individual award</code> in the group. A high ratio indicates that a vendor accumulated far more from a single ministry than any single contract would suggest — the hallmark of contract splitting or incremental sole-source awards.</div>
+          <div style={{ marginBottom: 10 }}><strong style={{ color: 'var(--text-primary)' }}>Near-threshold flag:</strong> Individual awards between $45K–$50K are highlighted. Alberta's competitive bidding threshold is $50K — awards just below this amount avoid the requirement for open competition. Multiple such awards to the same vendor from the same ministry are a structuring signal.</div>
+          <div style={{ marginBottom: 10 }}><strong style={{ color: 'var(--text-primary)' }}>Risk levels:</strong> Ratio 10x+ → Critical; 5x–10x → High; 3x–5x → Medium. The "Worst Cases" panel above sorts by total contract value, not ratio — because a high ratio on a small contract is less significant than a moderate ratio on a large one.</div>
+          <div style={{ color: 'var(--text-muted)', fontSize: 12 }}><strong>Limitations:</strong> Sole-source procurement is legal and often appropriate (proprietary software, emergency services, specialized expertise with no alternatives). Ratio alone does not prove wrongdoing. Some vendors serve niche government needs where they are the only qualified supplier.</div>
+        </div>
+      )}
+    </div>
+  );
+}
+
 function fmtDollars(n) {
   if (!n || n === 0) return '$0';
   if (n >= 1e9) return `$${(n / 1e9).toFixed(1)}B`;
@@ -88,6 +109,8 @@ export default function SoleSource() {
         </div>
       </div>
 
+      <MethodologyPanel />
+
       {/* Top 5 Worst Cases */}
       {topOffenders.length > 0 && (
         <div style={{ marginBottom: 24 }}>
@@ -161,7 +184,7 @@ export default function SoleSource() {
             position: 'absolute', left: 12, top: '50%', transform: 'translateY(-50%)',
             color: 'var(--text-muted)', pointerEvents: 'none', fontSize: 13,
           }}>
-            🔍
+            
           </span>
           <input
             type="text"
@@ -194,7 +217,7 @@ export default function SoleSource() {
         </div>
         {loadError ? (
           <div style={{ padding: 32, textAlign: 'center', background: 'rgba(239,68,68,0.08)', border: '1px solid rgba(239,68,68,0.3)', borderRadius: 'var(--radius-lg)', margin: 16 }}>
-            <div style={{ fontSize: 20, marginBottom: 8 }}>⚠️ Sole-Source Data Failed</div>
+            <div style={{ fontSize: 20, marginBottom: 8 }}>Sole-Source Data Failed</div>
             <div style={{ color: 'var(--status-critical)', fontFamily: 'var(--font-mono)', fontSize: 13, marginBottom: 8 }}>{loadError}</div>
             <div style={{ color: 'var(--text-muted)', fontSize: 12 }}>Check backend at <code>http://localhost:8000/api/sole-source</code></div>
           </div>
@@ -264,7 +287,7 @@ export default function SoleSource() {
                     <td style={{ maxWidth: 260 }}>
                       {(c.risk_flags || []).map((flag, fi) => (
                         <div key={fi} className="risk-flag" style={{ marginBottom: 4, fontSize: 11 }}>
-                          <span className="risk-flag-icon">⚠️</span>
+                          <span className="risk-flag-icon"></span>
                           <span>{flag}</span>
                         </div>
                       ))}

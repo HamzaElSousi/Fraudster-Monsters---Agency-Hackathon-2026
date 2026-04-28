@@ -39,7 +39,7 @@ export default function Dashboard() {
   if (error) {
     return (
       <div style={{ padding: '40px 32px', textAlign: 'center' }}>
-        <div style={{ fontSize: 48, marginBottom: 16 }}>⚠️</div>
+        <div style={{ fontSize: 48, marginBottom: 16 }}></div>
         <div style={{ fontSize: 18, fontWeight: 600, color: 'var(--status-critical)', marginBottom: 8 }}>
           Backend Unavailable
         </div>
@@ -64,7 +64,7 @@ export default function Dashboard() {
 
   const findingCards = [
     {
-      icon: '🧟',
+      icon: '',
       label: 'Zombie Recipients',
       value: stats?.zombie_count,
       detail: stats?.at_risk_funding ? `${formatCurrency(stats.at_risk_funding)} at risk` : null,
@@ -75,7 +75,7 @@ export default function Dashboard() {
       path: '/zombies',
     },
     {
-      icon: '🔄',
+      icon: '',
       label: 'Funding Loops',
       value: stats?.total_funding_loops,
       detail: loopStats?.phantom_receipts_total ? `${fmtDollars(loopStats.phantom_receipts_total)} phantom receipts (est.)` : null,
@@ -86,7 +86,7 @@ export default function Dashboard() {
       path: '/loops',
     },
     {
-      icon: '🕸️',
+      icon: '',
       label: 'Multi-Board Directors',
       value: stats?.multi_board_directors,
       detail: 'Directors on 5+ govt-funded charity boards',
@@ -187,7 +187,7 @@ export default function Dashboard() {
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: 16, flexWrap: 'wrap' }}>
             <div style={{ flex: 1, minWidth: 0 }}>
               <div style={{ fontSize: 10, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.1em', color: 'var(--status-critical)', marginBottom: 6 }}>
-                🚨 Highest-Priority Case
+                Highest-Priority Case
               </div>
               <div style={{ fontSize: 18, fontWeight: 800, marginBottom: 8 }}>{killShot.canonical_name}</div>
               <div style={{ fontSize: 13, color: 'var(--text-secondary)', lineHeight: 1.6 }}>
@@ -202,7 +202,7 @@ export default function Dashboard() {
               <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', justifyContent: 'flex-end', marginBottom: 10 }}>
                 {(killShot.flags || []).map(f => (
                   <span key={f} style={{ fontSize: 11, padding: '3px 8px', borderRadius: 4, background: 'rgba(239,68,68,0.12)', color: 'var(--status-critical)', border: '1px solid rgba(239,68,68,0.3)', fontWeight: 600 }}>
-                    {f === 'zombie' ? '🧟 Zombie' : f === 'loop' ? '🔄 Loop' : f === 'governance' ? '🕸️ Governance' : f}
+                    {f === 'zombie' ? 'Zombie' : f === 'loop' ? 'Loop' : f === 'governance' ? 'Governance' : f}
                   </span>
                 ))}
               </div>
@@ -244,7 +244,7 @@ export default function Dashboard() {
                 <div style={{ display: 'flex', gap: 10, marginBottom: 10, flexWrap: 'wrap' }}>
                   {(org.flags || []).slice(0, 2).map(f => (
                     <span key={f} style={{ fontSize: 11, color: 'var(--status-critical)', background: 'rgba(239,68,68,0.08)', padding: '2px 6px', borderRadius: 4 }}>
-                      🔴 {f}
+                       {f}
                     </span>
                   ))}
                 </div>

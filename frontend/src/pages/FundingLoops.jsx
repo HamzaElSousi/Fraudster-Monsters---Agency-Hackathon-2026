@@ -5,6 +5,27 @@ import { fetchLoops, fetchLoopGraph, fetchLoopsStats, fetchLoopCharities, fetchL
 const RISK_COLOR = { high: '#ef4444', medium: '#f59e0b', low: '#22c55e' };
 const PAGE_SIZE = 20;
 
+function MethodologyPanel() {
+  const [open, setOpen] = useState(false);
+  return (
+    <div style={{ border: '1px solid var(--border-primary)', borderRadius: 'var(--radius-lg)', overflow: 'hidden' }}>
+      <button onClick={() => setOpen(o => !o)} style={{ width: '100%', padding: '12px 20px', background: 'var(--bg-tertiary)', border: 'none', cursor: 'pointer', textAlign: 'left', display: 'flex', justifyContent: 'space-between', alignItems: 'center', color: 'var(--text-secondary)', fontSize: 13, fontWeight: 600 }}>
+        <span>How we detected this — Challenge #3 Funding Loops</span>
+        <span style={{ fontSize: 11, transform: open ? 'rotate(180deg)' : 'none', display: 'inline-block', transition: 'transform 0.2s' }}>▼</span>
+      </button>
+      {open && (
+        <div style={{ padding: '16px 20px', background: 'var(--bg-card)', borderTop: '1px solid var(--border-primary)', fontSize: 13, color: 'var(--text-secondary)', lineHeight: 1.8 }}>
+          <div style={{ marginBottom: 10 }}><strong style={{ color: 'var(--text-primary)' }}>Data source:</strong> CRA T3010 annual charity filings — inter-charity fund flows. Each filing discloses how much a charity paid to other registered charities. We reconstruct a directed funding graph where an edge A → B means "A gave money to B in some fiscal year."</div>
+          <div style={{ marginBottom: 10 }}><strong style={{ color: 'var(--text-primary)' }}>Method:</strong> Strongly Connected Component (SCC) analysis on the directed graph — a standard algorithm for detecting cycles. A "funding loop" is any cycle of 2+ organizations where money can trace a path from A → B → ... → A. We use Tarjan's SCC algorithm implemented in Python, applied to all government-funded charities.</div>
+          <div style={{ marginBottom: 10 }}><strong style={{ color: 'var(--text-primary)' }}>Suspicion scoring:</strong> Each loop receives a score based on: same fiscal year (+3), average circular outflow above 30% of revenue (+2), average program spending below 40% of expenses (+2), short loop without a known hub (+1), known hub organization present (−3). Score ≥ 6 = High Alert; ≥ 3 = Suspicious; below 3 = Normal.</div>
+          <div style={{ marginBottom: 10 }}><strong style={{ color: 'var(--text-primary)' }}>Phantom receipts:</strong> For same-year loops, we calculate <code>total_flow × hops</code> as an upper-bound estimate of how much money could have been double-counted by charities issuing receipts for the same funds as they circulate. This is labelled as an estimate — actual double-receipt amounts require individual transaction review.</div>
+          <div style={{ color: 'var(--text-muted)', fontSize: 12 }}><strong>Limitations:</strong> CRA data is aggregated annual flows — we see total amounts paid between charities per year, not individual cheques. Loop detection cannot confirm intent; legitimate grant-making between related charities can create the same graph structure. The SCC algorithm detects structural cycles, not deliberate fraud.</div>
+        </div>
+      )}
+    </div>
+  );
+}
+
 function RangeSlider({ label, min, max, value, onChange, format }) {
   return (
     <div className="filter-slider-group">
@@ -238,7 +259,7 @@ function LoopsTable({ loops, searchTerm, page, setPage, selectedLoop, setSelecte
                   </td>
                   <td>
                     {loop.same_year
-                      ? <span className="badge critical" style={{ fontSize: 11 }}>Yes ⚠️</span>
+                      ? <span className="badge critical" style={{ fontSize: 11 }}>Yes </span>
                       : <span style={{ color: 'var(--text-muted)', fontSize: 12 }}>No</span>}
                   </td>
                   <td>
@@ -299,7 +320,7 @@ function LoopsTable({ loops, searchTerm, page, setPage, selectedLoop, setSelecte
                             <span style={{ fontSize: 11, fontWeight: 700, textTransform: 'uppercase', letterSpacing: 1, color: 'var(--accent-purple)' }}>Follow The Money</span>
                             {loop.same_year && (
                               <span style={{ fontSize: 12, padding: '4px 12px', borderRadius: 6, background: 'rgba(239,68,68,0.1)', border: '1px solid rgba(239,68,68,0.3)', color: 'var(--status-critical)', fontWeight: 600 }}>
-                                ⚠️ Same-year loop — CRA could see <strong>{fmtDollars(parseFloat(loop.phantom_receipts) || 0)}</strong> in receipts for <strong>{fmtDollars(parseFloat(loop.total_flow) || 0)}</strong> actual flow
+                                Same-year loop — CRA could see <strong>{fmtDollars(parseFloat(loop.phantom_receipts) || 0)}</strong> in receipts for <strong>{fmtDollars(parseFloat(loop.total_flow) || 0)}</strong> actual flow
                               </span>
                             )}
                           </div>
@@ -684,7 +705,7 @@ export default function FundingLoops() {
     { id: 'table', label: '📋 Loops Table' },
     { id: 'graph', label: '🕸️ Network Graph' },
     { id: 'charities', label: '🏛️ Top Charities' },
-    { id: 'suspicious_tab', label: '🔴 Suspicious Loops' },
+    { id: 'suspicious_tab', label: ' Suspicious Loops' },
   ];
 
   const flowMax = statsData?.max_flow || 5_000_000;
@@ -707,9 +728,9 @@ export default function FundingLoops() {
   // Classification filter buttons
   const classificationOptions = [
     { key: '', label: 'All Loops' },
-    { key: 'high_alert', label: '🔴 High Alert', count: statsData?.high_alert_count },
-    { key: 'suspicious', label: '🟡 Suspicious', count: statsData?.suspicious_count },
-    { key: 'normal', label: '✅ Normal', count: statsData?.normal_count },
+    { key: 'high_alert', label: 'HIGH ALERT', count: statsData?.high_alert_count },
+    { key: 'suspicious', label: 'SUSPICIOUS', count: statsData?.suspicious_count },
+    { key: 'normal', label: 'NORMAL', count: statsData?.normal_count },
   ];
 
   // Handle tab changes including suspicious tab
@@ -730,6 +751,8 @@ export default function FundingLoops() {
   return (
     <div className="animate-in" style={{ display: 'flex', flexDirection: 'column', gap: 20 }}>
       <StatsBar stats={statsData} loading={!statsData} />
+
+      <MethodologyPanel />
 
       {/* Classification filter buttons */}
       <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
@@ -790,7 +813,7 @@ export default function FundingLoops() {
           {(activeTab === 'table' || activeTab === 'suspicious_tab') && (
             loadError ? (
               <div style={{ padding: 32, textAlign: 'center', background: 'rgba(239,68,68,0.08)', border: '1px solid rgba(239,68,68,0.3)', borderRadius: 'var(--radius-lg)' }}>
-                <div style={{ fontSize: 20, marginBottom: 8 }}>⚠️ Funding Loop Data Failed</div>
+                <div style={{ fontSize: 20, marginBottom: 8 }}>Funding Loop Data Failed</div>
                 <div style={{ color: 'var(--status-critical)', fontFamily: 'var(--font-mono)', fontSize: 13, marginBottom: 8 }}>{loadError}</div>
                 <div style={{ color: 'var(--text-muted)', fontSize: 12 }}>Check backend at <code>http://localhost:8000/api/loops</code></div>
               </div>

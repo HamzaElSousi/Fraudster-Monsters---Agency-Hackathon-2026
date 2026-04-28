@@ -2,6 +2,7 @@ import { useState, useEffect } from 'react';
 import { BrowserRouter, Routes, Route, NavLink, useLocation, useNavigate } from 'react-router-dom';
 import Home from './pages/Home';
 import Dashboard from './pages/Dashboard';
+import GhostRecipients from './pages/GhostRecipients';
 import Zombies from './pages/Zombies';
 import FundingLoops from './pages/FundingLoops';
 import Governance from './pages/Governance';
@@ -25,7 +26,7 @@ function BackendStatus() {
   if (!down) return null;
   return (
     <div style={{ background: 'var(--status-critical)', color: '#fff', fontSize: 12, padding: '6px 20px', textAlign: 'center', position: 'sticky', top: 0, zIndex: 200 }}>
-      ⚠️ Backend unavailable — run <code style={{ background: 'rgba(0,0,0,0.2)', padding: '1px 6px', borderRadius: 4 }}>cd backend && python3 main.py</code>
+      Backend unavailable — run <code style={{ background: 'rgba(0,0,0,0.2)', padding: '1px 6px', borderRadius: 4 }}>cd backend && python3 main.py</code>
     </div>
   );
 }
@@ -90,7 +91,7 @@ function Sidebar() {
     <aside className="sidebar">
       <div className="sidebar-header">
         <NavLink to="/" className="sidebar-logo">
-          <div className="sidebar-logo-icon">💰</div>
+          <div className="sidebar-logo-icon" style={{ fontSize: 18, fontWeight: 900, fontFamily: "var(--font-mono)" }}>$</div>
           <div className="sidebar-logo-text">
             <span className="sidebar-logo-title">Follow The Money</span>
             <span className="sidebar-logo-subtitle">Agency 2026 Ottawa</span>
@@ -101,7 +102,7 @@ function Sidebar() {
         <div style={{ marginTop: 16, position: 'relative' }}>
           <input
             type="text"
-            placeholder="🔍 Search..."
+            placeholder=" Search..."
             value={searchQuery}
             onChange={(e) => setSearchQuery(e.target.value)}
             style={{
@@ -193,17 +194,14 @@ function Sidebar() {
       <nav className="sidebar-nav">
         <div className="sidebar-section-label">Overview</div>
         <NavLink to="/" end className={({ isActive }) => `nav-link ${isActive ? 'active' : ''}`}>
-          <span className="nav-link-icon">🏠</span>
           Home
         </NavLink>
         <NavLink to="/dashboard" className={({ isActive }) => `nav-link ${isActive ? 'active' : ''}`}>
-          <span className="nav-link-icon">📊</span>
           Dashboard
         </NavLink>
 
         <div className="sidebar-section-label">Investigations</div>
         <NavLink to="/alerts" className={({ isActive }) => `nav-link ${isActive ? 'active' : ''}`}>
-          <span className="nav-link-icon">🚨</span>
           Multi-Flag Alerts
           <span
             className="nav-link-badge"
@@ -212,44 +210,39 @@ function Sidebar() {
               animation: alertCount > 0 ? 'pulse-glow 2s infinite' : 'none',
             }}
           >
-            {alertCount !== null ? alertCount.toLocaleString() : '…'}
+            {alertCount !== null ? alertCount.toLocaleString() : '...'}
           </span>
         </NavLink>
         <NavLink to="/zombies" className={({ isActive }) => `nav-link ${isActive ? 'active' : ''}`}>
-          <span className="nav-link-icon">🧟</span>
-          Zombie Recipients
-          <span className="nav-link-badge">{navStats?.zombie_count ?? '…'}</span>
+          #1 Zombie Recipients
+          <span className="nav-link-badge">{navStats?.zombie_count ?? '...'}</span>
+        </NavLink>
+        <NavLink to="/ghost-recipients" className={({ isActive }) => `nav-link ${isActive ? 'active' : ''}`}>
+          #2 Ghost Recipients
         </NavLink>
         <NavLink to="/loops" className={({ isActive }) => `nav-link ${isActive ? 'active' : ''}`}>
-          <span className="nav-link-icon">🔄</span>
-          Funding Loops
-          <span className="nav-link-badge">{navStats?.total_funding_loops != null ? navStats.total_funding_loops.toLocaleString() : '…'}</span>
-        </NavLink>
-        <NavLink to="/governance" className={({ isActive }) => `nav-link ${isActive ? 'active' : ''}`}>
-          <span className="nav-link-icon">🕸️</span>
-          Governance Networks
-          <span className="nav-link-badge">{navStats?.multi_board_directors != null ? navStats.multi_board_directors.toLocaleString() : '…'}</span>
+          #3 Funding Loops
+          <span className="nav-link-badge">{navStats?.total_funding_loops != null ? navStats.total_funding_loops.toLocaleString() : '...'}</span>
         </NavLink>
         <NavLink to="/sole-source" className={({ isActive }) => `nav-link ${isActive ? 'active' : ''}`}>
-          <span className="nav-link-icon">📋</span>
-          Sole Source
-          <span className="nav-link-badge">{navStats?.total_sole_source != null ? (navStats.total_sole_source >= 1000 ? Math.round(navStats.total_sole_source / 1000) + 'K' : navStats.total_sole_source) : '…'}</span>
+          #4 Sole Source
+          <span className="nav-link-badge">{navStats?.total_sole_source != null ? (navStats.total_sole_source >= 1000 ? Math.round(navStats.total_sole_source / 1000) + 'K' : navStats.total_sole_source) : '...'}</span>
         </NavLink>
-
+        <NavLink to="/governance" className={({ isActive }) => `nav-link ${isActive ? 'active' : ''}`}>
+          #6 Governance Networks
+          <span className="nav-link-badge">{navStats?.multi_board_directors != null ? navStats.multi_board_directors.toLocaleString() : '...'}</span>
+        </NavLink>
         <NavLink to="/threshold-gaming" className={({ isActive }) => `nav-link ${isActive ? 'active' : ''}`}>
-          <span className="nav-link-icon">🎯</span>
-          Threshold Gaming
+          #9 Threshold Gaming
         </NavLink>
 
-        <div className="sidebar-section-label">Cross-Government Analysis</div>
+        <div className="sidebar-section-label">Cross-Challenge</div>
         <NavLink to="/duplicative-funding" className={({ isActive }) => `nav-link ${isActive ? 'active' : ''}`}>
-          <span className="nav-link-icon">💸</span>
           Duplicative Funding
         </NavLink>
 
         <div className="sidebar-section-label">AI Assistant</div>
         <NavLink to="/chat" className={({ isActive }) => `nav-link ${isActive ? 'active' : ''}`}>
-          <span className="nav-link-icon">🤖</span>
           Ask AI
         </NavLink>
       </nav>
@@ -276,14 +269,15 @@ const PAGE_TITLES = {
   '/': 'Fraudster Monsters — Agency 2026 Ottawa',
   '/dashboard': 'Investigation Dashboard',
   '/alerts': 'Multi-Flag Alerts — Cross-Challenge Intersections',
-  '/zombies': 'Zombie Recipients — Challenge #1',
-  '/loops': 'Funding Loops — Challenge #3',
-  '/governance': 'Governance Networks — Challenge #6',
-  '/sole-source': 'Sole Source & Amendment Creep — Challenge #4',
-  '/threshold-gaming': 'Threshold Gaming — Challenge #9',
+  '/zombies': 'Challenge #1 — Zombie Recipients',
+  '/ghost-recipients': 'Challenge #2 — Ghost Recipients',
+  '/loops': 'Challenge #3 — Funding Loops',
+  '/sole-source': 'Challenge #4 — Sole Source & Amendment Creep',
+  '/governance': 'Challenge #6 — Governance Networks',
+  '/threshold-gaming': 'Challenge #9 — Threshold Gaming',
   '/chat': 'AI Investigator',
   '/entity': 'Entity Case File',
-  '/duplicative-funding': 'Cross-Government Funding — Challenges #6 + #8',
+  '/duplicative-funding': 'Duplicative Funding',
 };
 
 const PAGE_CLASSES = {
@@ -291,6 +285,7 @@ const PAGE_CLASSES = {
   '/dashboard': 'page-dashboard',
   '/alerts': 'page-zombies',
   '/zombies': 'page-zombies',
+  '/ghost-recipients': 'page-zombies',
   '/loops': 'page-loops',
   '/governance': 'page-governance',
   '/sole-source': 'page-dashboard',
@@ -323,6 +318,7 @@ function MainLayout() {
             <Route path="/dashboard" element={<Dashboard />} />
             <Route path="/alerts" element={<Alerts />} />
             <Route path="/zombies" element={<Zombies />} />
+            <Route path="/ghost-recipients" element={<GhostRecipients />} />
             <Route path="/loops" element={<FundingLoops />} />
             <Route path="/governance" element={<Governance />} />
             <Route path="/sole-source" element={<SoleSource />} />

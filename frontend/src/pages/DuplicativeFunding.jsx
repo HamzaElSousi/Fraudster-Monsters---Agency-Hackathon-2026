@@ -86,7 +86,7 @@ function SplitBar({ abPct }) {
 function FlagItem({ text, severity }) {
   const colors = {
     critical: { bg: 'rgba(239,68,68,0.08)', border: 'rgba(239,68,68,0.2)', icon: '🚨', text: 'var(--status-critical)' },
-    medium: { bg: 'rgba(234,179,8,0.08)', border: 'rgba(234,179,8,0.2)', icon: '⚠️', text: 'var(--status-medium)' },
+    medium: { bg: 'rgba(234,179,8,0.08)', border: 'rgba(234,179,8,0.2)', icon: '', text: 'var(--status-medium)' },
   };
   const c = colors[severity] || colors.medium;
   return (
@@ -309,7 +309,7 @@ function OrgCard({ row, index }) {
                   cursor: 'pointer', fontWeight: 500,
                 }}
               >
-                🤖 Generate AI Analysis
+                 Generate AI Analysis
               </button>
             )}
           </div>
@@ -520,7 +520,7 @@ export default function DuplicativeFunding() {
           gap: 12,
           alignItems: 'flex-start',
         }}>
-          <span style={{ fontSize: 18, flexShrink: 0 }}>🔍</span>
+          <span style={{ fontSize: 18, flexShrink: 0 }}></span>
           <div>
             <div style={{ fontSize: 11, color: 'var(--accent-purple)', fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: 4 }}>
               AI Investigative Summary
@@ -575,7 +575,7 @@ export default function DuplicativeFunding() {
 
         {/* Search */}
         <div style={{ position: 'relative', flex: 1, minWidth: 180 }}>
-          <span style={{ position: 'absolute', left: 10, top: '50%', transform: 'translateY(-50%)', color: 'var(--text-muted)', fontSize: 13 }}>🔍</span>
+          <span style={{ position: 'absolute', left: 10, top: '50%', transform: 'translateY(-50%)', color: 'var(--text-muted)', fontSize: 13 }}></span>
           <input
             type="text"
             placeholder={tab === 'orgs' ? 'Search org name, city...' : 'Search director name, org...'}

@@ -3,17 +3,17 @@ import { useNavigate } from 'react-router-dom';
 import { fetchStats, formatNumber, formatCurrency } from '../api';
 
 const TEAM = [
-  { name: 'Team Member 1', email: 'member1@example.com', role: 'Data Engineering' },
-  { name: 'Team Member 2', email: 'member2@example.com', role: 'Backend / AI' },
-  { name: 'Team Member 3', email: 'member3@example.com', role: 'Frontend / UX' },
-  { name: 'Team Member 4', email: 'member4@example.com', role: 'Investigations' },
+  { name: 'Hamza El Sousi', email: 'hamza.sousi1998@gmail.com', role: 'Lead SWE / AI', link: 'https://github.com/HamzaElSousi' },
+  { name: 'Mansi Joshi', email: 'mansijoshi.mj04@gmail.com', role: 'Frontend SWE / AI', link: 'https://github.com/FaraDuMatin' },
+  { name: 'Farah Mohammed', email: 'mohameffarah1@gmail.com', role: 'Data / AI', link: 'https://github.com/mansijoshi04' },
+  { name: 'Keena Swanson', email: 'Keenas@gmail.com', role: 'SWE / AI', link: 'https://github.com/k334a' },
 ];
 
 const CHALLENGES = [
   {
-    icon: '🧟',
+    num: '#1',
     name: 'Zombie Recipients',
-    desc: 'Charities with 70%+ government revenue dependency that stopped filing tax returns — public money sent into the void.',
+    desc: 'Charities with 70%+ government revenue dependency that stopped filing tax returns — public money sent into the void. We cross-referenced CRA T3010 government revenue schedules against filing history to find 219 organizations that went dark while still government-dependent.',
     statKey: 'zombie_count',
     statLabel: 'zombies found',
     path: '/zombies',
@@ -22,55 +22,55 @@ const CHALLENGES = [
     bg: 'rgba(239,68,68,0.04)',
   },
   {
-    icon: '👻',
+    num: '#2',
     name: 'Ghost Recipients',
-    desc: 'Federal grant recipients who received $500K+ then went silent for 4+ years with no traceable business number.',
+    desc: 'Federal grant recipients who received $500K or more in public funds, then went completely silent for 4+ years with no traceable business number in the CRA registry. These organizations exist in the federal disclosure database but nowhere else.',
     statKey: null,
-    statLabel: 'challenge #2',
-    path: '/zombies',
+    statLabel: 'federal grant vanishings',
+    path: '/ghost-recipients',
     color: 'var(--accent-amber)',
     border: 'rgba(251,191,36,0.25)',
     bg: 'rgba(251,191,36,0.04)',
   },
   {
-    icon: '🔄',
+    num: '#3',
     name: 'Funding Loops',
-    desc: 'Circular money flows between charities where the same dollar passes through multiple organizations, each issuing its own tax receipt.',
+    desc: 'Circular money flows between charities where the same dollar passes through multiple organizations in the same fiscal year, each issuing its own charitable tax receipt. A $1M gift that travels a 5-hop loop generates $5M in receipt claims against a single donation.',
     statKey: 'total_funding_loops',
-    statLabel: 'circular loops',
+    statLabel: 'circular loops detected',
     path: '/loops',
     color: 'var(--accent-purple)',
     border: 'rgba(167,139,250,0.25)',
     bg: 'rgba(167,139,250,0.04)',
   },
   {
-    icon: '🕸️',
+    num: '#6',
     name: 'Governance Networks',
-    desc: 'Directors who simultaneously control multiple government-funded charities, concentrating oversight of public money in few hands.',
+    desc: 'Directors who simultaneously sit on the boards of multiple government-funded charities, concentrating oversight of public money in a small number of hands. We mapped 91K charity directors by name to find interlocking board networks.',
     statKey: 'multi_board_directors',
-    statLabel: 'multi-board directors',
+    statLabel: 'multi-board directors (5+ boards)',
     path: '/governance',
     color: 'var(--accent-cyan)',
     border: 'rgba(34,211,238,0.25)',
     bg: 'rgba(34,211,238,0.04)',
   },
   {
-    icon: '📋',
+    num: '#4',
     name: 'Sole-Source Contracts',
-    desc: 'Alberta procurement contracts awarded without competitive bidding, showing amendment creep and extreme vendor concentration.',
+    desc: 'Alberta procurement contracts awarded without competitive bidding. We identified vendors with extreme sole-source concentration and tracked amendment creep — contracts that grow far beyond their original scope through successive non-competitive amendments.',
     statKey: 'total_sole_source',
-    statLabel: 'no-bid contracts',
+    statLabel: 'no-bid contracts in Alberta',
     path: '/sole-source',
     color: 'var(--accent-emerald)',
     border: 'rgba(52,211,153,0.25)',
     bg: 'rgba(52,211,153,0.04)',
   },
   {
-    icon: '📊',
+    num: '#9',
     name: 'Threshold Gaming',
-    desc: 'Federal grant recipients who repeatedly receive grants clustered just below $25K, $100K, and $1M proactive disclosure thresholds.',
+    desc: 'Federal grant recipients who repeatedly receive grants clustered just below $25K, $100K, and $1M proactive disclosure thresholds — the same structuring tactic used in financial crime. Three or more grants in the 85–99.9% band signals deliberate threshold avoidance.',
     statKey: null,
-    statLabel: 'challenge #9',
+    statLabel: 'structuring detections',
     path: '/threshold-gaming',
     color: 'var(--accent-indigo-light)',
     border: 'rgba(99,102,241,0.25)',
@@ -217,7 +217,17 @@ export default function Home() {
               <div>
                 <div style={{ fontSize: 14, fontWeight: 700, color: 'var(--text-primary)', marginBottom: 3 }}>{member.name}</div>
                 <div style={{ fontSize: 11, color: 'var(--accent-indigo-light)', marginBottom: 4, fontWeight: 500 }}>{member.role}</div>
-                <div style={{ fontSize: 11, color: 'var(--text-muted)', fontFamily: 'var(--font-mono)' }}>{member.email}</div>
+                <div style={{ fontSize: 11, color: 'var(--text-muted)', fontFamily: 'var(--font-mono)', marginBottom: member.link ? 6 : 0 }}>{member.email}</div>
+                {member.link && (
+                  <a href={member.link} target="_blank" rel="noopener noreferrer"
+                    onClick={e => e.stopPropagation()}
+                    style={{ fontSize: 11, color: 'var(--accent-indigo-light)', textDecoration: 'none', fontWeight: 600 }}
+                    onMouseEnter={e => e.currentTarget.style.textDecoration = 'underline'}
+                    onMouseLeave={e => e.currentTarget.style.textDecoration = 'none'}
+                  >
+                    {member.link.replace(/^https?:\/\//, '')}
+                  </a>
+                )}
               </div>
             </div>
           ))}
@@ -249,7 +259,13 @@ export default function Home() {
                 onMouseLeave={e => e.currentTarget.style.transform = 'translateY(0)'}
               >
                 <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 10 }}>
-                  <span style={{ fontSize: 22 }}>{ch.icon}</span>
+                  <span style={{
+                    fontSize: 11, fontWeight: 800, color: ch.color,
+                    background: `${ch.border.replace('0.25', '0.15')}`,
+                    border: `1px solid ${ch.color}`,
+                    borderRadius: 4, padding: '2px 7px', fontFamily: 'var(--font-mono)',
+                    letterSpacing: '0.04em',
+                  }}>{ch.num}</span>
                   <span style={{ fontSize: 13, fontWeight: 700, color: ch.color, textTransform: 'uppercase', letterSpacing: '0.04em' }}>
                     {ch.name}
                   </span>

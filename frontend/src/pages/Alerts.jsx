@@ -17,12 +17,12 @@ function buildNarrative(alert) {
 }
 
 const FLAG_META = {
-  zombie: { icon: '🧟', label: 'Zombie Recipient', color: 'var(--status-critical)', bg: 'rgba(239,68,68,0.1)' },
-  loop: { icon: '🔄', label: 'Funding Loop', color: 'var(--accent-purple)', bg: 'rgba(167,139,250,0.1)' },
-  governance: { icon: '🕸️', label: 'Governance Risk', color: 'var(--accent-cyan)', bg: 'rgba(6,182,212,0.1)' },
-  sole_source: { icon: '📋', label: 'Sole Source', color: 'var(--accent-amber)', bg: 'rgba(245,158,11,0.1)' },
-  dependency: { icon: '⚠️', label: 'Gov Dependency', color: 'var(--accent-amber)', bg: 'rgba(245,158,11,0.1)' },
-  concentration: { icon: '🎯', label: 'Concentration', color: 'var(--accent-indigo-light)', bg: 'rgba(99,102,241,0.1)' },
+  zombie: { icon: '', label: 'Zombie Recipient', color: 'var(--status-critical)', bg: 'rgba(239,68,68,0.1)' },
+  loop: { icon: '', label: 'Funding Loop', color: 'var(--accent-purple)', bg: 'rgba(167,139,250,0.1)' },
+  governance: { icon: '', label: 'Governance Risk', color: 'var(--accent-cyan)', bg: 'rgba(6,182,212,0.1)' },
+  sole_source: { icon: '', label: 'Sole Source', color: 'var(--accent-amber)', bg: 'rgba(245,158,11,0.1)' },
+  dependency: { icon: '', label: 'Gov Dependency', color: 'var(--accent-amber)', bg: 'rgba(245,158,11,0.1)' },
+  concentration: { icon: '', label: 'Concentration', color: 'var(--accent-indigo-light)', bg: 'rgba(99,102,241,0.1)' },
 };
 
 export default function Alerts() {
@@ -109,7 +109,7 @@ export default function Alerts() {
             position: 'absolute', left: 12, top: '50%', transform: 'translateY(-50%)',
             color: 'var(--text-muted)', pointerEvents: 'none', fontSize: 13,
           }}>
-            🔍
+            
           </span>
           <input
             type="text"
@@ -137,7 +137,7 @@ export default function Alerts() {
       {/* Alert Cards */}
       {loadError ? (
         <div style={{ padding: 32, textAlign: 'center', background: 'rgba(239,68,68,0.08)', border: '1px solid rgba(239,68,68,0.3)', borderRadius: 'var(--radius-lg)', marginBottom: 16 }}>
-          <div style={{ fontSize: 20, marginBottom: 8 }}>⚠️ Alerts Failed to Load</div>
+          <div style={{ fontSize: 20, marginBottom: 8 }}>Alerts Failed to Load</div>
           <div style={{ color: 'var(--status-critical)', fontFamily: 'var(--font-mono)', fontSize: 13, marginBottom: 8 }}>{loadError}</div>
           <div style={{ color: 'var(--text-muted)', fontSize: 12 }}>Check backend at <code>http://localhost:8000/api/alerts</code></div>
         </div>
@@ -151,7 +151,7 @@ export default function Alerts() {
           background: 'var(--bg-card)', border: '1px solid var(--border-primary)',
           borderRadius: 'var(--radius-lg)',
         }}>
-          <div style={{ fontSize: 40, marginBottom: 12 }}>🚨</div>
+          <div style={{ fontSize: 40, marginBottom: 12 }}></div>
           <div style={{ fontSize: 15, fontWeight: 600, color: 'var(--text-primary)', marginBottom: 6 }}>
             No multi-flag alerts found
           </div>

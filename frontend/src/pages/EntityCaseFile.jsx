@@ -4,10 +4,10 @@ import ReactECharts from 'echarts-for-react';
 import { fetchEntityCaseFile, fmtDollars, formatCurrency } from '../api';
 
 const FLAG_LABELS = {
-  same_year_loop:           { icon: '🔴', level: 'critical', text: () => 'Same-year funding loop detected — phantom tax receipts possible' },
-  loop_participant:         { icon: '🔴', level: 'critical', text: (e) => `Participates in ${e.loop_count} circular funding loop${e.loop_count !== 1 ? 's' : ''}` },
-  high_circular_dependency: { icon: '🔴', level: 'critical', text: (e) => `${(e.circular_outflow_pct * 100).toFixed(0)}% of revenue is circular outflow` },
-  low_program_delivery:     { icon: '🟡', level: 'warning',  text: (e) => `Only ${(e.program_pct * 100).toFixed(0)}% of spending reaches programs` },
+  same_year_loop:           { icon: '', level: 'critical', text: () => 'Same-year funding loop detected — phantom tax receipts possible' },
+  loop_participant:         { icon: '', level: 'critical', text: (e) => `Participates in ${e.loop_count} circular funding loop${e.loop_count !== 1 ? 's' : ''}` },
+  high_circular_dependency: { icon: '', level: 'critical', text: (e) => `${(e.circular_outflow_pct * 100).toFixed(0)}% of revenue is circular outflow` },
+  low_program_delivery:     { icon: '', level: 'warning',  text: (e) => `Only ${(e.program_pct * 100).toFixed(0)}% of spending reaches programs` },
 };
 
 function buildNarrative(entity) {
@@ -61,7 +61,7 @@ function FilingAnomalies({ flags }) {
               borderRadius: 6,
               fontSize: 12,
             }}>
-              <span style={{ color: isCritical ? 'var(--status-critical)' : 'var(--status-medium)', flexShrink: 0 }}>{isCritical ? '🔴' : '🟡'}</span>
+              <span style={{ color: isCritical ? 'var(--status-critical)' : 'var(--status-medium)', flexShrink: 0 }}>{isCritical ? '' : ''}</span>
               <span style={{ color: 'var(--text-muted)', fontFamily: 'var(--font-mono)', flexShrink: 0, minWidth: 40 }}>{f.fiscal_year}</span>
               <span style={{ color: isCritical ? 'var(--status-critical)' : 'var(--status-medium)', fontWeight: 600, flexShrink: 0, marginRight: 4 }}>{f.issue_type}:</span>
               <span style={{ color: 'var(--text-secondary)' }}>{f.description}</span>
@@ -113,7 +113,7 @@ export default function EntityCaseFile() {
   if (error || !entity?.name) {
     return (
       <div style={{ padding: 40, textAlign: 'center' }}>
-        <div style={{ fontSize: 40, marginBottom: 12 }}>⚠️</div>
+        <div style={{ fontSize: 40, marginBottom: 12 }}></div>
         <div style={{ fontSize: 16, fontWeight: 600, color: 'var(--status-critical)', marginBottom: 8 }}>Entity Not Found</div>
         <div style={{ fontSize: 14, color: 'var(--text-muted)', marginBottom: 20 }}>{error || `No data found for BN: ${bn}`}</div>
         <button onClick={() => navigate(-1)} style={{ padding: '8px 20px', background: 'var(--accent-purple)', color: '#fff', border: 'none', borderRadius: 'var(--radius-md)', cursor: 'pointer', fontSize: 13 }}>
@@ -227,7 +227,7 @@ export default function EntityCaseFile() {
                   color: isHigh ? 'var(--status-critical)' : 'var(--text-secondary)',
                   border: `1px solid ${isHigh ? 'rgba(239,68,68,0.3)' : 'var(--border-primary)'}`,
                 }}>
-                  {isHigh ? '⚠️ ' : ''}{pct}% overhead{isHigh ? ' — above 35% threshold' : ''}
+                  {isHigh ? '' : ''}{pct}% overhead{isHigh ? ' — above 35% threshold' : ''}
                 </span>
               </div>
             );
@@ -265,7 +265,7 @@ export default function EntityCaseFile() {
                 <tr key={loop.loop_id || i}>
                   <td><span className="badge medium">{loop.hops}-hop</span></td>
                   <td style={{ fontWeight: 700, fontFamily: 'var(--font-mono)' }}>{fmtDollars(loop.total_flow)}</td>
-                  <td>{loop.same_year ? <span className="badge critical" style={{ fontSize: 11 }}>⚠️ Yes</span> : <span style={{ color: 'var(--text-muted)' }}>—</span>}</td>
+                  <td>{loop.same_year ? <span className="badge critical" style={{ fontSize: 11 }}>Yes</span> : <span style={{ color: 'var(--text-muted)' }}>—</span>}</td>
                   <td style={{ color: 'var(--text-muted)', fontFamily: 'var(--font-mono)', fontSize: 12 }}>{loop.min_year}–{loop.max_year}</td>
                 </tr>
               ))}
