@@ -200,7 +200,7 @@ function Sidebar() {
           Dashboard
         </NavLink>
 
-        <div className="sidebar-section-label">Investigations</div>
+        <div className="sidebar-section-label">Challenges</div>
         <NavLink to="/alerts" className={({ isActive }) => `nav-link ${isActive ? 'active' : ''}`}>
           Multi-Flag Alerts
           <span
@@ -215,10 +215,11 @@ function Sidebar() {
         </NavLink>
         <NavLink to="/zombies" className={({ isActive }) => `nav-link ${isActive ? 'active' : ''}`}>
           #1 Zombie Recipients
-          <span className="nav-link-badge">{navStats?.zombie_count ?? '...'}</span>
+          <span className="nav-link-badge">{navStats?.zombie_count != null ? navStats.zombie_count.toLocaleString() : '...'}</span>
         </NavLink>
         <NavLink to="/ghost-recipients" className={({ isActive }) => `nav-link ${isActive ? 'active' : ''}`}>
           #2 Ghost Recipients
+          <span className="nav-link-badge">{navStats?.ghost_count != null ? navStats.ghost_count.toLocaleString() : '...'}</span>
         </NavLink>
         <NavLink to="/loops" className={({ isActive }) => `nav-link ${isActive ? 'active' : ''}`}>
           #3 Funding Loops
@@ -234,9 +235,8 @@ function Sidebar() {
         </NavLink>
         <NavLink to="/threshold-gaming" className={({ isActive }) => `nav-link ${isActive ? 'active' : ''}`}>
           #9 Threshold Gaming
+          <span className="nav-link-badge">{navStats?.threshold_gaming_count != null ? navStats.threshold_gaming_count.toLocaleString() : '...'}</span>
         </NavLink>
-
-        <div className="sidebar-section-label">Cross-Challenge</div>
         <NavLink to="/duplicative-funding" className={({ isActive }) => `nav-link ${isActive ? 'active' : ''}`}>
           Duplicative Funding
         </NavLink>

@@ -78,7 +78,7 @@ export default function SoleSource() {
         borderRadius: 'var(--radius-lg)',
       }}>
         <div style={{ fontSize: 12, color: 'var(--accent-amber)', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.06em', marginBottom: 8 }}>
-          Contract Creep — The Amendment Game
+          Challenge #4 — Sole Source & Amendment Creep
         </div>
         <div style={{ fontSize: 16, fontWeight: 400, color: 'var(--text-primary)', lineHeight: 1.7, marginBottom: 12 }}>
           Alberta has <strong>{stats.total_sole_source_contracts?.toLocaleString() ?? '…'}</strong> sole-source contracts on record.{' '}

@@ -14,8 +14,8 @@ function MethodologyPanel() {
           color: 'var(--text-secondary)', fontSize: 13, fontWeight: 600,
         }}
       >
-        <span>How we detected this — Methodology</span>
-        <span style={{ fontFamily: 'var(--font-mono)', fontSize: 11 }}>{open ? '[ − ]' : '[ + ]'}</span>
+        <span>How we detected this — Challenge #2 Ghost Recipients</span>
+        <span style={{ fontSize: 11, transform: open ? 'rotate(180deg)' : 'none', display: 'inline-block', transition: 'transform 0.2s' }}>▼</span>
       </button>
       {open && (
         <div style={{ padding: '16px 20px', background: 'var(--bg-card)', fontSize: 13, color: 'var(--text-secondary)', lineHeight: 1.8 }}>

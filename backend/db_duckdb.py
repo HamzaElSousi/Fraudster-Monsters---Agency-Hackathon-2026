@@ -1114,18 +1114,62 @@ def get_stats_live() -> dict:
         """)
         total_public = float(funding_r[0]["total"] or 0) if funding_r else 0.0
 
+        # Ghost recipients count (Challenge #2): $500K+ then 4+ years silent
+        ghost_n = 0
+        try:
+            fed_tbl2 = _read("fed", "grants_contributions")
+            ghost_r = query(f"""
+                WITH rs AS (
+                    SELECT LEFT(COALESCE(recipient_business_number, ''), 9) as bn9,
+                           SUM(TRY_CAST(agreement_value AS DOUBLE)) as total_received,
+                           MAX(CAST(amendment_date AS VARCHAR)) as last_grant
+                    FROM {fed_tbl2}
+                    WHERE TRY_CAST(agreement_value AS DOUBLE) > 0
+                    GROUP BY recipient_legal_name, recipient_province,
+                             LEFT(COALESCE(recipient_business_number, ''), 9)
+                    HAVING SUM(TRY_CAST(agreement_value AS DOUBLE)) >= 500000
+                )
+                SELECT COUNT(*) as n FROM rs
+                WHERE TRY_CAST(LEFT(last_grant, 4) AS INT) <= CAST(EXTRACT(YEAR FROM CURRENT_DATE) AS INT) - 4
+                   OR LENGTH(TRIM(bn9)) < 9
+            """)
+            ghost_n = int(ghost_r[0]["n"]) if ghost_r else 0
+        except Exception:
+            pass
+
+        # Threshold gaming count (Challenge #9): grants clustered 85-99.9% below $25K/$100K/$1M
+        threshold_n = 0
+        try:
+            fed_tbl3 = _read("fed", "grants_contributions")
+            threshold_r = query(f"""
+                SELECT COUNT(*) as n FROM (
+                    SELECT g.recipient_legal_name, g.owner_org, t.t
+                    FROM {fed_tbl3} g
+                    JOIN (SELECT 25000 as t UNION ALL SELECT 100000 UNION ALL SELECT 1000000) t
+                      ON TRY_CAST(g.agreement_value AS DOUBLE) BETWEEN t.t * 0.85 AND t.t * 0.999
+                    WHERE TRY_CAST(g.agreement_value AS DOUBLE) > 0
+                    GROUP BY g.recipient_legal_name, g.owner_org, t.t
+                    HAVING COUNT(*) >= 3
+                )
+            """)
+            threshold_n = int(threshold_r[0]["n"]) if threshold_r else 0
+        except Exception:
+            pass
+
         return {
-            "total_entities": gov_funded_count,   # charities with recorded govt funding
+            "total_entities": gov_funded_count,
             "total_funding_loops": loop_n,
             "total_fed_grants": fed_n,
-            "total_ab_grants": sole_count,         # count of AB sole-source records
-            "total_ab_contract_value": ab_contract_value,  # dollar value of AB contracts
+            "total_ab_grants": sole_count,
+            "total_ab_contract_value": ab_contract_value,
             "total_sole_source": sole_count,
             "total_charities": charity_count,
             "zombie_count": zombie_n,
             "multi_board_directors": dir_n,
             "total_public_funding": total_public,
             "at_risk_funding": at_risk,
+            "ghost_count": ghost_n,
+            "threshold_gaming_count": threshold_n,
         }
     except Exception as e:
         print(f"[DuckDB] stats error: {e}")

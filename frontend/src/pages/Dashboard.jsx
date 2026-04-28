@@ -1,14 +1,12 @@
 import { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { fetchStats, fetchDashboardFeatured, fetchLoopsStatsEnriched, fetchAlerts, formatCurrency, formatNumber, fmtDollars } from '../api';
+import { fetchStats, fetchLoopsStatsEnriched, formatCurrency, formatNumber, fmtDollars } from '../api';
 
 export default function Dashboard() {
   const [stats, setStats] = useState(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
-  const [featured, setFeatured] = useState([]);
   const [loopStats, setLoopStats] = useState(null);
-  const [killShot, setKillShot] = useState(null);
   const navigate = useNavigate();
 
   useEffect(() => {
@@ -20,19 +18,8 @@ export default function Dashboard() {
       })
       .finally(() => setLoading(false));
 
-    fetchDashboardFeatured()
-      .then(d => setFeatured(Array.isArray(d) ? d : (d.results || [])))
-      .catch(() => {});
-
     fetchLoopsStatsEnriched()
       .then(setLoopStats)
-      .catch(() => {});
-
-    fetchAlerts(2, 5)
-      .then(d => {
-        const results = d?.results || [];
-        if (results.length > 0) setKillShot(results[0]);
-      })
       .catch(() => {});
   }, []);
 
@@ -167,98 +154,6 @@ export default function Dashboard() {
         ))}
       </div>
 
-      {/* Kill Shot Card — top multi-flag alert */}
-      {killShot && (
-        <div
-          onClick={() => navigate(`/entity/${encodeURIComponent(killShot.bn)}`)}
-          style={{
-            padding: '20px 24px',
-            marginBottom: 24,
-            background: 'rgba(239,68,68,0.05)',
-            border: '1px solid rgba(239,68,68,0.25)',
-            borderLeft: '4px solid var(--status-critical)',
-            borderRadius: 'var(--radius-lg)',
-            cursor: 'pointer',
-            transition: 'all var(--transition-fast)',
-          }}
-          onMouseEnter={e => e.currentTarget.style.background = 'rgba(239,68,68,0.09)'}
-          onMouseLeave={e => e.currentTarget.style.background = 'rgba(239,68,68,0.05)'}
-        >
-          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: 16, flexWrap: 'wrap' }}>
-            <div style={{ flex: 1, minWidth: 0 }}>
-              <div style={{ fontSize: 10, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.1em', color: 'var(--status-critical)', marginBottom: 6 }}>
-                Highest-Priority Case
-              </div>
-              <div style={{ fontSize: 18, fontWeight: 800, marginBottom: 8 }}>{killShot.canonical_name}</div>
-              <div style={{ fontSize: 13, color: 'var(--text-secondary)', lineHeight: 1.6 }}>
-                Received <strong style={{ color: 'var(--text-primary)' }}>{formatCurrency(killShot.total_govt_funding || 0)}</strong> in public funds
-                {killShot.govt_share_pct ? ` (${Number(killShot.govt_share_pct).toFixed(0)}% of revenue from government)` : ''}.
-                Flagged across <strong style={{ color: 'var(--status-critical)' }}>{killShot.alarm_count} challenge categories</strong>
-                {(killShot.flags || []).includes('zombie') && killShot.last_filing_year ? ` and stopped filing after ${killShot.last_filing_year}` : ''}.
-                {' '}All data from public CRA T3010 filings.
-              </div>
-            </div>
-            <div style={{ flexShrink: 0, textAlign: 'right' }}>
-              <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', justifyContent: 'flex-end', marginBottom: 10 }}>
-                {(killShot.flags || []).map(f => (
-                  <span key={f} style={{ fontSize: 11, padding: '3px 8px', borderRadius: 4, background: 'rgba(239,68,68,0.12)', color: 'var(--status-critical)', border: '1px solid rgba(239,68,68,0.3)', fontWeight: 600 }}>
-                    {f === 'zombie' ? 'Zombie' : f === 'loop' ? 'Loop' : f === 'governance' ? 'Governance' : f}
-                  </span>
-                ))}
-              </div>
-              <span style={{ fontSize: 13, color: 'var(--status-critical)', fontWeight: 700 }}>Investigate → </span>
-            </div>
-          </div>
-        </div>
-      )}
-
-      {/* Start Here — Featured Cases */}
-      {featured.length > 0 && (
-        <div style={{ marginBottom: 0 }}>
-          <h3 style={{ fontSize: 13, fontWeight: 700, color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '0.06em', marginBottom: 14 }}>
-            Start Here — High-Priority Cases
-          </h3>
-          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(280px, 1fr))', gap: 14 }}>
-            {featured.map((org, i) => (
-              <div
-                key={org.bn || i}
-                onClick={() => navigate(`/entity/${encodeURIComponent(org.bn)}`)}
-                style={{
-                  padding: '16px 20px',
-                  background: 'var(--bg-card)',
-                  border: '1px solid var(--border-primary)',
-                  borderLeft: '3px solid var(--status-critical)',
-                  borderRadius: 'var(--radius-lg)',
-                  cursor: 'pointer',
-                  transition: 'all var(--transition-fast)',
-                }}
-                onMouseEnter={e => { e.currentTarget.style.borderColor = 'var(--status-critical)'; e.currentTarget.style.transform = 'translateY(-2px)'; }}
-                onMouseLeave={e => { e.currentTarget.style.borderColor = 'var(--border-primary)'; e.currentTarget.style.transform = 'translateY(0)'; e.currentTarget.style.borderLeftColor = 'var(--status-critical)'; }}
-              >
-                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: 8, marginBottom: 8 }}>
-                  <div style={{ fontSize: 14, fontWeight: 700, lineHeight: 1.3, flex: 1 }}>{org.name}</div>
-                  <span style={{ fontSize: 11, padding: '2px 7px', borderRadius: 4, background: 'rgba(239,68,68,0.12)', color: 'var(--status-critical)', border: '1px solid rgba(239,68,68,0.3)', whiteSpace: 'nowrap', flexShrink: 0, fontWeight: 600 }}>
-                    {org.loops_count || org.loop_count || 0} loops
-                  </span>
-                </div>
-                <div style={{ display: 'flex', gap: 10, marginBottom: 10, flexWrap: 'wrap' }}>
-                  {(org.flags || []).slice(0, 2).map(f => (
-                    <span key={f} style={{ fontSize: 11, color: 'var(--status-critical)', background: 'rgba(239,68,68,0.08)', padding: '2px 6px', borderRadius: 4 }}>
-                       {f}
-                    </span>
-                  ))}
-                </div>
-                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                  <div style={{ fontSize: 12, color: 'var(--text-muted)', fontFamily: 'var(--font-mono)' }}>
-                    {org.circular_outflow > 0 ? `${fmtDollars(org.circular_outflow)} circular` : `${org.loops_count || 0} loops`}
-                  </div>
-                  <span style={{ fontSize: 12, color: 'var(--accent-purple)', fontWeight: 600 }}>Investigate →</span>
-                </div>
-              </div>
-            ))}
-          </div>
-        </div>
-      )}
     </div>
   );
 }

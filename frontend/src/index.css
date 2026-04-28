@@ -53,7 +53,7 @@
   --font-mono: 'JetBrains Mono', 'Fira Code', monospace;
 
   /* Spacing */
-  --sidebar-width: 260px;
+  --sidebar-width: 230px;
   --header-height: 64px;
 
   /* Transitions */
@@ -297,7 +297,7 @@ body {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  padding: 0 32px;
+  padding: 0 24px;
   position: sticky;
   top: 0;
   z-index: 50;
@@ -310,7 +310,7 @@ body {
 
 .page-content {
   flex: 1;
-  padding: 28px 32px;
+  padding: 24px 24px;
 }
 
 /* ── Stats Cards Grid ── */
@@ -409,6 +409,7 @@ body {
   border: 1px solid var(--border-primary);
   border-radius: var(--radius-lg);
   overflow: hidden;
+  overflow-x: auto;
 }
 
 .data-table-header {

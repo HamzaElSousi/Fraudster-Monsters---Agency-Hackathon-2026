@@ -84,10 +84,11 @@ export default function Governance() {
     <div className="animate-in">
       {/* Header / Stats Bar */}
       <div style={{
-        display: 'flex', gap: 16, marginBottom: 24, flexWrap: 'wrap',
-        padding: '20px 24px',
+        marginBottom: 24,
+        padding: '24px 28px',
         background: 'rgba(34, 211, 238, 0.06)',
         border: '1px solid rgba(34, 211, 238, 0.15)',
+        borderTop: '3px solid var(--accent-cyan)',
         borderRadius: 'var(--radius-lg)',
       }}>
         <div style={{ flex: 1 }}>

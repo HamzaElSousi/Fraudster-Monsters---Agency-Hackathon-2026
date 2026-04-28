@@ -84,7 +84,7 @@ export default function ThresholdGaming() {
         borderRadius: 'var(--radius-lg)',
       }}>
         <div style={{ fontSize: 12, color: 'var(--accent-indigo-light)', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.06em', marginBottom: 8 }}>
-          The Threshold Game — Challenge #9
+          Challenge #9 — Threshold Gaming
         </div>
         <div style={{ fontSize: 16, fontWeight: 400, color: 'var(--text-primary)', lineHeight: 1.7, marginBottom: 12 }}>
           Federal grants trigger proactive disclosure requirements at <strong>$25K</strong>, <strong>$100K</strong>, and <strong>$1M</strong>.

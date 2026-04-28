@@ -73,33 +73,39 @@ export default function Zombies() {
     <div className="animate-in">
       {/* Summary Bar */}
       <div style={{
-        display: 'flex', gap: 16, marginBottom: 24, flexWrap: 'wrap',
-        padding: '20px 24px',
+        marginBottom: 24,
+        padding: '24px 28px',
         background: 'rgba(239, 68, 68, 0.06)',
         border: '1px solid rgba(239, 68, 68, 0.15)',
+        borderTop: '3px solid var(--status-critical)',
         borderRadius: 'var(--radius-lg)',
       }}>
-        <div style={{ flex: 1 }}>
-          <div style={{ fontSize: 12, color: 'var(--status-critical)', fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: 4 }}>
-            Challenge #1 — Zombie Recipients
-          </div>
-          <div style={{ fontSize: 14, color: 'var(--text-secondary)', lineHeight: 1.5 }}>
-            Organizations that received large amounts of public funding then ceased filing.
-            Cross-referenced with circular funding loops to detect pre-death loop participation.
-          </div>
+        <div style={{ fontSize: 12, color: 'var(--status-critical)', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.06em', marginBottom: 8 }}>
+          Challenge #1 — Zombie Recipients
         </div>
-        <div style={{ textAlign: 'center', minWidth: 130 }}>
-          <div style={{ fontSize: 11, color: 'var(--text-muted)', marginBottom: 4 }}>Total Public $ Lost</div>
-          <div style={{ fontSize: 24, fontWeight: 800, color: 'var(--status-critical)' }}>{formatCurrency(totalLost)}</div>
-          <div style={{ fontSize: 12, color: 'var(--text-muted)' }}>{zombies.length} entities</div>
+        <div style={{ fontSize: 16, fontWeight: 400, color: 'var(--text-primary)', lineHeight: 1.7, marginBottom: 12 }}>
+          Organizations that received significant government funding and then ceased all public reporting.
+          Government dependency of 70%+ signals near-total reliance on public money — when these entities stop filing, accountability breaks down.
+          {zombies.length > 0 && (
+            <> Our analysis flagged <strong style={{ color: 'var(--status-critical)' }}>{zombies.length} entities</strong> with at least $100K in government funding and no CRA filing since 2022.</>
+          )}
         </div>
-        {crossrefData && (
-          <div style={{ textAlign: 'center', minWidth: 140 }} title="Zombie orgs that were participating in circular funding loops before they stopped filing">
-            <div style={{ fontSize: 11, color: 'var(--text-muted)', marginBottom: 4 }}>Loop-Participating Zombies</div>
-            <div style={{ fontSize: 24, fontWeight: 800, color: 'var(--status-medium)' }}>{loopParticipantCount}</div>
-            <div style={{ fontSize: 12, color: 'var(--text-muted)' }}>{loopPct}% of zombies</div>
-          </div>
-        )}
+        <div style={{ display: 'flex', gap: 24, flexWrap: 'wrap' }}>
+          {[
+            { label: 'Flagged Entities', value: loading ? '…' : zombies.length.toLocaleString(), color: 'var(--status-critical)' },
+            { label: 'Total Public Funding', value: loading ? '…' : formatCurrency(totalLost), color: 'var(--text-primary)' },
+            { label: 'Loop Participants', value: crossrefData ? loopParticipantCount.toLocaleString() : '…', color: 'var(--status-medium)' },
+            { label: 'Loop Overlap', value: crossrefData ? `${loopPct}%` : '…', color: 'var(--text-muted)' },
+          ].map(item => (
+            <div key={item.label}>
+              <div style={{ fontSize: 10, color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: 2 }}>{item.label}</div>
+              <div style={{ fontSize: 20, fontWeight: 800, color: item.color }}>{item.value}</div>
+            </div>
+          ))}
+        </div>
+        <div style={{ marginTop: 10, fontSize: 11, color: 'var(--text-muted)' }}>
+          Source: CRA T3010 filings · govt_share ≥ 70% · total_govt ≥ $100K · last filing year ≤ 2022
+        </div>
       </div>
 
       <MethodologyPanel />
