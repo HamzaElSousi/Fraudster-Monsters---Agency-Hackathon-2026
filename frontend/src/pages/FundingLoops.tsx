@@ -1,5 +1,6 @@
 // @ts-nocheck
 import { useState, useEffect, useRef, useCallback } from 'react';
+import { Table2, Network, Landmark, AlertTriangle, CircleAlert, CheckCircle2, Circle } from 'lucide-react';
 import ReactECharts from 'echarts-for-react';
 import { fetchLoops, fetchLoopGraph, fetchLoopsStats, fetchLoopCharities, fetchLoopsStatsEnriched, fetchLoopDetail, fetchLoopsEnriched, formatCurrency, formatNumber, fmtDollars, classificationBadge } from '../api';
 
@@ -239,7 +240,7 @@ function LoopsTable({ loops, searchTerm, page, setPage, selectedLoop, setSelecte
                   </td>
                   <td>
                     {loop.same_year
-                      ? <span className="badge critical" style={{ fontSize: 11 }}>Yes ⚠️</span>
+                      ? <span className="badge critical" style={{ fontSize: 11, display: 'inline-flex', alignItems: 'center', gap: 4 }}><AlertTriangle size={10} /> Yes</span>
                       : <span style={{ color: 'var(--text-muted)', fontSize: 12 }}>No</span>}
                   </td>
                   <td>
@@ -299,8 +300,8 @@ function LoopsTable({ loops, searchTerm, page, setPage, selectedLoop, setSelecte
                           <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 14, flexWrap: 'wrap' }}>
                             <span style={{ fontSize: 11, fontWeight: 700, textTransform: 'uppercase', letterSpacing: 1, color: 'var(--accent-purple)' }}>Follow The Money</span>
                             {loop.same_year && (
-                              <span style={{ fontSize: 12, padding: '4px 12px', borderRadius: 6, background: 'rgba(239,68,68,0.1)', border: '1px solid rgba(239,68,68,0.3)', color: 'var(--status-critical)', fontWeight: 600 }}>
-                                ⚠️ Same-year loop — CRA could see <strong>{fmtDollars(parseFloat(loop.phantom_receipts) || 0)}</strong> in receipts for <strong>{fmtDollars(parseFloat(loop.total_flow) || 0)}</strong> actual flow
+                              <span style={{ fontSize: 12, padding: '4px 12px', borderRadius: 6, background: 'rgba(239,68,68,0.1)', border: '1px solid rgba(239,68,68,0.3)', color: 'var(--status-critical)', fontWeight: 600, display: 'inline-flex', alignItems: 'center', gap: 6 }}>
+                                <AlertTriangle size={12} /> Same-year loop — CRA could see <strong>{fmtDollars(parseFloat(loop.phantom_receipts) || 0)}</strong> in receipts for <strong>{fmtDollars(parseFloat(loop.total_flow) || 0)}</strong> actual flow
                               </span>
                             )}
                           </div>
@@ -658,10 +659,10 @@ export default function FundingLoops() {
   }, [hopsRange, maxFlow, sameYearOnly, riskFilter, classification]);
 
   const TABS = [
-    { id: 'table', label: '📋 Loops Table' },
-    { id: 'graph', label: '🕸️ Network Graph' },
-    { id: 'charities', label: '🏛️ Top Charities' },
-    { id: 'suspicious_tab', label: '🔴 Suspicious Loops' },
+    { id: 'table', label: 'Loops Table', Icon: Table2 },
+    { id: 'graph', label: 'Network Graph', Icon: Network },
+    { id: 'charities', label: 'Top Charities', Icon: Landmark },
+    { id: 'suspicious_tab', label: 'Suspicious Loops', Icon: CircleAlert },
   ];
 
   const flowMax = statsData?.max_flow || 5_000_000;
@@ -683,10 +684,10 @@ export default function FundingLoops() {
 
   // Classification filter buttons
   const classificationOptions = [
-    { key: '', label: 'All Loops' },
-    { key: 'high_alert', label: '🔴 High Alert', count: statsData?.high_alert_count },
-    { key: 'suspicious', label: '🟡 Suspicious', count: statsData?.suspicious_count },
-    { key: 'normal', label: '✅ Normal', count: statsData?.normal_count },
+    { key: '', label: 'All Loops', Icon: null },
+    { key: 'high_alert', label: 'High Alert', Icon: CircleAlert, iconColor: 'var(--status-critical)', count: statsData?.high_alert_count },
+    { key: 'suspicious', label: 'Suspicious', Icon: AlertTriangle, iconColor: 'var(--status-medium)', count: statsData?.suspicious_count },
+    { key: 'normal', label: 'Normal', Icon: CheckCircle2, iconColor: 'var(--status-low)', count: statsData?.normal_count },
   ];
 
   // Handle tab changes including suspicious tab
@@ -724,6 +725,7 @@ export default function FundingLoops() {
               cursor: 'pointer',
             }}
           >
+            {opt.Icon && <opt.Icon size={12} style={{ display: 'inline', verticalAlign: 'middle', marginRight: 4, color: opt.iconColor }} />}
             {opt.label}{opt.count != null ? ` (${opt.count.toLocaleString()})` : ''}
           </button>
         ))}
@@ -758,7 +760,9 @@ export default function FundingLoops() {
                   transition: 'color var(--transition-fast)',
                 }}
               >
-                {tab.label}
+                <span style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                  <tab.Icon size={13} />{tab.label}
+                </span>
               </button>
             ))}
           </div>

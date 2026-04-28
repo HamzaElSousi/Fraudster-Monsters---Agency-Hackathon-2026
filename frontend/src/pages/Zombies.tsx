@@ -1,5 +1,6 @@
 // @ts-nocheck
 import { useState, useEffect } from 'react';
+import { Skull, Repeat2, Table2, Search } from 'lucide-react';
 import { fetchZombies, fetchZombieLoopCrossref, formatCurrency, fmtDollars } from '../api';
 
 export default function Zombies() {
@@ -84,8 +85,8 @@ export default function Zombies() {
       {/* View mode toggle */}
       <div style={{ display: 'flex', gap: 8, marginBottom: 16 }}>
         {[
-          { key: 'table', label: '📋 Table' },
-          { key: 'crossref', label: '🔄 Loop Cross-Reference' },
+          { key: 'table', label: 'Table' },
+          { key: 'crossref', label: 'Loop Cross-Reference' },
         ].map(m => (
           <button key={m.key} onClick={() => handleViewMode(m.key)}
             style={{
@@ -126,7 +127,7 @@ export default function Zombies() {
         )}
 
         <div style={{ position: 'relative' }}>
-          <span style={{ position: 'absolute', left: 12, top: '50%', transform: 'translateY(-50%)', color: 'var(--text-muted)', fontSize: 13 }}>🔍</span>
+          <Search size={13} style={{ position: 'absolute', left: 12, top: '50%', transform: 'translateY(-50%)', color: 'var(--text-muted)', pointerEvents: 'none' }} />
           <input type="text" placeholder="Search name or BN..." value={search} onChange={(e) => setSearch(e.target.value)}
             style={{ background: 'var(--bg-tertiary)', border: '1px solid var(--border-primary)', borderRadius: 'var(--radius-md)', color: 'var(--text-primary)', padding: '8px 12px 8px 36px', fontSize: 13, outline: 'none', width: 220 }} />
         </div>
@@ -140,7 +141,7 @@ export default function Zombies() {
       {viewMode === 'table' && (
         <div className="data-table-container">
           <div className="data-table-header">
-            <span className="data-table-title">🧟 Zombie Recipients ({filtered.length})</span>
+            <span className="data-table-title" style={{ display: 'flex', alignItems: 'center', gap: 6 }}><Skull size={15} /> Zombie Recipients ({filtered.length})</span>
             <span className="badge info">{data?.query_mode || 'loading'}</span>
           </div>
           {loading ? (
@@ -204,7 +205,7 @@ export default function Zombies() {
       {viewMode === 'crossref' && (
         <div className="data-table-container">
           <div className="data-table-header">
-            <span className="data-table-title">🔄 Zombie × Loop Cross-Reference</span>
+            <span className="data-table-title" style={{ display: 'flex', alignItems: 'center', gap: 6 }}><Repeat2 size={15} /> Zombie × Loop Cross-Reference</span>
             {crossrefData && (
               <span style={{ fontSize: 12, color: 'var(--status-medium)', fontWeight: 600 }}>
                 {loopParticipantCount} loop-participating zombies ({loopPct}% of total)
@@ -236,7 +237,7 @@ export default function Zombies() {
                     <tr key={z.bn || i}>
                       <td>
                         {z.loop_count > 0
-                          ? <span className="badge critical" style={{ fontSize: 11 }}>🔄 {z.loop_count} loop{z.loop_count !== 1 ? 's' : ''}</span>
+                          ? <span className="badge critical" style={{ fontSize: 11, display: 'inline-flex', alignItems: 'center', gap: 4 }}><Repeat2 size={10} /> {z.loop_count} loop{z.loop_count !== 1 ? 's' : ''}</span>
                           : <span style={{ color: 'var(--text-muted)', fontSize: 12 }}>—</span>}
                       </td>
                       <td>

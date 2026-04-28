@@ -1,6 +1,7 @@
 // @ts-nocheck
 import { useState, useRef, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
+import { Skull, Repeat2, Network, AlertTriangle, Search, Loader2, Send } from 'lucide-react';
 import { sendChatMessage, formatCurrency, fetchStats } from '../api';
 
 function buildWelcomeMessage(stats) {
@@ -14,7 +15,7 @@ function buildWelcomeMessage(stats) {
   return {
     role: 'assistant',
     id: 0,
-    content: `Welcome to the **Follow The Money** AI Investigator! 🔍
+    content: `Welcome to the **Follow The Money** AI Investigator!
 
 I can help you explore government spending accountability across **${recordStr} records** from CRA T3010 charity filings, Federal Grants & Contributions, and Alberta Open Data.
 
@@ -106,7 +107,7 @@ function DataCard({ item, dataType, index, msgId, expandedCards, toggleCard, nav
       </div>
     );
   } else if (dataType === 'alerts') {
-    const flagMeta = { zombie: '🧟', loop: '🔄', governance: '🕸️' };
+    const flagIconMap: Record<string, React.ElementType> = { zombie: Skull, loop: Repeat2, governance: Network };
     title = item.canonical_name || item.legal_name || 'Unknown';
     amount = formatCurrency(item.total_govt_funding || item.total_public_funding || 0);
     badge = `${item.alarm_count || 1} flags`;
@@ -116,7 +117,14 @@ function DataCard({ item, dataType, index, msgId, expandedCards, toggleCard, nav
     details = (
       <div style={{ marginTop: 12, paddingTop: 12, borderTop: '1px solid var(--border-primary)' }}>
         <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
-          {(item.flags || []).map(f => <span key={f} style={{ fontSize: 11, padding: '2px 8px', borderRadius: 99, background: 'rgba(239,68,68,0.15)', color: 'var(--status-critical)' }}>{flagMeta[f] || '⚠️'} {f}</span>)}
+          {(item.flags || []).map(f => {
+            const FlagIcon = flagIconMap[f] || AlertTriangle;
+            return (
+              <span key={f} style={{ fontSize: 11, padding: '2px 8px', borderRadius: 99, background: 'rgba(239,68,68,0.15)', color: 'var(--status-critical)', display: 'inline-flex', alignItems: 'center', gap: 4 }}>
+                <FlagIcon size={10} /> {f}
+              </span>
+            );
+          })}
         </div>
         {item.last_filing_year && <div style={{ fontSize: 11, color: 'var(--text-muted)', marginTop: 6 }}>Last filed: {item.last_filing_year}</div>}
       </div>
@@ -231,7 +239,7 @@ export default function Chat() {
       setMessages(prev => [...prev, {
         role: 'assistant',
         id: Date.now() + 1,
-        content: `⚠️ Error connecting to API. Make sure the backend is running on port 8000.\n\nRun: \`cd backend && python main.py\``,
+        content: `Error connecting to API. Make sure the backend is running on port 8000.\n\nRun: \`cd backend && python main.py\``,
         data_type: 'error',
       }]);
     } finally {
@@ -293,7 +301,7 @@ export default function Chat() {
         {isLoading && (
           <div className="chat-message assistant">
             <div style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
-              <span style={{ animation: 'pulse-glow 1.5s infinite' }}>🔍</span>
+              <Loader2 size={14} style={{ color: 'var(--color-accent)', animation: 'spin 1s linear infinite' }} />
               <span style={{ color: 'var(--text-muted)' }}>Analyzing records...</span>
             </div>
           </div>
@@ -343,7 +351,7 @@ export default function Chat() {
           onClick={() => handleSend()}
           disabled={isLoading || !input.trim()}
         >
-          {isLoading ? '⏳' : '🔍'} Investigate
+          {isLoading ? <Loader2 size={14} style={{ animation: 'spin 1s linear infinite' }} /> : <Search size={14} />} Investigate
         </button>
       </div>
     </div>

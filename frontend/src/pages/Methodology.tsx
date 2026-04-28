@@ -1,3 +1,5 @@
+import { Skull, Repeat2, Banknote, Users, Bot, AlertTriangle, FileText, Circle } from 'lucide-react';
+
 export default function Methodology() {
   return (
     <div className="animate-in" style={{ maxWidth: 860 }}>
@@ -42,7 +44,7 @@ export default function Methodology() {
 
       {/* 2. Risk Scoring */}
       <div className="methodology-section">
-        <h2>🎯 How Risk Scoring Works</h2>
+        <h2>How Risk Scoring Works</h2>
         <p style={{ fontSize: 14, color: 'var(--text-secondary)', marginBottom: 20, lineHeight: 1.7 }}>
           Every organization receives a transparent 0–100 risk score built from four independent components.
           The breakdown is always shown so auditors can see exactly why an organization scored what it did.
@@ -51,19 +53,19 @@ export default function Methodology() {
 
         <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', marginBottom: 20 }}>
           {[
-            { label: '🧟 Zombie', max: 40, color: 'var(--status-critical)' },
-            { label: '🔄 Loop', max: 25, color: 'var(--accent-purple)' },
-            { label: '💰 Duplicate', max: 20, color: '#60a5fa' },
-            { label: '👥 Governance', max: 15, color: '#fb923c' },
+            { label: 'Zombie', Icon: Skull, max: 40, color: 'var(--status-critical)' },
+            { label: 'Loop', Icon: Repeat2, max: 25, color: 'var(--accent-purple)' },
+            { label: 'Duplicate', Icon: Banknote, max: 20, color: '#60a5fa' },
+            { label: 'Governance', Icon: Users, max: 15, color: '#fb923c' },
           ].map(c => (
             <div key={c.label} style={{ padding: '8px 16px', background: 'var(--bg-tertiary)', border: `1px solid ${c.color}44`, borderRadius: 'var(--radius-md)', textAlign: 'center', minWidth: 120 }}>
-              <div style={{ fontSize: 14, fontWeight: 700, color: c.color }}>{c.label}</div>
+              <div style={{ fontSize: 14, fontWeight: 700, color: c.color, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6 }}><c.Icon size={13} />{c.label}</div>
               <div style={{ fontSize: 11, color: 'var(--text-muted)' }}>max {c.max} pts</div>
             </div>
           ))}
         </div>
 
-        <h3 style={{ fontSize: 14, fontWeight: 700, color: 'var(--text-primary)', marginBottom: 10 }}>🧟 Zombie Score (max 40 points)</h3>
+        <h3 style={{ fontSize: 14, fontWeight: 700, color: 'var(--text-primary)', marginBottom: 10, display: 'flex', alignItems: 'center', gap: 8 }}><Skull size={14} /> Zombie Score (max 40 points)</h3>
         <table className="methodology-table" style={{ marginBottom: 20 }}>
           <thead><tr><th>Condition</th><th>Points</th></tr></thead>
           <tbody>
@@ -75,7 +77,7 @@ export default function Methodology() {
           </tbody>
         </table>
 
-        <h3 style={{ fontSize: 14, fontWeight: 700, color: 'var(--text-primary)', marginBottom: 10 }}>🔄 Loop Score (max 25 points)</h3>
+        <h3 style={{ fontSize: 14, fontWeight: 700, color: 'var(--text-primary)', marginBottom: 10, display: 'flex', alignItems: 'center', gap: 8 }}><Repeat2 size={14} /> Loop Score (max 25 points)</h3>
         <table className="methodology-table" style={{ marginBottom: 20 }}>
           <thead><tr><th>Condition</th><th>Points</th></tr></thead>
           <tbody>
@@ -85,7 +87,7 @@ export default function Methodology() {
           </tbody>
         </table>
 
-        <h3 style={{ fontSize: 14, fontWeight: 700, color: 'var(--text-primary)', marginBottom: 10 }}>💰 Duplicate Funding Score (max 20 points)</h3>
+        <h3 style={{ fontSize: 14, fontWeight: 700, color: 'var(--text-primary)', marginBottom: 10, display: 'flex', alignItems: 'center', gap: 8 }}><Banknote size={14} /> Duplicate Funding Score (max 20 points)</h3>
         <table className="methodology-table" style={{ marginBottom: 20 }}>
           <thead><tr><th>Condition</th><th>Points</th></tr></thead>
           <tbody>
@@ -95,7 +97,7 @@ export default function Methodology() {
           </tbody>
         </table>
 
-        <h3 style={{ fontSize: 14, fontWeight: 700, color: 'var(--text-primary)', marginBottom: 10 }}>👥 Governance Score (max 15 points)</h3>
+        <h3 style={{ fontSize: 14, fontWeight: 700, color: 'var(--text-primary)', marginBottom: 10, display: 'flex', alignItems: 'center', gap: 8 }}><Users size={14} /> Governance Score (max 15 points)</h3>
         <table className="methodology-table">
           <thead><tr><th>Condition</th><th>Points</th></tr></thead>
           <tbody>
@@ -106,16 +108,16 @@ export default function Methodology() {
 
         <div style={{ marginTop: 20, padding: '12px 16px', background: 'var(--bg-tertiary)', borderRadius: 'var(--radius-md)', fontSize: 13, color: 'var(--text-secondary)', lineHeight: 1.6 }}>
           <strong style={{ color: 'var(--text-primary)' }}>Risk Tiers:</strong>{' '}
-          <span style={{ color: 'var(--status-critical)' }}>🔴 Critical (80–100)</span> ·{' '}
-          <span style={{ color: 'var(--status-high)' }}>🟠 High (60–79)</span> ·{' '}
-          <span style={{ color: 'var(--status-medium)' }}>🟡 Medium (40–59)</span> ·{' '}
-          <span style={{ color: 'var(--status-low)' }}>🟢 Low (0–39)</span>
+          <span style={{ color: 'var(--status-critical)', display: 'inline-flex', alignItems: 'center', gap: 4 }}><Circle size={9} fill="var(--status-critical)" /> Critical (80–100)</span> ·{' '}
+          <span style={{ color: 'var(--status-high)', display: 'inline-flex', alignItems: 'center', gap: 4 }}><Circle size={9} fill="var(--status-high)" /> High (60–79)</span> ·{' '}
+          <span style={{ color: 'var(--status-medium)', display: 'inline-flex', alignItems: 'center', gap: 4 }}><Circle size={9} fill="var(--status-medium)" /> Medium (40–59)</span> ·{' '}
+          <span style={{ color: 'var(--status-low)', display: 'inline-flex', alignItems: 'center', gap: 4 }}><Circle size={9} fill="var(--status-low)" /> Low (0–39)</span>
         </div>
       </div>
 
       {/* 3. What AI Does */}
       <div className="methodology-section">
-        <h2>🤖 What the AI Does</h2>
+        <h2 style={{ display: 'flex', alignItems: 'center', gap: 8 }}><Bot size={18} /> What the AI Does</h2>
         <p style={{ fontSize: 14, color: 'var(--text-secondary)', lineHeight: 1.7, marginBottom: 16 }}>
           AuditLens uses AI in two ways: generating investigation briefs and answering natural-language questions about the data.
         </p>
@@ -150,7 +152,7 @@ export default function Methodology() {
 
       {/* 4. Limitations */}
       <div className="methodology-section">
-        <h2>⚠️ Limitations</h2>
+        <h2 style={{ display: 'flex', alignItems: 'center', gap: 8 }}><AlertTriangle size={18} /> Limitations</h2>
         <ul style={{ fontSize: 14, color: 'var(--text-secondary)', lineHeight: 2, paddingLeft: 20, margin: 0 }}>
           <li><strong style={{ color: 'var(--text-primary)' }}>Risk signals, not proof.</strong> A high risk score means an organization warrants closer inspection — not that fraud has occurred. All findings require human verification before action.</li>
           <li><strong style={{ color: 'var(--text-primary)' }}>Name-based director matching.</strong> Director cross-referencing uses name matching, which may produce false positives for common names (e.g. "John Smith") across different individuals. Use with appropriate skepticism.</li>
@@ -162,7 +164,7 @@ export default function Methodology() {
 
       {/* 5. How to Read a Case File */}
       <div className="methodology-section">
-        <h2>📋 How to Read a Case File</h2>
+        <h2 style={{ display: 'flex', alignItems: 'center', gap: 8 }}><FileText size={18} /> How to Read a Case File</h2>
         <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
           {[
             { step: '1', title: 'Check the Risk Score', desc: 'The 0–100 badge in the header tells you how many risk signals were triggered. Critical (80+) means multiple serious flags aligned.' },

@@ -1,5 +1,9 @@
 import { useState, useEffect } from 'react';
 import { BrowserRouter, Routes, Route, NavLink, useLocation, useNavigate } from 'react-router-dom';
+import {
+  LayoutDashboard, ShieldAlert, Skull, Repeat2, Network, FileSearch,
+  Shuffle, Bot, BookOpen, AlertTriangle, Zap, Database, Search
+} from 'lucide-react';
 import Dashboard from './pages/Dashboard';
 import Zombies from './pages/Zombies';
 import FundingLoops from './pages/FundingLoops';
@@ -23,8 +27,8 @@ function BackendStatus() {
   }, []);
   if (!down) return null;
   return (
-    <div style={{ background: 'var(--status-critical)', color: '#fff', fontSize: 12, padding: '6px 20px', textAlign: 'center', position: 'sticky', top: 0, zIndex: 200 }}>
-      ⚠️ Backend unavailable — run <code style={{ background: 'rgba(0,0,0,0.2)', padding: '1px 6px', borderRadius: 4 }}>cd backend && python3 main.py</code>
+    <div style={{ background: 'var(--status-critical)', color: '#fff', fontSize: 12, padding: '6px 20px', textAlign: 'center', position: 'sticky', top: 0, zIndex: 200, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8 }}>
+      <AlertTriangle size={13} /> Backend unavailable — run <code style={{ background: 'rgba(0,0,0,0.2)', padding: '1px 6px', borderRadius: 4 }}>cd backend && python3 main.py</code>
     </div>
   );
 }
@@ -89,23 +93,24 @@ function Sidebar() {
     <aside className="sidebar">
       <div className="sidebar-header">
         <NavLink to="/" className="sidebar-logo">
-          <div className="sidebar-logo-icon">💰</div>
+          <div className="sidebar-logo-icon">A</div>
           <div className="sidebar-logo-text">
-            <span className="sidebar-logo-title">Follow The Money</span>
+            <span className="sidebar-logo-title">AuditLens</span>
             <span className="sidebar-logo-subtitle">Agency 2026 Ottawa</span>
           </div>
         </NavLink>
 
         {/* Global Search */}
         <div style={{ marginTop: 16, position: 'relative' }}>
+          <Search size={13} style={{ position: 'absolute', left: 10, top: '50%', transform: 'translateY(-50%)', color: 'var(--text-muted)', pointerEvents: 'none', zIndex: 1 }} />
           <input
             type="text"
-            placeholder="🔍 Search..."
+            placeholder="Search..."
             value={searchQuery}
             onChange={(e) => setSearchQuery(e.target.value)}
             style={{
               width: '100%',
-              padding: '10px 12px',
+              padding: '10px 12px 10px 30px',
               fontSize: 13,
               background: 'var(--bg-tertiary)',
               border: '1px solid var(--border-primary)',
@@ -135,8 +140,8 @@ function Sidebar() {
                   {/* Entities first — PG cross-dataset, confidence-ranked */}
                   {(searchResults.results?.entities || []).length > 0 && (
                     <div>
-                      <div style={{ padding: '8px 12px', fontSize: 11, color: 'var(--accent-cyan)', textTransform: 'uppercase', background: 'var(--bg-tertiary)', fontWeight: 700, letterSpacing: '0.05em' }}>
-                        ✦ Entities ({searchResults.results.entities.length})
+                      <div style={{ padding: '8px 12px', fontSize: 11, color: 'var(--accent-cyan)', textTransform: 'uppercase', background: 'var(--bg-tertiary)', fontWeight: 700, letterSpacing: '0.05em', display: 'flex', alignItems: 'center', gap: 5 }}>
+                        <Database size={10} /> Entities ({searchResults.results.entities.length})
                       </div>
                       {searchResults.results.entities.map((item, i) => (
                         <div
@@ -192,13 +197,13 @@ function Sidebar() {
       <nav className="sidebar-nav">
         <div className="sidebar-section-label">Overview</div>
         <NavLink to="/" end className={({ isActive }) => `nav-link ${isActive ? 'active' : ''}`}>
-          <span className="nav-link-icon">📊</span>
+          <LayoutDashboard className="nav-link-icon" />
           Dashboard
         </NavLink>
 
         <div className="sidebar-section-label">Investigations</div>
         <NavLink to="/alerts" className={({ isActive }) => `nav-link ${isActive ? 'active' : ''}`}>
-          <span className="nav-link-icon">🚨</span>
+          <ShieldAlert className="nav-link-icon" />
           Multi-Flag Alerts
           <span
             className="nav-link-badge"
@@ -211,48 +216,48 @@ function Sidebar() {
           </span>
         </NavLink>
         <NavLink to="/zombies" className={({ isActive }) => `nav-link ${isActive ? 'active' : ''}`}>
-          <span className="nav-link-icon">🧟</span>
+          <Skull className="nav-link-icon" />
           Zombie Recipients
           <span className="nav-link-badge">{navStats?.zombie_count ?? '…'}</span>
         </NavLink>
         <NavLink to="/loops" className={({ isActive }) => `nav-link ${isActive ? 'active' : ''}`}>
-          <span className="nav-link-icon">🔄</span>
+          <Repeat2 className="nav-link-icon" />
           Funding Loops
           <span className="nav-link-badge">{navStats?.total_funding_loops != null ? navStats.total_funding_loops.toLocaleString() : '…'}</span>
         </NavLink>
         <NavLink to="/governance" className={({ isActive }) => `nav-link ${isActive ? 'active' : ''}`}>
-          <span className="nav-link-icon">🕸️</span>
+          <Network className="nav-link-icon" />
           Governance Networks
           <span className="nav-link-badge">{navStats?.multi_board_directors != null ? navStats.multi_board_directors.toLocaleString() : '…'}</span>
         </NavLink>
         <NavLink to="/sole-source" className={({ isActive }) => `nav-link ${isActive ? 'active' : ''}`}>
-          <span className="nav-link-icon">📋</span>
+          <FileSearch className="nav-link-icon" />
           Sole Source
           <span className="nav-link-badge">{navStats?.total_sole_source != null ? (navStats.total_sole_source >= 1000 ? Math.round(navStats.total_sole_source / 1000) + 'K' : navStats.total_sole_source) : '…'}</span>
         </NavLink>
 
         <div className="sidebar-section-label">Cross-Government Analysis</div>
         <NavLink to="/duplicative-funding" className={({ isActive }) => `nav-link ${isActive ? 'active' : ''}`}>
-          <span className="nav-link-icon">💸</span>
+          <Shuffle className="nav-link-icon" />
           Duplicative Funding
         </NavLink>
 
         <div className="sidebar-section-label">AI Assistant</div>
         <NavLink to="/chat" className={({ isActive }) => `nav-link ${isActive ? 'active' : ''}`}>
-          <span className="nav-link-icon">🤖</span>
+          <Bot className="nav-link-icon" />
           Ask AI
         </NavLink>
 
         <div className="sidebar-section-label">About</div>
         <NavLink to="/about" className={({ isActive }) => `nav-link ${isActive ? 'active' : ''}`}>
-          <span className="nav-link-icon">📋</span>
+          <BookOpen className="nav-link-icon" />
           Methodology
         </NavLink>
       </nav>
 
       <div className="sidebar-footer">
         <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
-          <div className="sidebar-mode-badge mock">⚡ Live Data</div>
+          <div className="sidebar-mode-badge mock" style={{ display: 'flex', alignItems: 'center', gap: 5 }}><Zap size={10} /> Live Data</div>
           {pgConnected && (
             <div className="sidebar-mode-badge mock" style={{ background: 'rgba(34,211,238,0.15)', color: 'var(--accent-cyan)', border: '1px solid rgba(34,211,238,0.3)' }}>
               ✓ Dual-DB

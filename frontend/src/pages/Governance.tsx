@@ -1,5 +1,6 @@
 // @ts-nocheck
 import { useState, useEffect } from 'react';
+import { Network, Repeat2, AlertTriangle, Search } from 'lucide-react';
 import { fetchGovernance, fetchSelfDealingDirectors, formatCurrency, fmtDollars } from '../api';
 
 export default function Governance() {
@@ -136,7 +137,7 @@ export default function Governance() {
         </label>
 
         <div style={{ position: 'relative' }}>
-          <span style={{ position: 'absolute', left: 12, top: '50%', transform: 'translateY(-50%)', color: 'var(--text-muted)', fontSize: 13 }}>🔍</span>
+          <Search size={13} style={{ position: 'absolute', left: 12, top: '50%', transform: 'translateY(-50%)', color: 'var(--text-muted)', pointerEvents: 'none' }} />
           <input
             type="text"
             placeholder="Search director name..."
@@ -161,7 +162,7 @@ export default function Governance() {
           <div style={{ padding: 40, textAlign: 'center', color: 'var(--text-muted)' }}>Loading governance networks...</div>
         ) : filtered.length === 0 ? (
           <div style={{ padding: '48px 24px', textAlign: 'center', background: 'var(--bg-card)', border: '1px solid var(--border-primary)', borderRadius: 'var(--radius-lg)' }}>
-            <div style={{ fontSize: 40, marginBottom: 12 }}>🕸️</div>
+            <Network size={40} style={{ marginBottom: 12, color: 'var(--text-muted)' }} />
             <div style={{ fontSize: 15, fontWeight: 600, marginBottom: 6 }}>No directors match your search</div>
             <div style={{ fontSize: 13, color: 'var(--text-muted)' }}>Try adjusting the search or minimum boards filter.</div>
           </div>
@@ -187,8 +188,8 @@ export default function Governance() {
                     <div style={{ fontSize: 16, fontWeight: 700, display: 'flex', alignItems: 'center', gap: 8 }}>
                       {dir.first_name} {dir.last_name}
                       {isSelfDealing && (
-                        <span style={{ fontSize: 11, padding: '2px 7px', borderRadius: 4, background: 'rgba(239,68,68,0.15)', color: 'var(--status-critical)', border: '1px solid var(--status-critical)', fontWeight: 600 }}>
-                          🔄 Loop Exposure
+                        <span style={{ fontSize: 11, padding: '2px 7px', borderRadius: 4, background: 'rgba(239,68,68,0.15)', color: 'var(--status-critical)', border: '1px solid var(--status-critical)', fontWeight: 600, display: 'inline-flex', alignItems: 'center', gap: 4 }}>
+                          <Repeat2 size={10} /> Loop Exposure
                         </span>
                       )}
                     </div>
@@ -219,7 +220,7 @@ export default function Governance() {
                     <div style={{ marginBottom: 16, display: 'flex', flexDirection: 'column', gap: 6 }}>
                       {(dir.risk_flags || []).map((flag, fi) => (
                         <div key={fi} className="risk-flag">
-                          <span className="risk-flag-icon">⚠️</span>
+                          <AlertTriangle size={13} className="risk-flag-icon" />
                           <span>{flag}</span>
                         </div>
                       ))}
@@ -233,7 +234,7 @@ export default function Governance() {
                       {sdRecord.intersecting_loops.slice(0, 5).map((loop, li) => (
                         <div key={li} style={{ fontSize: 13, color: 'var(--text-secondary)', marginBottom: 4 }}>
                           Loop #{loop.loop_id} — {loop.hops} hops — {fmtDollars(loop.total_flow)}
-                          {loop.same_year && <span style={{ marginLeft: 6, color: 'var(--status-critical)', fontWeight: 600 }}>⚠️ same-year</span>}
+                          {loop.same_year && <span style={{ marginLeft: 6, color: 'var(--status-critical)', fontWeight: 600, display: 'inline-flex', alignItems: 'center', gap: 3 }}><AlertTriangle size={11} /> same-year</span>}
                         </div>
                       ))}
                     </div>

@@ -2,17 +2,18 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import ReactECharts from 'echarts-for-react';
+import { TrendingUp, Flag, Repeat2, Banknote, Users, BookOpen, Skull, AlertTriangle, CheckCircle2, XCircle, Bot, Network } from 'lucide-react';
 import { fetchEntityCaseFile, fmtDollars, formatCurrency } from '../api';
 import RiskBadge from '../components/RiskBadge';
 import FlagBadge from '../components/FlagBadge';
 
 const TABS = [
-  { id: 'funding',    label: '📈 Funding History' },
-  { id: 'risk',       label: '🚩 Risk Flags' },
-  { id: 'loops',      label: '🔄 Loop Map' },
-  { id: 'duplicate',  label: '💰 Duplicate Funding' },
-  { id: 'governance', label: '👥 Governance' },
-  { id: 'notes',      label: '📝 Case Notes' },
+  { id: 'funding',    label: 'Funding History', Icon: TrendingUp },
+  { id: 'risk',       label: 'Risk Flags',       Icon: Flag },
+  { id: 'loops',      label: 'Loop Map',         Icon: Repeat2 },
+  { id: 'duplicate',  label: 'Duplicate Funding',Icon: Banknote },
+  { id: 'governance', label: 'Governance',        Icon: Users },
+  { id: 'notes',      label: 'Case Notes',        Icon: BookOpen },
 ];
 
 function buildNarrative(entity) {
@@ -37,7 +38,7 @@ function RiskFlagsTab({ entity }) {
   const cards = [
     {
       id: 'zombie',
-      emoji: '🧟',
+      Icon: Skull,
       label: 'Zombie Recipient',
       score: breakdown.zombie || 0,
       maxScore: 40,
@@ -62,7 +63,7 @@ function RiskFlagsTab({ entity }) {
     },
     {
       id: 'loop',
-      emoji: '🔄',
+      Icon: Repeat2,
       label: 'Circular Funding Loop',
       score: breakdown.loop || 0,
       maxScore: 25,
@@ -87,7 +88,7 @@ function RiskFlagsTab({ entity }) {
     },
     {
       id: 'duplicate',
-      emoji: '💰',
+      Icon: Banknote,
       label: 'Duplicate Funding',
       score: breakdown.duplicate || 0,
       maxScore: 20,
@@ -111,7 +112,7 @@ function RiskFlagsTab({ entity }) {
     },
     {
       id: 'governance',
-      emoji: '👥',
+      Icon: Users,
       label: 'Governance Network',
       score: breakdown.governance || 0,
       maxScore: 15,
@@ -140,7 +141,7 @@ function RiskFlagsTab({ entity }) {
         <div key={card.id} className={`risk-flag-card${card.triggered ? ' triggered' : ''}`}>
           <div className="risk-flag-card-header">
             <div className="risk-flag-card-title">
-              {card.emoji} {card.label}
+              <card.Icon size={16} style={{ flexShrink: 0 }} /> {card.label}
             </div>
             <div className="risk-flag-card-score">
               {card.score}/{card.maxScore} pts
@@ -153,7 +154,7 @@ function RiskFlagsTab({ entity }) {
           <ul className="risk-criteria-list">
             {card.criteria.map((c, i) => (
               <li key={i} className="risk-criteria-item">
-                <span className="criterion-icon">{c.met ? '✅' : '❌'}</span>
+                <span className="criterion-icon">{c.met ? <CheckCircle2 size={14} style={{ color: 'var(--status-low)' }} /> : <XCircle size={14} style={{ color: 'var(--status-critical)' }} />}</span>
                 <div>
                   <div>{c.text}</div>
                   {c.value && <div className="criterion-value">{c.value}</div>}
@@ -326,7 +327,7 @@ export default function EntityCaseFile() {
   if (error || !entity?.name) {
     return (
       <div style={{ padding: 40, textAlign: 'center' }}>
-        <div style={{ fontSize: 40, marginBottom: 12 }}>⚠️</div>
+        <AlertTriangle size={40} style={{ marginBottom: 12, color: 'var(--status-critical)' }} />
         <div style={{ fontSize: 16, fontWeight: 600, color: 'var(--status-critical)', marginBottom: 8 }}>Entity Not Found</div>
         <div style={{ fontSize: 14, color: 'var(--text-muted)', marginBottom: 20 }}>{error || `No data found for BN: ${bn}`}</div>
         <button onClick={() => navigate(-1)} style={{ padding: '8px 20px', background: 'var(--accent-purple)', color: '#fff', border: 'none', borderRadius: 'var(--radius-md)', cursor: 'pointer', fontSize: 13 }}>
@@ -384,7 +385,7 @@ export default function EntityCaseFile() {
       {/* Zombie Banner (always shown if applicable) */}
       {entity.zombie_status?.is_zombie && (
         <div style={{ padding: '14px 20px', background: 'rgba(239,68,68,0.08)', border: '1px solid rgba(239,68,68,0.3)', borderLeft: '4px solid var(--status-critical)', borderRadius: 'var(--radius-lg)', display: 'flex', alignItems: 'center', gap: 12 }}>
-          <span style={{ fontSize: 22 }}>🧟</span>
+          <Skull size={22} style={{ color: 'var(--status-critical)', flexShrink: 0 }} />
           <div>
             <div style={{ fontSize: 13, fontWeight: 700, color: 'var(--status-critical)', marginBottom: 2 }}>
               ZOMBIE RECIPIENT — Last filed {entity.zombie_status.last_filing_year}
@@ -400,7 +401,7 @@ export default function EntityCaseFile() {
       {/* AI Brief (always visible, above tabs) */}
       <div className="ai-brief-panel">
         <div className="ai-brief-header">
-          <div className="ai-brief-title">🤖 AI Investigation Brief</div>
+          <div className="ai-brief-title" style={{ display: 'flex', alignItems: 'center', gap: 8 }}><Bot size={15} /> AI Investigation Brief</div>
         </div>
         <div className="ai-brief-text" style={{ whiteSpace: 'pre-line' }}>
           {buildNarrative(entity)}
@@ -416,7 +417,7 @@ export default function EntityCaseFile() {
               className={`case-tab${activeTab === tab.id ? ' active' : ''}`}
               onClick={() => setActiveTab(tab.id)}
             >
-              {tab.label}
+              <span style={{ display: 'flex', alignItems: 'center', gap: 6 }}><tab.Icon size={13} />{tab.label}</span>
             </button>
           ))}
         </div>
@@ -479,7 +480,7 @@ export default function EntityCaseFile() {
                         <tr key={loop.loop_id || i}>
                           <td><span className="badge medium">{loop.hops}-hop</span></td>
                           <td style={{ fontWeight: 700, fontFamily: 'var(--font-mono)' }}>{fmtDollars(loop.total_flow)}</td>
-                          <td>{loop.same_year ? <span className="badge critical" style={{ fontSize: 11 }}>⚠️ Yes</span> : <span style={{ color: 'var(--text-muted)' }}>—</span>}</td>
+                          <td>{loop.same_year ? <span className="badge critical" style={{ fontSize: 11, display: 'inline-flex', alignItems: 'center', gap: 4 }}><AlertTriangle size={10} /> Yes</span> : <span style={{ color: 'var(--text-muted)' }}>—</span>}</td>
                           <td style={{ color: 'var(--text-muted)', fontFamily: 'var(--font-mono)', fontSize: 12 }}>{loop.min_year}–{loop.max_year}</td>
                         </tr>
                       ))}
@@ -499,7 +500,7 @@ export default function EntityCaseFile() {
                         onMouseEnter={e => e.currentTarget.style.background = 'rgba(139,92,246,0.2)'}
                         onMouseLeave={e => e.currentTarget.style.background = 'rgba(139,92,246,0.1)'}
                       >
-                        🔄 {p.partner_name || p.partner_bn}
+                        <Repeat2 size={11} style={{ display: 'inline', verticalAlign: 'middle', marginRight: 4 }} />{p.partner_name || p.partner_bn}
                       </span>
                     ))}
                   </div>
@@ -542,7 +543,7 @@ export default function EntityCaseFile() {
                                 onClick={() => multiBoard && navigate('/governance')}
                                 title={multiBoard ? 'Sits on multiple funded boards — view in Governance' : ''}
                               >
-                                {multiBoard ? '🕸️ ' : ''}{d.board_count || 1} board{(d.board_count || 1) !== 1 ? 's' : ''}
+                                {multiBoard && <Network size={11} style={{ display: 'inline', verticalAlign: 'middle', marginRight: 3 }} />}{d.board_count || 1} board{(d.board_count || 1) !== 1 ? 's' : ''}
                               </span>
                             </td>
                           </tr>
