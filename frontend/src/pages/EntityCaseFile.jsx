@@ -41,6 +41,46 @@ function buildNarrative(entity) {
   return parts.join('\n\n');
 }
 
+function FilingAnomalies({ flags }) {
+  const [showAll, setShowAll] = useState(false);
+  const visible = showAll ? flags : flags.slice(0, 3);
+  return (
+    <div className="card" style={{ padding: 20 }}>
+      <h3 style={{ margin: '0 0 14px', fontSize: 12, textTransform: 'uppercase', letterSpacing: 1, color: 'var(--text-muted)', fontWeight: 700 }}>
+        Filing Anomalies — T3010 Arithmetic Violations ({flags.length})
+      </h3>
+      <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+        {visible.map((f, i) => {
+          const isCritical = (f.severity || '').toLowerCase() === 'error' || (f.severity || '').toLowerCase() === 'critical';
+          return (
+            <div key={i} style={{
+              display: 'flex', gap: 10, alignItems: 'flex-start',
+              padding: '8px 12px',
+              background: isCritical ? 'rgba(239,68,68,0.06)' : 'rgba(234,179,8,0.06)',
+              border: `1px solid ${isCritical ? 'rgba(239,68,68,0.2)' : 'rgba(234,179,8,0.2)'}`,
+              borderRadius: 6,
+              fontSize: 12,
+            }}>
+              <span style={{ color: isCritical ? 'var(--status-critical)' : 'var(--status-medium)', flexShrink: 0 }}>{isCritical ? '🔴' : '🟡'}</span>
+              <span style={{ color: 'var(--text-muted)', fontFamily: 'var(--font-mono)', flexShrink: 0, minWidth: 40 }}>{f.fiscal_year}</span>
+              <span style={{ color: isCritical ? 'var(--status-critical)' : 'var(--status-medium)', fontWeight: 600, flexShrink: 0, marginRight: 4 }}>{f.issue_type}:</span>
+              <span style={{ color: 'var(--text-secondary)' }}>{f.description}</span>
+            </div>
+          );
+        })}
+      </div>
+      {flags.length > 3 && (
+        <button
+          onClick={() => setShowAll(s => !s)}
+          style={{ marginTop: 10, fontSize: 12, color: 'var(--accent-purple)', background: 'none', border: 'none', cursor: 'pointer', padding: 0 }}
+        >
+          {showAll ? 'Show less ↑' : `Show ${flags.length - 3} more ↓`}
+        </button>
+      )}
+    </div>
+  );
+}
+
 export default function EntityCaseFile() {
   const { bn } = useParams();
   const navigate = useNavigate();
@@ -172,6 +212,26 @@ export default function EntityCaseFile() {
               })}
             </div>
           )}
+          {/* Overhead ratio badge */}
+          {(entity.overhead_history || []).length > 0 && (() => {
+            const latest = entity.overhead_history[0];
+            const pct = latest?.overhead_ratio != null ? Math.round(latest.overhead_ratio * 100) : null;
+            if (pct == null) return null;
+            const isHigh = pct > 35;
+            return (
+              <div style={{ marginTop: 14, paddingTop: 12, borderTop: '1px solid var(--border-primary)' }}>
+                <div style={{ fontSize: 10, color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: 1, marginBottom: 4 }}>Admin Overhead ({latest.fiscal_year})</div>
+                <span style={{
+                  display: 'inline-block', padding: '4px 10px', borderRadius: 6, fontSize: 13, fontWeight: 700,
+                  background: isHigh ? 'rgba(239,68,68,0.12)' : 'var(--bg-tertiary)',
+                  color: isHigh ? 'var(--status-critical)' : 'var(--text-secondary)',
+                  border: `1px solid ${isHigh ? 'rgba(239,68,68,0.3)' : 'var(--border-primary)'}`,
+                }}>
+                  {isHigh ? '⚠️ ' : ''}{pct}% overhead{isHigh ? ' — above 35% threshold' : ''}
+                </span>
+              </div>
+            );
+          })()}
         </div>
 
         {/* Funding History Chart */}
@@ -212,6 +272,11 @@ export default function EntityCaseFile() {
             </tbody>
           </table>
         </div>
+      )}
+
+      {/* T3010 Filing Anomalies */}
+      {(entity.t3010_flags || []).length > 0 && (
+        <FilingAnomalies flags={entity.t3010_flags} />
       )}
 
       {/* Directors */}

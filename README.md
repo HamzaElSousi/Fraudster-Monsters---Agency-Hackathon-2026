@@ -12,9 +12,11 @@ This tool ingests **10GB of public government records** and surfaces accountabil
 | Challenge | What We Find |
 |-----------|-------------|
 | **Zombie Recipients** | Charities with 70%+ government revenue dependency that stopped filing tax returns — public money sent into the void |
+| **Ghost Recipients** | Federal grant recipients who received $500K+ and then went silent for 4+ years, with no traceable business number |
 | **Funding Loops** | Circular money flows between charities where the same dollar passes through multiple organizations, each issuing its own charitable tax receipt |
 | **Governance Networks** | Directors who simultaneously control multiple government-funded charities, concentrating oversight of public money in few hands |
-| **Sole-Source Contracts** | Alberta procurement contracts awarded without competitive bidding, showing amendment creep and threshold gaming |
+| **Sole-Source Contracts** | Alberta procurement contracts awarded without competitive bidding, showing amendment creep and vendor concentration |
+| **Threshold Gaming** | Federal grant recipients who repeatedly receive grants clustered just below the $25K, $100K, and $1M proactive disclosure thresholds — the same structuring tactic used in financial crime |
 
 The **Cross-Challenge Alerts** page identifies organizations flagged simultaneously across multiple categories — the highest-priority accountability failures.
 
@@ -159,6 +161,7 @@ The shared Render.com PostgreSQL database is now connected and verified at start
 │           ├── SoleSource.jsx
 │           ├── Alerts.jsx
 │           ├── Chat.jsx
+│           ├── ThresholdGaming.jsx
 │           └── EntityCaseFile.jsx
 │
 ├── data/                    # ← NOT in git (10GB). Get from shared drive.
@@ -184,6 +187,8 @@ GET  /api/loops/stats                   — Loop stats incl. phantom receipt tot
 GET  /api/governance?min_boards=3       — Multi-board directors
 GET  /api/alerts?min_flags=2            — Cross-challenge intersections
 GET  /api/sole-source?min_ratio=3       — Sole-source concentration
+GET  /api/threshold-gaming?limit=50     — Grants clustered 85–99.9% below disclosure thresholds
+GET  /api/ghost-recipients?min_funding=500000 — Federal recipients silent 4+ years
 GET  /api/entity/{bn}                   — Full entity case file
 GET  /api/dashboard/featured            — Top 5 high-risk entities
 GET  /api/health

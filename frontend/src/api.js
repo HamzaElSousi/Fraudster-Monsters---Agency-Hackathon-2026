@@ -200,3 +200,13 @@ export async function fetchDuplicativeFundingSummary() {
   if (!res.ok) return { summary: '' };
   return res.json();
 }
+
+export async function fetchThresholdGaming(limit = 50) {
+  const res = await fetch(`${API_BASE}/api/threshold-gaming?limit=${limit}`);
+  if (!res.ok) throw new Error('Failed to fetch threshold gaming');
+  return res.json();
+}
+
+export const fetchGhostRecipients = (minFunding = 500000, limit = 50) =>
+  fetch(`${API_BASE}/api/ghost-recipients?min_funding=${minFunding}&limit=${limit}`)
+    .then(r => { if (!r.ok) throw new Error('Failed to fetch ghost recipients'); return r.json(); });

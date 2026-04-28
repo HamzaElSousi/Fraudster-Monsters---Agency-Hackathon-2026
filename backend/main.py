@@ -638,6 +638,24 @@ def get_sole_source(
     return {"results": results, "count": len(results), "stats": {}, "query_mode": "live"}
 
 
+# ── Threshold Gaming (Challenge #9) ─────────────────────────────────────────
+@app.get("/api/threshold-gaming")
+def get_threshold_gaming(limit: int = Query(default=50, ge=1, le=200)):
+    return _duck.cached(f"threshold_gaming:{limit}", _duck.get_threshold_gaming_live, limit) or []
+
+
+# ── Ghost Recipients (Challenge #2) ─────────────────────────────────────────
+@app.get("/api/ghost-recipients")
+def get_ghost_recipients(
+    min_funding: float = Query(default=500000, ge=0),
+    limit: int = Query(default=50, ge=1, le=200),
+):
+    return _duck.cached(
+        f"ghost_recipients:{min_funding}",
+        _duck.get_ghost_recipients_live, min_funding, limit
+    ) or []
+
+
 # ── Entity Search & Dossier ──────────────────────────────────────────────────
 @app.get("/api/entities/search")
 def search_entities(
@@ -1075,4 +1093,52 @@ def health():
 
 if __name__ == "__main__":
     import uvicorn
-    uvicorn.run("main:app", host="0.0.0.0", port=8000, reload=True)
+    import socket
+    import sys
+
+    # Check if port 8000 is already in use (zombie socket or other process)
+    # If so, fall back to port 8001
+    default_port = 8000
+    test_socket = None
+    try:
+        test_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        test_socket.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+        test_socket.bind(('0.0.0.0', default_port))
+        test_socket.close()
+        print(f"[INFO] Port {default_port} is available")
+    except OSError:
+        print(f"[WARN] Port {default_port} is in use (zombie socket?); falling back to 8001")
+        default_port = 8001
+    finally:
+        if test_socket:
+            try:
+                test_socket.close()
+            except:
+                pass
+
+    # Configure socket to allow immediate reuse and avoid TIME_WAIT blocking
+    config = uvicorn.Config(
+        "main:app",
+        host="0.0.0.0",
+        port=default_port,
+        reload=False,
+        server_header=False,
+    )
+
+    # Create a custom socket factory that enables SO_REUSEADDR
+    original_socket = socket.socket
+    def socket_with_options(*args, **kwargs):
+        sock = original_socket(*args, **kwargs)
+        # Enable SO_REUSEADDR for immediate port reuse after shutdown
+        sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+        # Try to enable SO_REUSEPORT (may not be available on all systems)
+        try:
+            sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEPORT, 1)
+        except (AttributeError, OSError):
+            pass
+        return sock
+
+    socket.socket = socket_with_options
+
+    server = uvicorn.Server(config)
+    server.run()

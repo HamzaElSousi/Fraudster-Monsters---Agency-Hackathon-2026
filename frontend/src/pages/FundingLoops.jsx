@@ -342,6 +342,24 @@ function LoopsTable({ loops, searchTerm, page, setPage, selectedLoop, setSelecte
                       ) : (
                         <div style={{ textAlign: 'center', padding: 20, color: 'var(--text-muted)' }}>No participant details available</div>
                       )}
+                      {/* Timeline chart */}
+                      {expandedDetail?.timeline?.length > 1 && (
+                        <div style={{ marginTop: 16 }}>
+                          <div style={{ fontSize: 11, color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: 1, marginBottom: 6 }}>Year-over-Year Flow</div>
+                          <ReactECharts
+                            option={{
+                              backgroundColor: 'transparent',
+                              tooltip: { trigger: 'axis', formatter: (p) => `${p[0]?.name}: $${(p[0]?.value / 1e6).toFixed(1)}M` },
+                              xAxis: { type: 'category', data: expandedDetail.timeline.map(t => t.year), axisLabel: { color: 'var(--text-muted)', fontSize: 10 }, axisLine: { lineStyle: { color: 'var(--border-primary)' } } },
+                              yAxis: { type: 'value', axisLabel: { formatter: v => `$${(v / 1e6).toFixed(1)}M`, color: 'var(--text-muted)', fontSize: 10 }, splitLine: { lineStyle: { color: 'var(--border-primary)', opacity: 0.3 } } },
+                              series: [{ type: 'bar', data: expandedDetail.timeline.map(t => t.flow), itemStyle: { color: '#7c3aed', borderRadius: [3, 3, 0, 0] } }],
+                              grid: { left: 56, right: 12, top: 12, bottom: 28 },
+                            }}
+                            style={{ height: 120 }}
+                            notMerge
+                          />
+                        </div>
+                      )}
                     </td>
                   </tr>
                 )
@@ -417,18 +435,19 @@ function GraphTab({ graphData }) {
       data: nodes.map(n => ({
         id: n.bn || n.id,
         name: (n.name || '').length > 22 ? (n.name || '').slice(0, 20) + '…' : (n.name || ''),
-        symbolSize: Math.min(30, Math.max(8, Math.sqrt((n.revenue || 0) / 200_000) * 10 + 6)),
+        symbolSize: n.is_hub ? 28 : Math.min(30, Math.max(8, Math.sqrt((n.revenue || 0) / 200_000) * 10 + 6)),
         itemStyle: {
-          color: RISK_COLOR[n.risk] || RISK_COLOR.low,
-          borderColor: '#fff',
-          borderWidth: 1,
-          shadowBlur: n.risk === 'high' ? 12 : 4,
-          shadowColor: RISK_COLOR[n.risk] || RISK_COLOR.low,
+          color: n.is_hub ? '#ef4444' : (RISK_COLOR[n.risk] || RISK_COLOR.low),
+          borderColor: n.is_hub ? '#fff' : '#fff',
+          borderWidth: n.is_hub ? 2 : 1,
+          shadowBlur: n.is_hub ? 16 : (n.risk === 'high' ? 12 : 4),
+          shadowColor: n.is_hub ? '#ef4444' : (RISK_COLOR[n.risk] || RISK_COLOR.low),
         },
         label: {
           show: true,
           formatter: '{b}',
           fontSize: 10,
+          fontWeight: n.is_hub ? 'bold' : 'normal',
           color: '#f1f5f9',
           distance: 6,
         },
@@ -475,6 +494,10 @@ function GraphTab({ graphData }) {
               {risk.charAt(0).toUpperCase() + risk.slice(1)} risk
             </div>
           ))}
+          <div style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 11, color: 'var(--text-secondary)', marginTop: 4, paddingTop: 4, borderTop: '1px solid var(--border-primary)' }}>
+            <span style={{ width: 10, height: 10, borderRadius: '50%', background: '#ef4444', display: 'inline-block', boxShadow: '0 0 6px #ef4444' }} />
+            Known hub org
+          </div>
         </div>
         <ReactECharts
           ref={chartRef}
@@ -600,6 +623,7 @@ export default function FundingLoops() {
   const [charities, setCharities] = useState([]);
   const [statsData, setStatsData] = useState(null);
   const [loading, setLoading] = useState(true);
+  const [loadError, setLoadError] = useState(null);
   const [graphLoading, setGraphLoading] = useState(false);
   const [charitiesLoading, setCharitiesLoading] = useState(true);
 
@@ -626,7 +650,7 @@ export default function FundingLoops() {
 
     fetchLoopsEnriched(2, 6, 0, 0, false, '', '', 200)
       .then(d => setLoopsData(d.results ?? d.loops ?? []))
-      .catch(() => {})
+      .catch(err => setLoadError(err?.message || 'Failed to load funding loops'))
       .finally(() => setLoading(false));
 
     fetchLoopGraph(25)
@@ -764,7 +788,13 @@ export default function FundingLoops() {
 
           {/* Tab content */}
           {(activeTab === 'table' || activeTab === 'suspicious_tab') && (
-            loading ? (
+            loadError ? (
+              <div style={{ padding: 32, textAlign: 'center', background: 'rgba(239,68,68,0.08)', border: '1px solid rgba(239,68,68,0.3)', borderRadius: 'var(--radius-lg)' }}>
+                <div style={{ fontSize: 20, marginBottom: 8 }}>⚠️ Funding Loop Data Failed</div>
+                <div style={{ color: 'var(--status-critical)', fontFamily: 'var(--font-mono)', fontSize: 13, marginBottom: 8 }}>{loadError}</div>
+                <div style={{ color: 'var(--text-muted)', fontSize: 12 }}>Check backend at <code>http://localhost:8000/api/loops</code></div>
+              </div>
+            ) : loading ? (
               <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
                 {[...Array(8)].map((_, i) => <div key={i} className="loading-shimmer" style={{ height: 44, borderRadius: 6 }} />)}
               </div>

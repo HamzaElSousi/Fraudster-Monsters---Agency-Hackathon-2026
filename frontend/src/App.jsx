@@ -9,6 +9,7 @@ import SoleSource from './pages/SoleSource';
 import Chat from './pages/Chat';
 import EntityCaseFile from './pages/EntityCaseFile';
 import DuplicativeFunding from './pages/DuplicativeFunding';
+import ThresholdGaming from './pages/ThresholdGaming';
 import './index.css';
 
 const API_BASE = import.meta.env.VITE_API_URL || '';
@@ -230,6 +231,11 @@ function Sidebar() {
           <span className="nav-link-badge">{navStats?.total_sole_source != null ? (navStats.total_sole_source >= 1000 ? Math.round(navStats.total_sole_source / 1000) + 'K' : navStats.total_sole_source) : '…'}</span>
         </NavLink>
 
+        <NavLink to="/threshold-gaming" className={({ isActive }) => `nav-link ${isActive ? 'active' : ''}`}>
+          <span className="nav-link-icon">🎯</span>
+          Threshold Gaming
+        </NavLink>
+
         <div className="sidebar-section-label">Cross-Government Analysis</div>
         <NavLink to="/duplicative-funding" className={({ isActive }) => `nav-link ${isActive ? 'active' : ''}`}>
           <span className="nav-link-icon">💸</span>
@@ -268,6 +274,7 @@ const PAGE_TITLES = {
   '/loops': 'Funding Loops — Challenge #3',
   '/governance': 'Governance Networks — Challenge #6',
   '/sole-source': 'Sole Source & Amendment Creep — Challenge #4',
+  '/threshold-gaming': 'Threshold Gaming — Challenge #9',
   '/chat': 'AI Investigator',
   '/entity': 'Entity Case File',
   '/duplicative-funding': 'Cross-Government Funding — Challenges #6 + #8',
@@ -280,6 +287,7 @@ const PAGE_CLASSES = {
   '/loops': 'page-loops',
   '/governance': 'page-governance',
   '/sole-source': 'page-dashboard',
+  '/threshold-gaming': 'page-sole-source',
   '/chat': 'page-dashboard',
   '/duplicative-funding': 'page-governance',
 };
@@ -312,6 +320,7 @@ function MainLayout() {
             <Route path="/sole-source" element={<SoleSource />} />
             <Route path="/chat" element={<Chat />} />
             <Route path="/entity/:bn" element={<EntityCaseFile />} />
+            <Route path="/threshold-gaming" element={<ThresholdGaming />} />
             <Route path="/duplicative-funding" element={<DuplicativeFunding />} />
           </Routes>
         </div>

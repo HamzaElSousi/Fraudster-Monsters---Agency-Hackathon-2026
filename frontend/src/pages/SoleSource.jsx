@@ -12,14 +12,16 @@ function fmtDollars(n) {
 export default function SoleSource() {
   const [data, setData] = useState(null);
   const [loading, setLoading] = useState(true);
+  const [loadError, setLoadError] = useState(null);
   const [minRatio, setMinRatio] = useState(3);
   const [search, setSearch] = useState('');
 
   useEffect(() => {
     setLoading(true);
+    setLoadError(null);
     fetchSoleSource(minRatio, 50)
       .then(setData)
-      .catch(console.error)
+      .catch(err => setLoadError(err?.message || 'Failed to load sole-source data'))
       .finally(() => setLoading(false));
   }, [minRatio]);
 
@@ -190,7 +192,13 @@ export default function SoleSource() {
           <span className="data-table-title">📋 All Sole-Source Contracts ({filtered.length})</span>
           <span className="badge info">{data?.query_mode || 'loading'}</span>
         </div>
-        {loading ? (
+        {loadError ? (
+          <div style={{ padding: 32, textAlign: 'center', background: 'rgba(239,68,68,0.08)', border: '1px solid rgba(239,68,68,0.3)', borderRadius: 'var(--radius-lg)', margin: 16 }}>
+            <div style={{ fontSize: 20, marginBottom: 8 }}>⚠️ Sole-Source Data Failed</div>
+            <div style={{ color: 'var(--status-critical)', fontFamily: 'var(--font-mono)', fontSize: 13, marginBottom: 8 }}>{loadError}</div>
+            <div style={{ color: 'var(--text-muted)', fontSize: 12 }}>Check backend at <code>http://localhost:8000/api/sole-source</code></div>
+          </div>
+        ) : loading ? (
           <div style={{ padding: 40, textAlign: 'center', color: 'var(--text-muted)' }}>
             Loading sole-source analysis...
           </div>

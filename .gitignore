@@ -17,10 +17,10 @@ dist/
 .next/
 
 # Hackathon data repo (has its own git)
-# hackathon-data/
+hackathon-data/
 
 # Large data files (14GB — never commit)
-# data/
+data/
 
 # OS
 .DS_Store

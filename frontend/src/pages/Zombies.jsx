@@ -1,25 +1,30 @@
 import { useState, useEffect } from 'react';
-import { fetchZombies, fetchZombieLoopCrossref, formatCurrency, fmtDollars } from '../api';
+import { fetchZombies, fetchZombieLoopCrossref, fetchGhostRecipients, formatCurrency, fmtDollars } from '../api';
 
 export default function Zombies() {
   const [data, setData] = useState(null);
   const [crossrefData, setCrossrefData] = useState(null);
+  const [ghostData, setGhostData] = useState(null);
   const [loading, setLoading] = useState(true);
+  const [loadError, setLoadError] = useState(null);
   const [crossrefLoading, setCrossrefLoading] = useState(false);
+  const [ghostLoading, setGhostLoading] = useState(false);
+  const [ghostError, setGhostError] = useState(null);
   const [minFunding, setMinFunding] = useState(100000);
   const [search, setSearch] = useState('');
   const [riskFilter, setRiskFilter] = useState('all');
-  const [viewMode, setViewMode] = useState('table'); // 'table' | 'crossref'
+  const [viewMode, setViewMode] = useState('table'); // 'table' | 'crossref' | 'ghost'
 
   useEffect(() => {
     setLoading(true);
+    setLoadError(null);
     fetchZombies(minFunding, 50)
       .then(setData)
-      .catch(console.error)
+      .catch(err => setLoadError(err?.message || 'Failed to load zombie data'))
       .finally(() => setLoading(false));
   }, [minFunding]);
 
-  // Lazy-load crossref on first tab switch
+  // Lazy-load tabs on first switch
   const handleViewMode = (mode) => {
     setViewMode(mode);
     if (mode === 'crossref' && !crossrefData && !crossrefLoading) {
@@ -28,6 +33,14 @@ export default function Zombies() {
         .then(setCrossrefData)
         .catch(() => {})
         .finally(() => setCrossrefLoading(false));
+    }
+    if (mode === 'ghost' && !ghostData && !ghostLoading) {
+      setGhostLoading(true);
+      setGhostError(null);
+      fetchGhostRecipients(500000, 100)
+        .then(rows => setGhostData(Array.isArray(rows) ? rows : []))
+        .catch(err => setGhostError(err?.message || 'Failed to load ghost recipient data'))
+        .finally(() => setGhostLoading(false));
     }
   };
 
@@ -85,6 +98,7 @@ export default function Zombies() {
         {[
           { key: 'table', label: '📋 Table' },
           { key: 'crossref', label: '🔄 Loop Cross-Reference' },
+          { key: 'ghost', label: '👻 Ghost Recipients' },
         ].map(m => (
           <button key={m.key} onClick={() => handleViewMode(m.key)}
             style={{
@@ -142,7 +156,13 @@ export default function Zombies() {
             <span className="data-table-title">🧟 Zombie Recipients ({filtered.length})</span>
             <span className="badge info">{data?.query_mode || 'loading'}</span>
           </div>
-          {loading ? (
+          {loadError ? (
+            <div style={{ padding: 32, textAlign: 'center', background: 'rgba(239,68,68,0.08)', border: '1px solid rgba(239,68,68,0.3)', borderRadius: 'var(--radius-lg)', margin: 16 }}>
+              <div style={{ fontSize: 20, marginBottom: 8 }}>⚠️ Zombie Data Failed</div>
+              <div style={{ color: 'var(--status-critical)', fontFamily: 'var(--font-mono)', fontSize: 13, marginBottom: 8 }}>{loadError}</div>
+              <div style={{ color: 'var(--text-muted)', fontSize: 12 }}>Check backend at <code>http://localhost:8000/api/zombies</code></div>
+            </div>
+          ) : loading ? (
             <div style={{ padding: 40, textAlign: 'center', color: 'var(--text-muted)' }}>Loading zombie recipients...</div>
           ) : filtered.length === 0 ? (
             <div style={{ padding: '40px 24px', textAlign: 'center', color: 'var(--text-muted)', fontSize: 14 }}>
@@ -252,6 +272,89 @@ export default function Zombies() {
                       <td><span className={`badge ${z.risk_level || 'medium'}`}>{z.risk_level || 'Medium'}</span></td>
                     </tr>
                   ))}
+              </tbody>
+            </table>
+          )}
+        </div>
+      )}
+
+      {/* Ghost Recipients view */}
+      {viewMode === 'ghost' && (
+        <div className="data-table-container">
+          <div className="data-table-header">
+            <span className="data-table-title">👻 Ghost Recipients — Federal Grant Vanishing Act</span>
+            {ghostData && (
+              <span style={{ fontSize: 12, color: 'var(--status-medium)', fontWeight: 600 }}>
+                {ghostData.length} recipients · $500K+ received then silent 4+ years
+              </span>
+            )}
+          </div>
+          {ghostError ? (
+            <div style={{ padding: 32, textAlign: 'center', background: 'rgba(239,68,68,0.08)', border: '1px solid rgba(239,68,68,0.3)', borderRadius: 'var(--radius-lg)', margin: 16 }}>
+              <div style={{ fontSize: 20, marginBottom: 8 }}>⚠️ Ghost Recipient Data Failed</div>
+              <div style={{ color: 'var(--status-critical)', fontFamily: 'var(--font-mono)', fontSize: 13, marginBottom: 8 }}>{ghostError}</div>
+              <div style={{ color: 'var(--text-muted)', fontSize: 12 }}>Check backend at <code>http://localhost:8000/api/ghost-recipients</code></div>
+            </div>
+          ) : ghostLoading ? (
+            <div style={{ padding: 40, textAlign: 'center', color: 'var(--text-muted)' }}>Loading ghost recipient analysis…</div>
+          ) : !ghostData || ghostData.length === 0 ? (
+            <div style={{ padding: '40px 24px', textAlign: 'center', color: 'var(--text-muted)', fontSize: 14 }}>
+              Switch to this tab to load ghost recipient data.
+            </div>
+          ) : (
+            <table className="data-table">
+              <thead>
+                <tr>
+                  <th>Recipient</th>
+                  <th>Province</th>
+                  <th title="Total federal grants received">Total Received</th>
+                  <th title="Year of last recorded federal grant">Last Grant</th>
+                  <th title="Years since last federal grant">Years Silent</th>
+                  <th title="Number of distinct grant records"># Grants</th>
+                  <th title="Number of federal departments that funded this recipient">Depts</th>
+                  <th title="Whether a valid 9-digit Business Number was on file">BN Traced</th>
+                </tr>
+              </thead>
+              <tbody>
+                {(ghostData || [])
+                  .filter(r => !search || (r.recipient_legal_name || '').toLowerCase().includes(search.toLowerCase()))
+                  .map((r, i) => {
+                    const silent = r.years_silent || 0;
+                    const silentColor = silent >= 8 ? 'var(--status-critical)' : silent >= 5 ? 'var(--status-medium)' : 'var(--text-muted)';
+                    return (
+                      <tr key={i}>
+                        <td>
+                          <div style={{ fontWeight: 600, fontSize: 13 }}>{r.recipient_legal_name || '—'}</div>
+                          {r.bn9 && r.bn9.length >= 9 && (
+                            <div style={{ fontSize: 11, color: 'var(--text-muted)', fontFamily: 'var(--font-mono)' }}>{r.bn9}</div>
+                          )}
+                        </td>
+                        <td style={{ color: 'var(--text-muted)', fontSize: 12 }}>{r.recipient_province || '—'}</td>
+                        <td>
+                          <span className="funding-amount large">{fmtDollars(r.total_received)}</span>
+                        </td>
+                        <td style={{ fontFamily: 'var(--font-mono)', fontSize: 12, color: 'var(--text-secondary)' }}>
+                          {r.last_grant ? r.last_grant.slice(0, 4) : '—'}
+                        </td>
+                        <td>
+                          <span style={{ fontWeight: 800, fontFamily: 'var(--font-mono)', fontSize: 14, color: silentColor }}>
+                            {silent > 0 ? `${silent}y` : '—'}
+                          </span>
+                        </td>
+                        <td style={{ fontFamily: 'var(--font-mono)', fontSize: 13, color: 'var(--text-secondary)' }}>
+                          {r.grant_count?.toLocaleString() || '—'}
+                        </td>
+                        <td style={{ fontFamily: 'var(--font-mono)', fontSize: 13, color: 'var(--text-secondary)' }}>
+                          {r.dept_count || '—'}
+                        </td>
+                        <td>
+                          {r.no_bn
+                            ? <span style={{ color: 'var(--status-critical)', fontWeight: 600, fontSize: 12 }}>✗ Untraced</span>
+                            : <span style={{ color: 'var(--status-low)', fontSize: 12 }}>✓ Traced</span>}
+                        </td>
+                      </tr>
+                    );
+                  })}
               </tbody>
             </table>
           )}

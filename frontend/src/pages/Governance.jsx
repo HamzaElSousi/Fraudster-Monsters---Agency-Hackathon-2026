@@ -5,6 +5,7 @@ export default function Governance() {
   const [data, setData] = useState(null);
   const [selfDealingData, setSelfDealingData] = useState(null);
   const [loading, setLoading] = useState(true);
+  const [loadError, setLoadError] = useState(null);
   const [expandedDirector, setExpandedDirector] = useState(null);
   const [minBoards, setMinBoards] = useState(3);
   const [search, setSearch] = useState('');
@@ -12,9 +13,10 @@ export default function Governance() {
 
   useEffect(() => {
     setLoading(true);
+    setLoadError(null);
     fetchGovernance(minBoards, 50)
       .then(setData)
-      .catch(console.error)
+      .catch(err => setLoadError(err?.message || 'Failed to load governance data'))
       .finally(() => setLoading(false));
   }, [minBoards]);
 
@@ -156,7 +158,13 @@ export default function Governance() {
 
       {/* Director Cards */}
       <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
-        {loading && !selfDealingOnly ? (
+        {loadError ? (
+          <div style={{ padding: 32, textAlign: 'center', background: 'rgba(239,68,68,0.08)', border: '1px solid rgba(239,68,68,0.3)', borderRadius: 'var(--radius-lg)' }}>
+            <div style={{ fontSize: 20, marginBottom: 8 }}>⚠️ Governance Data Failed</div>
+            <div style={{ color: 'var(--status-critical)', fontFamily: 'var(--font-mono)', fontSize: 13, marginBottom: 8 }}>{loadError}</div>
+            <div style={{ color: 'var(--text-muted)', fontSize: 12 }}>Check backend at <code>http://localhost:8000/api/governance</code></div>
+          </div>
+        ) : loading && !selfDealingOnly ? (
           <div style={{ padding: 40, textAlign: 'center', color: 'var(--text-muted)' }}>Loading governance networks...</div>
         ) : filtered.length === 0 ? (
           <div style={{ padding: '48px 24px', textAlign: 'center', background: 'var(--bg-card)', border: '1px solid var(--border-primary)', borderRadius: 'var(--radius-lg)' }}>

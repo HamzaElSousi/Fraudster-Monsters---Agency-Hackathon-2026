@@ -470,6 +470,17 @@ def get_loop_graph_live(limit: int = 50) -> dict:
                 "loops_count": 1, "risk": "low",
             })
 
+    # Mark known hub organizations
+    try:
+        hubs_tbl = _read("cra", "identified_hubs")
+        hub_rows = query(f"SELECT LEFT(bn, 9) as bn9 FROM {hubs_tbl}")
+        hub_bn9s = {r["bn9"] for r in hub_rows if r.get("bn9")}
+        for n in nodes:
+            n["is_hub"] = n.get("bn", "") in hub_bn9s
+    except Exception:
+        for n in nodes:
+            n["is_hub"] = False
+
     for l in loop_rows:
         path = l.get("path_bns") or []
         path9 = [str(bn)[:9] for bn in path if bn]
@@ -1061,10 +1072,12 @@ def get_stats_live() -> dict:
         ab_contract_value = float(ab_value_r[0]["total"] or 0) if ab_value_r else 0.0
 
         fed_n = 0
-        if _available("fed", "grants_contributions"):
+        try:
             r = query(f"SELECT COUNT(*) as n FROM {_read('fed', 'grants_contributions')}")
             if r:
                 fed_n = r[0]["n"]
+        except Exception:
+            pass
 
         # Compute zombie count + at-risk funding — same definition as get_zombies_live:
         # high govt dependency (>=70% of revenue) + stopped filing by 2022 + min $100K received
@@ -1717,6 +1730,38 @@ def get_entity_case_file_live(bn: str) -> dict:
 
     name = pf.get("name") or (funding[0].get("name") if funding else bn)
 
+    # T3010 filing impossibilities (arithmetic violations)
+    t3010_flags = []
+    try:
+        t3010_tbl = _read("cra", "t3010_impossibilities")
+        t3010_rows = query(f"""
+            SELECT fiscal_year, issue_type, description, severity
+            FROM {t3010_tbl}
+            WHERE LEFT(bn, 9) = '{bn9}'
+            ORDER BY fiscal_year DESC
+            LIMIT 10
+        """)
+        t3010_flags = t3010_rows if t3010_rows else []
+    except Exception as e:
+        print(f"[DuckDB] t3010_flags error: {e}")
+
+    # Overhead ratio history
+    overhead_history = []
+    try:
+        oh_tbl = _read("cra", "overhead_by_charity")
+        oh_rows = query(f"""
+            SELECT fiscal_year,
+                   TRY_CAST(overhead_ratio AS DOUBLE) as overhead_ratio,
+                   TRY_CAST(program_ratio AS DOUBLE) as program_ratio
+            FROM {oh_tbl}
+            WHERE LEFT(bn, 9) = '{bn9}'
+            ORDER BY fiscal_year DESC
+            LIMIT 5
+        """)
+        overhead_history = oh_rows if oh_rows else []
+    except Exception as e:
+        print(f"[DuckDB] overhead_history error: {e}")
+
     return {
         "bn":                  bn,
         "name":                name,
@@ -1734,6 +1779,8 @@ def get_entity_case_file_live(bn: str) -> dict:
         "directors":           directors,
         "federal_grants":      federal_grants,
         "loop_partners":       loop_partners,
+        "t3010_flags":         t3010_flags,
+        "overhead_history":    overhead_history,
     }
 
 
@@ -1772,6 +1819,88 @@ def get_zombie_loop_crossref_live(min_funding: float = 100000, limit: int = 50) 
 
 
 # ── Deep-Dive: Dashboard Featured Cases ───────────────────────────────────────
+
+def get_threshold_gaming_live(limit: int = 50) -> list[dict]:
+    """Challenge #9: Recipients receiving federal grants clustered just below accountability thresholds."""
+    grants = _read("fed", "grants_contributions")
+    sql = f"""
+    WITH thresholds AS (
+        SELECT 25000 as t UNION ALL SELECT 100000 UNION ALL SELECT 1000000
+    ),
+    just_below AS (
+        SELECT
+            g.recipient_legal_name,
+            g.recipient_province,
+            g.owner_org as department,
+            t.t as threshold,
+            COUNT(*) as grants_just_below,
+            SUM(TRY_CAST(g.agreement_value AS DOUBLE)) as total_value,
+            AVG(TRY_CAST(g.agreement_value AS DOUBLE)) as avg_value
+        FROM {grants} g
+        JOIN thresholds t
+          ON TRY_CAST(g.agreement_value AS DOUBLE) BETWEEN t.t * 0.85 AND t.t * 0.999
+        WHERE TRY_CAST(g.agreement_value AS DOUBLE) > 0
+        GROUP BY g.recipient_legal_name, g.recipient_province, g.owner_org, t.t
+        HAVING COUNT(*) >= 3
+    )
+    SELECT *,
+        ROUND(avg_value / threshold * 100, 1) as pct_of_threshold
+    FROM just_below
+    ORDER BY grants_just_below DESC, total_value DESC
+    LIMIT {limit}
+    """
+    try:
+        rows = query(sql)
+        for r in rows:
+            r["total_value"] = float(r.get("total_value") or 0)
+            r["avg_value"] = float(r.get("avg_value") or 0)
+        return rows
+    except Exception as e:
+        print(f"[DuckDB] get_threshold_gaming_live error: {e}")
+        return []
+
+
+def get_ghost_recipients_live(min_funding: float = 500000, limit: int = 50) -> list[dict]:
+    """Challenge #2: Federal grant recipients who received large amounts then went silent."""
+    grants = _read("fed", "grants_contributions")
+    sql = f"""
+    WITH recipient_summary AS (
+        SELECT
+            recipient_legal_name,
+            recipient_province,
+            LEFT(COALESCE(recipient_business_number, ''), 9) as bn9,
+            COUNT(*) as grant_count,
+            SUM(TRY_CAST(agreement_value AS DOUBLE)) as total_received,
+            MIN(CAST(amendment_date AS VARCHAR)) as first_grant,
+            MAX(CAST(amendment_date AS VARCHAR)) as last_grant,
+            COUNT(DISTINCT owner_org) as dept_count
+        FROM {grants}
+        WHERE TRY_CAST(agreement_value AS DOUBLE) > 0
+        GROUP BY recipient_legal_name, recipient_province,
+                 LEFT(COALESCE(recipient_business_number, ''), 9)
+        HAVING SUM(TRY_CAST(agreement_value AS DOUBLE)) >= {min_funding}
+    )
+    SELECT *,
+        CASE WHEN LENGTH(TRIM(bn9)) < 9 THEN 1 ELSE 0 END as no_bn,
+        CAST(EXTRACT(YEAR FROM CURRENT_DATE) AS INT) - TRY_CAST(LEFT(last_grant, 4) AS INT) as years_silent
+    FROM recipient_summary
+    WHERE (
+        TRY_CAST(LEFT(last_grant, 4) AS INT) <= CAST(EXTRACT(YEAR FROM CURRENT_DATE) AS INT) - 4
+        OR LENGTH(TRIM(bn9)) < 9
+    )
+    ORDER BY total_received DESC
+    LIMIT {limit}
+    """
+    try:
+        rows = query(sql)
+        for r in rows:
+            r["total_received"] = float(r.get("total_received") or 0)
+            r["years_silent"] = int(r.get("years_silent") or 0)
+        return rows
+    except Exception as e:
+        print(f"[DuckDB] get_ghost_recipients_live error: {e}")
+        return []
+
 
 def get_dashboard_featured_cases_live() -> list[dict]:
     """Top 5 high-impact entities for Dashboard 'Start Here' cards."""
