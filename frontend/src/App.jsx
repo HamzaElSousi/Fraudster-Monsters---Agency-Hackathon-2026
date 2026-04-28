@@ -1,5 +1,6 @@
 import { useState, useEffect } from 'react';
 import { BrowserRouter, Routes, Route, NavLink, useLocation, useNavigate } from 'react-router-dom';
+import Home from './pages/Home';
 import Dashboard from './pages/Dashboard';
 import Zombies from './pages/Zombies';
 import FundingLoops from './pages/FundingLoops';
@@ -192,6 +193,10 @@ function Sidebar() {
       <nav className="sidebar-nav">
         <div className="sidebar-section-label">Overview</div>
         <NavLink to="/" end className={({ isActive }) => `nav-link ${isActive ? 'active' : ''}`}>
+          <span className="nav-link-icon">🏠</span>
+          Home
+        </NavLink>
+        <NavLink to="/dashboard" className={({ isActive }) => `nav-link ${isActive ? 'active' : ''}`}>
           <span className="nav-link-icon">📊</span>
           Dashboard
         </NavLink>
@@ -268,7 +273,8 @@ function Sidebar() {
 }
 
 const PAGE_TITLES = {
-  '/': 'Command Center',
+  '/': 'Fraudster Monsters — Agency 2026 Ottawa',
+  '/dashboard': 'Investigation Dashboard',
   '/alerts': 'Multi-Flag Alerts — Cross-Challenge Intersections',
   '/zombies': 'Zombie Recipients — Challenge #1',
   '/loops': 'Funding Loops — Challenge #3',
@@ -282,6 +288,7 @@ const PAGE_TITLES = {
 
 const PAGE_CLASSES = {
   '/': 'page-dashboard',
+  '/dashboard': 'page-dashboard',
   '/alerts': 'page-zombies',
   '/zombies': 'page-zombies',
   '/loops': 'page-loops',
@@ -312,7 +319,8 @@ function MainLayout() {
         </header>
         <div className="page-content">
           <Routes>
-            <Route path="/" element={<Dashboard />} />
+            <Route path="/" element={<Home />} />
+            <Route path="/dashboard" element={<Dashboard />} />
             <Route path="/alerts" element={<Alerts />} />
             <Route path="/zombies" element={<Zombies />} />
             <Route path="/loops" element={<FundingLoops />} />

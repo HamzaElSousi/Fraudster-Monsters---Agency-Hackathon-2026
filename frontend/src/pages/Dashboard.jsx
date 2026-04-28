@@ -100,6 +100,16 @@ export default function Dashboard() {
 
   return (
     <div className="animate-in">
+      {/* Breadcrumb */}
+      <div style={{ marginBottom: 16 }}>
+        <a href="/" style={{ fontSize: 12, color: 'var(--text-muted)', textDecoration: 'none', fontWeight: 500 }}
+          onMouseEnter={e => e.currentTarget.style.color = 'var(--accent-indigo-light)'}
+          onMouseLeave={e => e.currentTarget.style.color = 'var(--text-muted)'}
+        >
+          ← Home
+        </a>
+      </div>
+
       {/* Executive Briefing Hero */}
       <div style={{
         display: 'flex',
@@ -112,7 +122,7 @@ export default function Dashboard() {
         borderRadius: 'var(--radius-xl)',
       }}>
         <div style={{ fontSize: 13, color: 'var(--text-muted)', fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.05em' }}>
-          AI Accountability Dashboard · Agency 2026 Ottawa
+          Investigation Dashboard · Fraudster Monsters · Agency 2026
         </div>
         <div style={{ fontSize: 34, fontWeight: 900, letterSpacing: '-0.02em', lineHeight: 1.2, background: 'var(--gradient-primary)', WebkitBackgroundClip: 'text', WebkitTextFillColor: 'transparent' }}>
           We mapped {stats ? formatNumber(stats.total_charities) : '…'} Canadian charities,{' '}
@@ -151,7 +161,8 @@ export default function Dashboard() {
               {card.value != null ? card.value.toLocaleString() : '…'}
             </div>
             <div style={{ fontSize: 13, fontWeight: 600, color: 'var(--text-primary)', marginBottom: 4 }}>{card.detail || ' '}</div>
-            <div style={{ fontSize: 11, color: 'var(--text-muted)' }}>{card.sub}</div>
+            <div style={{ fontSize: 11, color: 'var(--text-muted)', marginBottom: 12 }}>{card.sub}</div>
+            <div style={{ fontSize: 12, color: card.color, fontWeight: 700 }}>Investigate →</div>
           </div>
         ))}
       </div>

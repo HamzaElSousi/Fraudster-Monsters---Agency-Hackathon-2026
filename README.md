@@ -1,13 +1,29 @@
 # Follow The Money — AI Accountability Dashboard
 
-> **Agency 2026 · Ottawa · April 29, 2026**
-> An AI-powered investigative dashboard exposing patterns in Canadian government spending that no human could trace by hand.
+> **Fraudster Monsters · Agency 2026 · Ottawa · April 29, 2026**
+
+## The Team
+
+**Fraudster Monsters** — Agency 2026 Hackathon, Ottawa
+
+| Name | Email |
+|------|-------|
+| Team Member 1 | member1@example.com |
+| Team Member 2 | member2@example.com |
+| Team Member 3 | member3@example.com |
+| Team Member 4 | member4@example.com |
 
 ---
 
+## What We Found
+
+> **219 zombie charities** received public money after going dark · **5,808 circular funding loops** may have inflated charitable tax receipts · **2,841 directors** each sit on 5+ government-funded charity boards · **15,533 no-bid contracts** worth $18.2B in Alberta alone
+
+An AI-powered investigative dashboard exposing patterns in Canadian government spending that no human could trace by hand. We ingested **10GB of public records** and surfaced six categories of accountability failure:
+
 ## What It Does
 
-This tool ingests **10GB of public government records** and surfaces accountability failures across four challenge categories:
+This tool ingests **10GB of public government records** and surfaces accountability failures across six challenge categories:
 
 | Challenge | What We Find |
 |-----------|-------------|
