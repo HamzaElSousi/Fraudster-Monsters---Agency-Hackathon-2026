@@ -405,13 +405,25 @@ export default function Investigations() {
             {result.report?.sentiment_analysis ? (
               <div>
                 {(() => {
-                  const text = (result.report.sentiment_analysis || '').toUpperCase();
+                  const text = (result.report.sentiment_analysis || '');
+                  const first100 = text.slice(0, 100).toUpperCase();
                   let sentiment = 'NEUTRAL';
                   let sColor = 'var(--text-muted)';
                   let sBg = 'rgba(100,100,100,0.15)';
-                  if (text.includes('NEGATIVE')) { sentiment = 'NEGATIVE'; sColor = 'var(--status-critical)'; sBg = 'rgba(239,68,68,0.15)'; }
-                  else if (text.includes('POSITIVE')) { sentiment = 'POSITIVE'; sColor = 'var(--status-low)'; sBg = 'rgba(34,197,94,0.15)'; }
-                  else if (text.includes('MIXED')) { sentiment = 'MIXED'; sColor = 'var(--status-medium)'; sBg = 'rgba(234,179,8,0.15)'; }
+                  const sentimentMatch = first100.match(/\b(POSITIVE|NEGATIVE|MIXED|NEUTRAL)\b/);
+                  if (sentimentMatch) {
+                    sentiment = sentimentMatch[1];
+                  } else {
+                    const full = text.toUpperCase();
+                    const pos = (full.match(/\bPOSITIVE\b/g) || []).length;
+                    const neg = (full.match(/\bNEGATIVE\b/g) || []).length;
+                    if (pos > neg) sentiment = 'POSITIVE';
+                    else if (neg > pos) sentiment = 'NEGATIVE';
+                    else if (pos > 0 && neg > 0) sentiment = 'MIXED';
+                  }
+                  if (sentiment === 'NEGATIVE') { sColor = 'var(--status-critical)'; sBg = 'rgba(239,68,68,0.15)'; }
+                  else if (sentiment === 'POSITIVE') { sColor = 'var(--status-low)'; sBg = 'rgba(34,197,94,0.15)'; }
+                  else if (sentiment === 'MIXED') { sColor = 'var(--status-medium)'; sBg = 'rgba(234,179,8,0.15)'; }
                   return (
                     <span style={{
                       display: 'inline-block', padding: '3px 10px', borderRadius: 'var(--radius-md)',
