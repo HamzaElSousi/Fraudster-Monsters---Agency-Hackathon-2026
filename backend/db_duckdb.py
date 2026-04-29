@@ -235,6 +235,7 @@ def get_zombies_live(min_funding: float = 100000, limit: int = 50) -> list[dict]
             b.total_govt_funding,
             b.fiscal_year as last_funded_year,
             lf.last_year as last_filing_year,
+            CAST(EXTRACT(YEAR FROM CURRENT_DATE) AS INT) - TRY_CAST(lf.last_year AS INT) as years_inactive,
             CASE
                 WHEN lf.last_year <= 2021 THEN 'critical'
                 WHEN lf.last_year <= 2022 THEN 'high'
@@ -260,6 +261,7 @@ def get_zombies_live(min_funding: float = 100000, limit: int = 50) -> list[dict]
         r["total_public_funding"] = float(r.get("total_govt_funding") or 0)
         r["govt_revenue_pct"] = round(float(r.get("govt_share_pct") or 0), 1)
         r["last_filing_year"] = str(r.get("last_filing_year", ""))
+        r["years_inactive"] = int(r.get("years_inactive") or 0)
         r["dataset_sources"] = ["cra"]
         r["addresses"] = []
     return rows
@@ -522,7 +524,9 @@ def get_governance_live(min_boards: int = 3, limit: int = 50) -> list[dict]:
             SELECT
                 last_name, first_name,
                 LEFT(bn, 9) as bn_root,
-                MAX(position) as position
+                MAX(position) as position,
+                MIN(TRY_CAST(LEFT(CAST(fpe AS VARCHAR), 4) AS INT)) as first_yr,
+                MAX(TRY_CAST(LEFT(CAST(fpe AS VARCHAR), 4) AS INT)) as last_yr
             FROM {dirs}
             WHERE last_name IS NOT NULL AND first_name IS NOT NULL
               AND last_name != '' AND first_name != ''
@@ -538,10 +542,9 @@ def get_governance_live(min_boards: int = 3, limit: int = 50) -> list[dict]:
             last_name, first_name,
             COUNT(DISTINCT bn_root) as board_count,
             LIST(DISTINCT position ORDER BY position) as positions,
-            LIST(DISTINCT bn_root ORDER BY bn_root) as bn_roots
-        FROM director_boards
-        GROUP BY last_name, first_name
-        HAVING COUNT(DISTINCT bn_root) >= {min_boards}
+            LIST(DISTINCT bn_root ORDER BY bn_root) as bn_roots,
+            MIN(first_yr) as earliest_year,
+            MAX(last_yr) as latest_year
         ORDER BY board_count DESC
         LIMIT {limit}
     """
@@ -584,6 +587,12 @@ def get_governance_live(min_boards: int = 3, limit: int = 50) -> list[dict]:
         if d["board_count"] >= 7:
             risk_flags.append("Governance concentration exceeds norms for accountability")
 
+        earliest = d.get("earliest_year")
+        latest = d.get("latest_year")
+        tenure = (int(latest) - int(earliest)) if earliest and latest else 0
+        if tenure >= 15:
+            risk_flags.append(f"Entrenched {tenure} years across multiple boards ({earliest}–{latest})")
+
         results.append({
             "last_name": d["last_name"],
             "first_name": d["first_name"],
@@ -591,6 +600,7 @@ def get_governance_live(min_boards: int = 3, limit: int = 50) -> list[dict]:
             "positions": d.get("positions") or [],
             "organizations": orgs,
             "total_controlled_funding": total_funding,
+            "tenure_years": tenure,
             "risk_flags": risk_flags,
         })
 
@@ -641,11 +651,17 @@ def get_duplicative_funding_live(min_fed: float = 1_000_000, min_ab: float = 1_0
         ORDER BY combined_gov_funding DESC
         LIMIT {limit}
     """)
+    domains = ["health", "education", "social", "environment", "justice", "infrastructure", "indigenous"]
     for r in rows:
         r["fed_total"] = float(r.get("fed_total") or 0)
         r["ab_total"] = float(r.get("ab_total") or 0)
         r["combined_gov_funding"] = float(r.get("combined_gov_funding") or 0)
         r["ab_pct"] = float(r.get("ab_pct") or 0)
+        fed_depts = str(r.get("fed_departments") or "").lower()
+        ab_mins = str(r.get("ab_ministries") or "").lower()
+        overlap = [d for d in domains if d in fed_depts and d in ab_mins]
+        r["overlap_score"] = "high" if len(overlap) >= 2 else "medium" if len(overlap) == 1 else "low"
+        r["overlap_domains"] = overlap
     return rows
 
 
@@ -811,6 +827,16 @@ def get_sole_source_live(min_ratio: float = 3.0, limit: int = 50) -> list[dict]:
         if r.get("amendment_count", 0) >= 5:
             flags.append(f"{r['amendment_count']} separate contracts — repeat no-bid awards")
         r["risk_flags"] = flags
+
+        fiscal_yrs = r.pop("fiscal_years", []) or []
+        r["years_active"] = len(fiscal_yrs)
+        if len(fiscal_yrs) >= 3:
+            sorted_yrs = sorted(str(y) for y in fiscal_yrs)
+            early = sorted_yrs[:2]
+            late = sorted_yrs[-2:]
+            r["trend"] = "escalating" if len(late) > len(early) else "stable"
+        else:
+            r["trend"] = "new" if len(fiscal_yrs) <= 1 else "stable"
 
     return rows
 
@@ -1346,6 +1372,35 @@ def get_loops_enriched_live(
         r["phantom_receipts"] = float(r.get("phantom_receipts") or 0)
         r["suspicion_score"]  = int(r.get("suspicion_score") or 0)
         r["risk_level"]       = r.get("risk_level") or "low"
+
+    try:
+        loop_ids = [r.get("loop_id") for r in rows if r.get("loop_id")]
+        if loop_ids:
+            lp_tbl = _read("cra", "loop_participants")
+            d_tbl = _read("cra", "cra_directors")
+            ids_str = ",".join(str(int(lid)) for lid in loop_ids[:200])
+            overlap_rows = query(f"""
+                WITH dir_per_loop AS (
+                    SELECT lp.loop_id, d.last_name, d.first_name, COUNT(DISTINCT LEFT(lp.bn, 9)) as orgs_in_loop
+                    FROM {lp_tbl} lp
+                    JOIN {d_tbl} d ON LEFT(d.bn, 9) = LEFT(lp.bn, 9)
+                    WHERE lp.loop_id IN ({ids_str})
+                      AND d.last_name IS NOT NULL AND LENGTH(d.last_name) > 1
+                    GROUP BY lp.loop_id, d.last_name, d.first_name
+                    HAVING COUNT(DISTINCT LEFT(lp.bn, 9)) >= 2
+                )
+                SELECT loop_id, COUNT(*) as shared_directors
+                FROM dir_per_loop
+                GROUP BY loop_id
+            """)
+            overlap_map = {r["loop_id"]: int(r["shared_directors"]) for r in overlap_rows}
+            for r in rows:
+                r["shared_directors"] = overlap_map.get(r.get("loop_id"), 0)
+    except Exception as e:
+        print(f"[DuckDB] board overlap enrichment error: {e}")
+        for r in rows:
+            r["shared_directors"] = 0
+
     return rows
 
 
@@ -1916,16 +1971,18 @@ def get_threshold_gaming_live(limit: int = 50) -> list[dict]:
             t.t as threshold,
             COUNT(*) as grants_just_below,
             SUM(TRY_CAST(g.agreement_value AS DOUBLE)) as total_value,
-            AVG(TRY_CAST(g.agreement_value AS DOUBLE)) as avg_value
+            AVG(TRY_CAST(g.agreement_value AS DOUBLE)) as avg_value,
+            MAX(TRY_CAST(g.agreement_value AS DOUBLE)) as max_value
         FROM {grants} g
         JOIN thresholds t
-          ON TRY_CAST(g.agreement_value AS DOUBLE) BETWEEN t.t * 0.85 AND t.t * 0.999
+          ON TRY_CAST(g.agreement_value AS DOUBLE) BETWEEN t.t * 0.85 AND t.t * 0.9999
         WHERE TRY_CAST(g.agreement_value AS DOUBLE) > 0
         GROUP BY g.recipient_legal_name, g.recipient_province, g.owner_org, t.t
         HAVING COUNT(*) >= 3
     )
     SELECT *,
-        ROUND(avg_value / threshold * 100, 1) as pct_of_threshold
+        ROUND(avg_value / threshold * 100, 1) as pct_of_threshold,
+        ROUND(max_value / threshold * 100, 1) as max_pct_of_threshold
     FROM just_below
     ORDER BY grants_just_below DESC, total_value DESC
     LIMIT {limit}
@@ -1935,6 +1992,11 @@ def get_threshold_gaming_live(limit: int = 50) -> list[dict]:
         for r in rows:
             r["total_value"] = float(r.get("total_value") or 0)
             r["avg_value"] = float(r.get("avg_value") or 0)
+            count = int(r.get("grants_just_below") or 0)
+            avg_pct = float(r.get("pct_of_threshold") or 85)
+            proximity = max(avg_pct - 85, 1) / 14.9
+            r["risk_score"] = round(count * proximity, 1)
+            r["risk_level"] = "critical" if r["risk_score"] >= 8 else "high" if r["risk_score"] >= 4 else "medium"
         return rows
     except Exception as e:
         print(f"[DuckDB] get_threshold_gaming_live error: {e}")
@@ -1952,6 +2014,7 @@ def get_ghost_capacity_live(min_funding: float = 500000, limit: int = 50) -> lis
     gov = _read("cra", "govt_funding_by_charity")
     comp = _read("cra", "cra_compensation")
     ident = _read("cra", "cra_identification")
+    lcf = _read("cra", "loop_charity_financials")
 
     sql = f"""
     WITH active_charities AS (
@@ -1985,6 +2048,13 @@ def get_ghost_capacity_live(min_funding: float = 500000, limit: int = 50) -> lis
                COUNT(*) as comp_filings
         FROM {comp}
         GROUP BY LEFT(bn, 9)
+    ),
+    prog AS (
+        SELECT LEFT(bn, 9) as bn9,
+               ROUND(AVG(TRY_CAST(program_spending AS DOUBLE) / NULLIF(TRY_CAST(total_expenditures AS DOUBLE), 0) * 100), 1) as program_spending_pct
+        FROM {lcf}
+        WHERE TRY_CAST(total_expenditures AS DOUBLE) > 0
+        GROUP BY LEFT(bn, 9)
     )
     SELECT gd.bn9 as bn,
            gd.legal_name,
@@ -1999,6 +2069,7 @@ def get_ghost_capacity_live(min_funding: float = 500000, limit: int = 50) -> lis
            ROUND(COALESCE(emp.avg_compensated_positions, 0), 1) as avg_positions,
            ROUND(COALESCE(emp.total_compensation, 0), 0) as total_compensation,
            COALESCE(emp.comp_filings, 0) as comp_filings,
+           COALESCE(prog.program_spending_pct, 0) as program_spending_pct,
            CASE
                WHEN COALESCE(emp.max_employees, 0) = 0 AND gd.avg_govt_pct >= 95 THEN 'critical'
                WHEN COALESCE(emp.max_employees, 0) <= 1 AND gd.avg_govt_pct >= 90 THEN 'high'
@@ -2008,6 +2079,7 @@ def get_ghost_capacity_live(min_funding: float = 500000, limit: int = 50) -> lis
     FROM govt_dep gd
     JOIN active_charities ac ON ac.bn9 = gd.bn9
     LEFT JOIN emp ON emp.bn9 = gd.bn9
+    LEFT JOIN prog ON prog.bn9 = gd.bn9
     WHERE COALESCE(emp.max_employees, 0) <= 3
     ORDER BY
         CASE
@@ -2026,6 +2098,7 @@ def get_ghost_capacity_live(min_funding: float = 500000, limit: int = 50) -> lis
             r["govt_share_pct"] = float(r.get("govt_share_pct") or 0)
             r["total_compensation"] = float(r.get("total_compensation") or 0)
             r["max_employees"] = int(r.get("max_employees") or 0)
+            r["program_spending_pct"] = float(r.get("program_spending_pct") or 0)
         return rows
     except Exception as e:
         print(f"[DuckDB] get_ghost_capacity_live error: {e}")
@@ -2060,6 +2133,33 @@ def get_policy_misalignment_live(limit: int = 20) -> list[dict]:
         return rows
     except Exception as e:
         print(f"[DuckDB] get_policy_misalignment_live error: {e}")
+        return []
+
+
+def get_policy_programs_live(department: str, limit: int = 15) -> list[dict]:
+    """Challenge #7: Program-level spending within a department."""
+    grants = _read("fed", "grants_contributions")
+    dept_safe = department.replace("'", "")
+    sql = f"""
+    SELECT prog_name_en as program,
+           COUNT(*) as grant_count,
+           ROUND(SUM(TRY_CAST(agreement_value AS DOUBLE)), 0) as total_spending,
+           COUNT(DISTINCT recipient_legal_name) as recipient_count
+    FROM {grants}
+    WHERE TRY_CAST(agreement_value AS DOUBLE) > 0
+      AND owner_org = '{dept_safe}'
+      AND prog_name_en IS NOT NULL AND TRIM(prog_name_en) != ''
+    GROUP BY prog_name_en
+    ORDER BY total_spending DESC
+    LIMIT {limit}
+    """
+    try:
+        rows = query(sql)
+        for r in rows:
+            r["total_spending"] = float(r.get("total_spending") or 0)
+        return rows
+    except Exception as e:
+        print(f"[DuckDB] get_policy_programs_live error: {e}")
         return []
 
 

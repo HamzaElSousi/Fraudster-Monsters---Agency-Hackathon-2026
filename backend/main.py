@@ -835,6 +835,12 @@ async def get_policy_misalignment(limit: int = Query(default=20, ge=1, le=100)):
     return {"departments": dept_spending, "analysis": analysis, "count": len(dept_spending or [])}
 
 
+@app.get("/api/policy-misalignment/programs")
+def get_policy_programs(department: str = Query(...), limit: int = Query(15)):
+    """Challenge #7: Program-level spending within a department."""
+    return _duck.cached(f"policy_programs:{department}:{limit}", _duck.get_policy_programs_live, department, limit) or []
+
+
 # ── Adverse Media (Challenge #10) ──────────────────────────────────────────
 @app.post("/api/adverse-media")
 async def check_adverse_media(body: dict):
@@ -902,6 +908,22 @@ async def check_adverse_media(body: dict):
         "analysis": analysis,
         "has_dossier": bool(dossier),
     }
+
+
+@app.get("/api/adverse-media/top-flagged")
+def get_top_flagged_entities():
+    """Challenge #10: Top 5 cross-flagged entities as priority adverse media targets."""
+    alerts = _data_alerts(min_flags=2, limit=5)
+    results = []
+    for a in (alerts.get("results") or [])[:5]:
+        results.append({
+            "name": a.get("canonical_name", ""),
+            "bn": str(a.get("primary_bn", ""))[:9],
+            "flags": a.get("flags", []),
+            "flag_count": a.get("alarm_count", 0),
+            "total_funding": float(a.get("total_govt_funding") or 0),
+        })
+    return {"entities": results, "count": len(results)}
 
 
 # ── Entity Search & Dossier ──────────────────────────────────────────────────
