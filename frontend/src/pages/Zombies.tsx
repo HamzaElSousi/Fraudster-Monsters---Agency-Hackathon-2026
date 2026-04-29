@@ -1,5 +1,6 @@
 // @ts-nocheck
 import { useState, useEffect } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { Skull, Repeat2, Table2, Search } from 'lucide-react';
 import { fetchZombies, fetchZombieLoopCrossref, formatCurrency, fmtDollars } from '../api';
 
@@ -25,6 +26,7 @@ function MethodologyPanel() {
 }
 
 export default function Zombies() {
+  const navigate = useNavigate();
   const [data, setData] = useState(null);
   const [crossrefData, setCrossrefData] = useState(null);
   const [loading, setLoading] = useState(true);
@@ -201,7 +203,7 @@ export default function Zombies() {
               </thead>
               <tbody>
                 {filtered.map((z) => (
-                  <tr key={z.id}>
+                  <tr key={z.id} onClick={() => navigate(`/entity/${encodeURIComponent(z.primary_bn || z.bn)}`)} style={{ cursor: 'pointer' }}>
                     <td>
                       <div style={{ fontWeight: 600, fontSize: 14 }}>{z.canonical_name}</div>
                       <div style={{ fontSize: 12, color: 'var(--text-muted)', fontFamily: 'var(--font-mono)' }}>BN: {z.primary_bn || 'N/A'}</div>
@@ -270,7 +272,7 @@ export default function Zombies() {
                 {crossrefRows
                   .filter(z => !search || (z.canonical_name || '').toLowerCase().includes(search.toLowerCase()))
                   .map((z, i) => (
-                    <tr key={z.bn || i}>
+                    <tr key={z.bn || i} onClick={() => navigate(`/entity/${encodeURIComponent(z.primary_bn || z.bn)}`)} style={{ cursor: 'pointer' }}>
                       <td>
                         {z.loop_count > 0
                           ? <span className="badge critical" style={{ fontSize: 11, display: 'inline-flex', alignItems: 'center', gap: 4 }}><Repeat2 size={10} /> {z.loop_count} loop{z.loop_count !== 1 ? 's' : ''}</span>
