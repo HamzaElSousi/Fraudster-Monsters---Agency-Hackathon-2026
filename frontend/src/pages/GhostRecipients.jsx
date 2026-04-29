@@ -1,4 +1,5 @@
 import { useState, useEffect } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { fetchGhostRecipients, fmtDollars } from '../api';
 
 function MethodologyPanel() {
@@ -14,27 +15,31 @@ function MethodologyPanel() {
           color: 'var(--text-secondary)', fontSize: 13, fontWeight: 600,
         }}
       >
-        <span>How we detected this — Challenge #2 Ghost Recipients</span>
+        <span>How we detected this — Challenge #2 Ghost Capacity</span>
         <span style={{ fontSize: 11, transform: open ? 'rotate(180deg)' : 'none', display: 'inline-block', transition: 'transform 0.2s' }}>▼</span>
       </button>
       {open && (
         <div style={{ padding: '16px 20px', background: 'var(--bg-card)', fontSize: 13, color: 'var(--text-secondary)', lineHeight: 1.8 }}>
           <p style={{ marginBottom: 10 }}>
-            <strong style={{ color: 'var(--text-primary)' }}>Data source:</strong> Federal Proactive Disclosure dataset (1.27M records from 51+ departments, 2010–2024).
+            <strong style={{ color: 'var(--text-primary)' }}>Data sources:</strong> CRA T3010 annual filings (compensation schedule + financial data) cross-referenced with
+            government funding dependency from govt_funding_by_charity.
           </p>
           <p style={{ marginBottom: 10 }}>
-            <strong style={{ color: 'var(--text-primary)' }}>Detection criteria:</strong> Recipients with cumulative grants of <strong>$500,000 or more</strong> who had
-            no recorded grant activity for <strong>4 or more consecutive years</strong> following their last payment. Business numbers (9-digit CRA BN)
-            were cross-referenced against the CRA charity registry — recipients without a matching BN are flagged as untraced.
+            <strong style={{ color: 'var(--text-primary)' }}>Detection criteria:</strong> Organizations that (1) are still actively filing with CRA (not zombies),
+            (2) receive <strong>80%+ of revenue from government</strong>, (3) have cumulative govt funding of <strong>$500K+</strong>, and
+            (4) report <strong>3 or fewer employees</strong> across all CRA T3010 compensation filings.
           </p>
           <p style={{ marginBottom: 10 }}>
-            <strong style={{ color: 'var(--text-primary)' }}>Why it matters:</strong> Canada's Access to Information Act and the Proactive Disclosure regime require
-            departments to publish grants over $25,000. When a recipient vanishes from all public records after receiving substantial public funding,
-            there is no mechanism to verify how the money was spent or whether the organization still exists.
+            <strong style={{ color: 'var(--text-primary)' }}>Why it matters:</strong> Ghost Capacity organizations persist indefinitely. They are not zombies — zombies die.
+            These entities continue receiving public money year after year but show no evidence of actually delivering services.
+            Revenue flows almost entirely from government, and expenditures are primarily compensation for a very small number of individuals
+            or further transfers to other entities.
           </p>
           <p>
-            <strong style={{ color: 'var(--text-primary)' }}>Limitations:</strong> Silence does not confirm fraud — organizations may have legitimately wound down.
-            However, the absence of any public record (CRA filing, incorporation registry, federal grants) warrants audit-level scrutiny.
+            <strong style={{ color: 'var(--text-primary)' }}>Risk tiers:</strong>{' '}
+            <strong style={{ color: 'var(--status-critical)' }}>Critical</strong> = 0 employees + 95%+ govt dependency |{' '}
+            <strong style={{ color: '#f59e0b' }}>High</strong> = 0-1 employees + 90%+ |{' '}
+            <strong style={{ color: 'var(--status-medium)' }}>Medium</strong> = 2-3 employees + 80%+
           </p>
         </div>
       )}
@@ -42,39 +47,42 @@ function MethodologyPanel() {
   );
 }
 
+const riskColors = {
+  critical: 'var(--status-critical)',
+  high: '#f59e0b',
+  medium: 'var(--status-medium)',
+  low: 'var(--text-muted)',
+};
+
 export default function GhostRecipients() {
   const [data, setData] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
   const [search, setSearch] = useState('');
-  const [provinceFilter, setProvinceFilter] = useState('');
-  const [bnFilter, setBnFilter] = useState('');
+  const [riskFilter, setRiskFilter] = useState('');
+  const navigate = useNavigate();
 
   useEffect(() => {
     setLoading(true);
     setError(null);
     fetchGhostRecipients(500000, 200)
       .then(rows => setData(Array.isArray(rows) ? rows : []))
-      .catch(err => setError(err?.message || 'Failed to load ghost recipient data'))
+      .catch(err => setError(err?.message || 'Failed to load ghost capacity data'))
       .finally(() => setLoading(false));
   }, []);
 
-  const provinces = [...new Set(data.map(r => r.recipient_province).filter(Boolean))].sort();
-
   const filtered = data.filter(r => {
     const matchSearch = !search
-      || (r.recipient_legal_name || '').toLowerCase().includes(search.toLowerCase())
-      || (r.bn9 || '').includes(search);
-    const matchProvince = !provinceFilter || r.recipient_province === provinceFilter;
-    const matchBn = !bnFilter || (bnFilter === 'untraced' ? r.no_bn : !r.no_bn);
-    return matchSearch && matchProvince && matchBn;
+      || (r.legal_name || '').toLowerCase().includes(search.toLowerCase())
+      || (r.bn || '').includes(search);
+    const matchRisk = !riskFilter || r.ghost_risk === riskFilter;
+    return matchSearch && matchRisk;
   });
 
-  const totalValue = data.reduce((s, r) => s + (r.total_received || 0), 0);
-  const untracedCount = data.filter(r => r.no_bn).length;
-  const avgSilence = data.length > 0
-    ? Math.round(data.reduce((s, r) => s + (r.years_silent || 0), 0) / data.length)
-    : 0;
+  const totalGovt = data.reduce((s, r) => s + (r.total_govt_funding || 0), 0);
+  const criticalCount = data.filter(r => r.ghost_risk === 'critical').length;
+  const highCount = data.filter(r => r.ghost_risk === 'high').length;
+  const zeroEmpCount = data.filter(r => r.max_employees === 0).length;
 
   return (
     <div className="animate-in">
@@ -88,28 +96,28 @@ export default function GhostRecipients() {
         borderRadius: 'var(--radius-lg)',
       }}>
         <div style={{ fontSize: 11, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.08em', color: 'var(--accent-amber)', marginBottom: 8 }}>
-          Challenge #2 — Ghost Recipients
+          Challenge #2 — Ghost Capacity
         </div>
         <p style={{ fontSize: 15, color: 'var(--text-primary)', lineHeight: 1.7, marginBottom: 12, maxWidth: 820 }}>
-          Between 2010 and 2024, the federal government sent over{' '}
-          <strong style={{ color: 'var(--accent-amber)' }}>{fmtDollars(totalValue)}</strong> to organizations that subsequently
-          disappeared from all public records. These are not bureaucratic oversights — they are entities that received substantial
-          public funding and then ceased to exist in any verifiable form. No CRA filings. No incorporation records. No further
-          federal activity. The money entered a void.
+          These organizations are not dead — they are hollow. They continue filing with CRA, continue receiving government money,
+          but report <strong style={{ color: 'var(--accent-amber)' }}>zero to three employees</strong> while drawing{' '}
+          <strong style={{ color: 'var(--accent-amber)' }}>80%+ of their revenue from government</strong>.
+          Where does the money go? Mostly to compensation for a tiny number of individuals or onward transfers to other entities.
         </p>
         {!loading && data.length > 0 && (
           <p style={{ fontSize: 13, color: 'var(--text-secondary)', lineHeight: 1.6, maxWidth: 820 }}>
-            Our analysis flagged <strong style={{ color: 'var(--accent-amber)' }}>{data.length.toLocaleString()} recipient–department combinations</strong>{' '}
-            meeting the criteria: $500K+ in cumulative grants followed by {avgSilence}+ years of silence on average.{' '}
-            <strong style={{ color: 'var(--status-critical)' }}>{untracedCount}</strong> of these have no traceable Business Number in the CRA registry.
+            We found <strong style={{ color: 'var(--accent-amber)' }}>{data.length.toLocaleString()} ghost capacity organizations</strong> receiving{' '}
+            <strong style={{ color: 'var(--accent-amber)' }}>{fmtDollars(totalGovt)}</strong> in total government funding.{' '}
+            <strong style={{ color: 'var(--status-critical)' }}>{zeroEmpCount}</strong> report zero employees across all filings.
           </p>
         )}
         <div style={{ display: 'flex', gap: 28, flexWrap: 'wrap', marginTop: 16 }}>
           {[
-            { label: 'Total Funds at Risk', value: loading ? '...' : fmtDollars(totalValue), color: 'var(--accent-amber)' },
-            { label: 'Ghost Recipients', value: loading ? '...' : data.length.toLocaleString(), color: 'var(--text-primary)' },
-            { label: 'Untraced (No BN)', value: loading ? '...' : untracedCount.toLocaleString(), color: 'var(--status-critical)' },
-            { label: 'Avg Years Silent', value: loading ? '...' : `${avgSilence}y`, color: 'var(--text-secondary)' },
+            { label: 'Govt Funding at Risk', value: loading ? '...' : fmtDollars(totalGovt), color: 'var(--accent-amber)' },
+            { label: 'Ghost Orgs', value: loading ? '...' : data.length.toLocaleString(), color: 'var(--text-primary)' },
+            { label: 'Critical Risk', value: loading ? '...' : criticalCount.toLocaleString(), color: 'var(--status-critical)' },
+            { label: 'High Risk', value: loading ? '...' : highCount.toLocaleString(), color: '#f59e0b' },
+            { label: 'Zero Employees', value: loading ? '...' : zeroEmpCount.toLocaleString(), color: 'var(--status-critical)' },
           ].map(stat => (
             <div key={stat.label}>
               <div style={{ fontSize: 10, color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: 2 }}>{stat.label}</div>
@@ -118,7 +126,7 @@ export default function GhostRecipients() {
           ))}
         </div>
         <div style={{ marginTop: 12, fontSize: 11, color: 'var(--text-muted)' }}>
-          Source: Federal Proactive Disclosure (51+ departments) · Grants 2010–2024 · Cross-referenced with CRA T3010 registry
+          Source: CRA T3010 Compensation + Financial Data | Cross-referenced with govt_funding_by_charity
         </div>
       </div>
 
@@ -128,7 +136,7 @@ export default function GhostRecipients() {
       <div style={{ display: 'flex', gap: 12, marginBottom: 20, flexWrap: 'wrap', alignItems: 'center' }}>
         <input
           type="text"
-          placeholder="Search recipient or BN..."
+          placeholder="Search organization or BN..."
           value={search}
           onChange={e => setSearch(e.target.value)}
           style={{
@@ -137,30 +145,19 @@ export default function GhostRecipients() {
             padding: '8px 14px', fontSize: 13, outline: 'none', width: 260,
           }}
         />
-        <select
-          value={provinceFilter}
-          onChange={e => setProvinceFilter(e.target.value)}
-          style={{
-            background: 'var(--bg-tertiary)', border: '1px solid var(--border-primary)',
-            borderRadius: 'var(--radius-md)', color: provinceFilter ? 'var(--text-primary)' : 'var(--text-muted)',
-            padding: '8px 12px', fontSize: 13, outline: 'none', cursor: 'pointer',
-          }}
-        >
-          <option value="">All Provinces</option>
-          {provinces.map(p => <option key={p} value={p}>{p}</option>)}
-        </select>
         <div style={{ display: 'flex', gap: 6 }}>
           {[
             { key: '', label: 'All' },
-            { key: 'untraced', label: 'Untraced BN' },
-            { key: 'traced', label: 'Traced BN' },
+            { key: 'critical', label: 'Critical' },
+            { key: 'high', label: 'High' },
+            { key: 'medium', label: 'Medium' },
           ].map(opt => (
-            <button key={opt.key} onClick={() => setBnFilter(opt.key)} style={{
+            <button key={opt.key} onClick={() => setRiskFilter(opt.key)} style={{
               padding: '7px 14px', fontSize: 12, cursor: 'pointer',
               borderRadius: 'var(--radius-md)',
-              border: `1px solid ${bnFilter === opt.key ? 'var(--accent-amber)' : 'var(--border-primary)'}`,
-              background: bnFilter === opt.key ? 'rgba(251,191,36,0.15)' : 'var(--bg-tertiary)',
-              color: bnFilter === opt.key ? 'var(--accent-amber)' : 'var(--text-secondary)',
+              border: `1px solid ${riskFilter === opt.key ? 'var(--accent-amber)' : 'var(--border-primary)'}`,
+              background: riskFilter === opt.key ? 'rgba(251,191,36,0.15)' : 'var(--bg-tertiary)',
+              color: riskFilter === opt.key ? 'var(--accent-amber)' : 'var(--text-secondary)',
             }}>{opt.label}</button>
           ))}
         </div>
@@ -172,21 +169,15 @@ export default function GhostRecipients() {
       {/* Table */}
       <div className="data-table-container">
         <div className="data-table-header">
-          <span className="data-table-title">Ghost Recipients — Federal Grant Vanishing Act ({filtered.length})</span>
-          {data.length > 0 && (
-            <span style={{ fontSize: 12, color: 'var(--accent-amber)', fontWeight: 600 }}>
-              {data.length} recipients · {fmtDollars(totalValue)} total
-            </span>
-          )}
+          <span className="data-table-title">Ghost Capacity Organizations ({filtered.length})</span>
         </div>
         {error ? (
           <div style={{ padding: 32, textAlign: 'center', background: 'rgba(239,68,68,0.08)', border: '1px solid rgba(239,68,68,0.3)', borderRadius: 'var(--radius-lg)', margin: 16 }}>
             <div style={{ fontSize: 16, fontWeight: 700, marginBottom: 8, color: 'var(--status-critical)' }}>Data Load Failed</div>
             <div style={{ color: 'var(--status-critical)', fontFamily: 'var(--font-mono)', fontSize: 13, marginBottom: 8 }}>{error}</div>
-            <div style={{ color: 'var(--text-muted)', fontSize: 12 }}>Check backend at <code>http://localhost:8000/api/ghost-recipients</code></div>
           </div>
         ) : loading ? (
-          <div style={{ padding: 40, textAlign: 'center', color: 'var(--text-muted)' }}>Loading ghost recipient analysis...</div>
+          <div style={{ padding: 40, textAlign: 'center', color: 'var(--text-muted)' }}>Loading ghost capacity analysis...</div>
         ) : filtered.length === 0 ? (
           <div style={{ padding: '40px 24px', textAlign: 'center', color: 'var(--text-muted)', fontSize: 14 }}>
             No results match your current filters.
@@ -195,54 +186,62 @@ export default function GhostRecipients() {
           <table className="data-table">
             <thead>
               <tr>
-                <th>Recipient</th>
-                <th>Province</th>
-                <th title="Total federal grants received across all departments">Total Received</th>
-                <th title="Year of last recorded federal grant">Last Grant</th>
-                <th title="Years elapsed since last federal grant with no public activity">Years Silent</th>
-                <th title="Number of distinct grant disbursements"># Grants</th>
-                <th title="Number of distinct federal departments that funded this recipient">Depts</th>
-                <th title="Whether a valid 9-digit CRA Business Number was recorded">BN Status</th>
+                <th>Organization</th>
+                <th title="Ghost capacity risk level based on employee count and govt dependency">Risk</th>
+                <th title="Total government funding received across all years">Govt Funding</th>
+                <th title="Percentage of revenue from government sources">Govt %</th>
+                <th title="Maximum number of permanent employees reported across all CRA filings">Max Employees</th>
+                <th title="Total compensation paid across all filing years">Total Compensation</th>
+                <th title="Most recent CRA filing year">Last Filing</th>
+                <th>Action</th>
               </tr>
             </thead>
             <tbody>
-              {filtered.map((r, i) => {
-                const silent = r.years_silent || 0;
-                const silentColor = silent >= 8 ? 'var(--status-critical)' : silent >= 5 ? 'var(--status-medium)' : 'var(--text-secondary)';
-                return (
-                  <tr key={i}>
-                    <td>
-                      <div style={{ fontWeight: 600, fontSize: 13 }}>{r.recipient_legal_name || '—'}</div>
-                      {r.bn9 && r.bn9.length >= 9 && (
-                        <div style={{ fontSize: 11, color: 'var(--text-muted)', fontFamily: 'var(--font-mono)', marginTop: 2 }}>{r.bn9}</div>
-                      )}
-                    </td>
-                    <td style={{ color: 'var(--text-muted)', fontSize: 12 }}>{r.recipient_province || '—'}</td>
-                    <td>
-                      <span className="funding-amount large">{fmtDollars(r.total_received)}</span>
-                    </td>
-                    <td style={{ fontFamily: 'var(--font-mono)', fontSize: 12, color: 'var(--text-secondary)' }}>
-                      {r.last_grant ? r.last_grant.slice(0, 4) : '—'}
-                    </td>
-                    <td>
-                      <span style={{ fontWeight: 800, fontFamily: 'var(--font-mono)', fontSize: 14, color: silentColor }}>
-                        {silent > 0 ? `${silent}y` : '—'}
-                      </span>
-                    </td>
-                    <td style={{ fontFamily: 'var(--font-mono)', fontSize: 13, color: 'var(--text-secondary)' }}>
-                      {r.grant_count?.toLocaleString() || '—'}
-                    </td>
-                    <td style={{ fontFamily: 'var(--font-mono)', fontSize: 13, color: 'var(--text-secondary)' }}>
-                      {r.dept_count || '—'}
-                    </td>
-                    <td>
-                      {r.no_bn
-                        ? <span style={{ color: 'var(--status-critical)', fontWeight: 700, fontSize: 11, fontFamily: 'var(--font-mono)' }}>UNTRACED</span>
-                        : <span style={{ color: 'var(--status-low)', fontSize: 11, fontFamily: 'var(--font-mono)' }}>TRACED</span>}
-                    </td>
-                  </tr>
-                );
-              })}
+              {filtered.map((r, i) => (
+                <tr key={i}>
+                  <td>
+                    <div style={{ fontWeight: 600, fontSize: 13 }}>{r.legal_name || '--'}</div>
+                    <div style={{ fontSize: 11, color: 'var(--text-muted)', fontFamily: 'var(--font-mono)', marginTop: 2 }}>
+                      {r.bn || '--'}{r.designation ? ` | ${r.designation}` : ''}
+                    </div>
+                  </td>
+                  <td>
+                    <span className={`badge ${r.ghost_risk === 'critical' ? 'critical' : r.ghost_risk}`}
+                      style={{ fontWeight: 700, textTransform: 'uppercase', fontSize: 10 }}>
+                      {r.ghost_risk}
+                    </span>
+                  </td>
+                  <td>
+                    <span className="funding-amount large">{fmtDollars(r.total_govt_funding)}</span>
+                  </td>
+                  <td style={{ fontWeight: 700, color: r.govt_share_pct >= 95 ? 'var(--status-critical)' : r.govt_share_pct >= 90 ? '#f59e0b' : 'var(--text-secondary)', fontFamily: 'var(--font-mono)', fontSize: 13 }}>
+                    {r.govt_share_pct?.toFixed(1)}%
+                  </td>
+                  <td style={{ fontWeight: 800, fontFamily: 'var(--font-mono)', fontSize: 16, color: r.max_employees === 0 ? 'var(--status-critical)' : 'var(--text-secondary)', textAlign: 'center' }}>
+                    {r.max_employees}
+                  </td>
+                  <td style={{ fontFamily: 'var(--font-mono)', fontSize: 12, color: 'var(--text-secondary)' }}>
+                    {r.total_compensation > 0 ? fmtDollars(r.total_compensation) : '--'}
+                  </td>
+                  <td style={{ fontFamily: 'var(--font-mono)', fontSize: 12, color: 'var(--text-secondary)' }}>
+                    {r.last_year || '--'}
+                  </td>
+                  <td>
+                    {r.bn && r.bn.length >= 9 && (
+                      <button
+                        onClick={() => navigate(`/entity/${encodeURIComponent(r.bn)}`)}
+                        style={{
+                          padding: '4px 10px', fontSize: 11, cursor: 'pointer',
+                          borderRadius: 'var(--radius-md)', border: '1px solid var(--border-primary)',
+                          background: 'var(--bg-tertiary)', color: 'var(--accent-indigo-light)',
+                        }}
+                      >
+                        Investigate
+                      </button>
+                    )}
+                  </td>
+                </tr>
+              ))}
             </tbody>
           </table>
         )}

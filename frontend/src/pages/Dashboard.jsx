@@ -51,37 +51,64 @@ export default function Dashboard() {
 
   const findingCards = [
     {
-      icon: '',
       label: 'Zombie Recipients',
       value: stats?.zombie_count,
       detail: stats?.at_risk_funding ? `${formatCurrency(stats.at_risk_funding)} at risk` : null,
-      sub: '≥70% govt-dependent · stopped filing by 2022',
+      sub: 'Orgs that vanished after receiving public funding',
       color: 'var(--status-critical)',
       border: 'rgba(239,68,68,0.3)',
       bg: 'rgba(239,68,68,0.05)',
       path: '/zombies',
     },
     {
-      icon: '',
       label: 'Funding Loops',
       value: stats?.total_funding_loops,
       detail: loopStats?.phantom_receipts_total ? `${fmtDollars(loopStats.phantom_receipts_total)} phantom receipts (est.)` : null,
-      sub: 'Circular gift chains detected in CRA schedules',
+      sub: 'Circular gift chains in CRA T3010 data',
       color: 'var(--accent-purple)',
       border: 'rgba(139,92,246,0.3)',
       bg: 'rgba(139,92,246,0.05)',
       path: '/loops',
     },
     {
-      icon: '',
       label: 'Multi-Board Directors',
       value: stats?.multi_board_directors,
       detail: 'Directors on 5+ govt-funded charity boards',
-      sub: 'High-confidence: 5+ boards makes coincidental name match unlikely',
+      sub: 'Governance network conflicts of interest',
       color: 'var(--accent-cyan)',
       border: 'rgba(34,211,238,0.3)',
       bg: 'rgba(34,211,238,0.05)',
       path: '/governance',
+    },
+    {
+      label: 'Sole-Source Contracts',
+      value: stats?.total_sole_source,
+      detail: stats?.ab_contract_value ? `${fmtDollars(stats.ab_contract_value)} total value` : null,
+      sub: 'No-bid Alberta contracts with amendment creep',
+      color: 'var(--accent-amber)',
+      border: 'rgba(251,191,36,0.3)',
+      bg: 'rgba(251,191,36,0.05)',
+      path: '/sole-source',
+    },
+    {
+      label: 'Vendor Concentration',
+      value: stats?.vendor_concentration_count,
+      detail: 'Departments with monopoly-level HHI',
+      sub: 'Where competition has been replaced by incumbency',
+      color: '#f472b6',
+      border: 'rgba(244,114,182,0.3)',
+      bg: 'rgba(244,114,182,0.05)',
+      path: '/vendor-concentration',
+    },
+    {
+      label: 'AI Investigator',
+      value: null,
+      detail: 'Agentic tools for autonomous investigation',
+      sub: 'Ask AI to investigate any entity or pattern',
+      color: 'var(--accent-indigo-light)',
+      border: 'rgba(99,102,241,0.3)',
+      bg: 'rgba(99,102,241,0.05)',
+      path: '/chat',
     },
   ];
 
@@ -140,8 +167,7 @@ export default function Dashboard() {
             onMouseEnter={e => e.currentTarget.style.transform = 'translateY(-3px)'}
             onMouseLeave={e => e.currentTarget.style.transform = 'translateY(0)'}
           >
-            <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 10 }}>
-              <span style={{ fontSize: 20 }}>{card.icon}</span>
+            <div style={{ marginBottom: 10 }}>
               <span style={{ fontSize: 12, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.05em', color: card.color }}>{card.label}</span>
             </div>
             <div style={{ fontSize: 42, fontWeight: 900, color: card.color, lineHeight: 1, marginBottom: 6 }}>

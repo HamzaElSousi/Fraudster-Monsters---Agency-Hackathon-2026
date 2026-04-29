@@ -41,6 +41,7 @@ _PRELOAD_TABLES = [
     ("ab", "ab_contracts"),  # CHALLENGE 5
     ("general", "entity_golden_records"),
     ("fed", "grants_contributions"),
+    ("cra", "cra_compensation"),  # CHALLENGE 2: Ghost Capacity
 ]
 
 # Result cache: key → (timestamp, result)
@@ -1941,44 +1942,123 @@ def get_threshold_gaming_live(limit: int = 50) -> list[dict]:
 
 
 def get_ghost_recipients_live(min_funding: float = 500000, limit: int = 50) -> list[dict]:
-    """Challenge #2: Federal grant recipients who received large amounts then went silent."""
-    grants = _read("fed", "grants_contributions")
+    """Challenge #2 (legacy): Federal grant recipients who went silent."""
+    return get_ghost_capacity_live(min_funding, limit)
+
+
+def get_ghost_capacity_live(min_funding: float = 500000, limit: int = 50) -> list[dict]:
+    """Challenge #2: Ghost Capacity — persistent orgs with no evidence of delivery capability.
+    Looks for: high govt dependency, minimal employees, expenditures mainly compensation/transfers."""
+    gov = _read("cra", "govt_funding_by_charity")
+    comp = _read("cra", "cra_compensation")
+    ident = _read("cra", "cra_identification")
+
     sql = f"""
-    WITH recipient_summary AS (
-        SELECT
-            recipient_legal_name,
-            recipient_province,
-            LEFT(COALESCE(recipient_business_number, ''), 9) as bn9,
-            COUNT(*) as grant_count,
-            SUM(TRY_CAST(agreement_value AS DOUBLE)) as total_received,
-            MIN(CAST(amendment_date AS VARCHAR)) as first_grant,
-            MAX(CAST(amendment_date AS VARCHAR)) as last_grant,
-            COUNT(DISTINCT owner_org) as dept_count
-        FROM {grants}
-        WHERE TRY_CAST(agreement_value AS DOUBLE) > 0
-        GROUP BY recipient_legal_name, recipient_province,
-                 LEFT(COALESCE(recipient_business_number, ''), 9)
-        HAVING SUM(TRY_CAST(agreement_value AS DOUBLE)) >= {min_funding}
+    WITH active_charities AS (
+        SELECT LEFT(bn, 9) as bn9,
+               MAX(TRY_CAST(LEFT(CAST(fpe AS VARCHAR), 4) AS INT)) as last_year,
+               COUNT(*) as filing_count
+        FROM {ident}
+        GROUP BY LEFT(bn, 9)
+        HAVING MAX(TRY_CAST(LEFT(CAST(fpe AS VARCHAR), 4) AS INT)) >= 2022
+    ),
+    govt_dep AS (
+        SELECT LEFT(g.bn, 9) as bn9,
+               MAX(g.legal_name) as legal_name,
+               MAX(g.designation) as designation,
+               MAX(g.category) as category,
+               AVG(TRY_CAST(g.govt_share_of_rev AS DOUBLE)) as avg_govt_pct,
+               SUM(TRY_CAST(g.total_govt AS DOUBLE)) as total_govt_funding,
+               AVG(TRY_CAST(g.revenue AS DOUBLE)) as avg_revenue
+        FROM {gov} g
+        WHERE TRY_CAST(g.total_govt AS DOUBLE) > 0
+        GROUP BY LEFT(g.bn, 9)
+        HAVING SUM(TRY_CAST(g.total_govt AS DOUBLE)) >= {min_funding}
+           AND AVG(TRY_CAST(g.govt_share_of_rev AS DOUBLE)) >= 80
+    ),
+    emp AS (
+        SELECT LEFT(bn, 9) as bn9,
+               MAX(COALESCE(TRY_CAST(field_300 AS INT), 0) + COALESCE(TRY_CAST(field_305 AS INT), 0)) as max_employees,
+               AVG(COALESCE(TRY_CAST(field_370 AS INT), 0)) as avg_compensated_positions,
+               SUM(TRY_CAST(field_390 AS DOUBLE)) as total_compensation,
+               COUNT(*) as comp_filings
+        FROM {comp}
+        GROUP BY LEFT(bn, 9)
     )
-    SELECT *,
-        CASE WHEN LENGTH(TRIM(bn9)) < 9 THEN 1 ELSE 0 END as no_bn,
-        CAST(EXTRACT(YEAR FROM CURRENT_DATE) AS INT) - TRY_CAST(LEFT(last_grant, 4) AS INT) as years_silent
-    FROM recipient_summary
-    WHERE (
-        TRY_CAST(LEFT(last_grant, 4) AS INT) <= CAST(EXTRACT(YEAR FROM CURRENT_DATE) AS INT) - 4
-        OR LENGTH(TRIM(bn9)) < 9
-    )
-    ORDER BY total_received DESC
+    SELECT gd.bn9 as bn,
+           gd.legal_name,
+           gd.designation,
+           gd.category,
+           ROUND(gd.avg_govt_pct, 1) as govt_share_pct,
+           ROUND(gd.total_govt_funding, 0) as total_govt_funding,
+           ROUND(gd.avg_revenue, 0) as avg_revenue,
+           ac.last_year,
+           ac.filing_count,
+           COALESCE(emp.max_employees, 0) as max_employees,
+           ROUND(COALESCE(emp.avg_compensated_positions, 0), 1) as avg_positions,
+           ROUND(COALESCE(emp.total_compensation, 0), 0) as total_compensation,
+           COALESCE(emp.comp_filings, 0) as comp_filings,
+           CASE
+               WHEN COALESCE(emp.max_employees, 0) = 0 AND gd.avg_govt_pct >= 95 THEN 'critical'
+               WHEN COALESCE(emp.max_employees, 0) <= 1 AND gd.avg_govt_pct >= 90 THEN 'high'
+               WHEN COALESCE(emp.max_employees, 0) <= 3 AND gd.avg_govt_pct >= 80 THEN 'medium'
+               ELSE 'low'
+           END as ghost_risk
+    FROM govt_dep gd
+    JOIN active_charities ac ON ac.bn9 = gd.bn9
+    LEFT JOIN emp ON emp.bn9 = gd.bn9
+    WHERE COALESCE(emp.max_employees, 0) <= 3
+    ORDER BY
+        CASE
+            WHEN COALESCE(emp.max_employees, 0) = 0 AND gd.avg_govt_pct >= 95 THEN 1
+            WHEN COALESCE(emp.max_employees, 0) <= 1 AND gd.avg_govt_pct >= 90 THEN 2
+            ELSE 3
+        END,
+        gd.total_govt_funding DESC
     LIMIT {limit}
     """
     try:
         rows = query(sql)
         for r in rows:
-            r["total_received"] = float(r.get("total_received") or 0)
-            r["years_silent"] = int(r.get("years_silent") or 0)
+            r["total_govt_funding"] = float(r.get("total_govt_funding") or 0)
+            r["avg_revenue"] = float(r.get("avg_revenue") or 0)
+            r["govt_share_pct"] = float(r.get("govt_share_pct") or 0)
+            r["total_compensation"] = float(r.get("total_compensation") or 0)
+            r["max_employees"] = int(r.get("max_employees") or 0)
         return rows
     except Exception as e:
-        print(f"[DuckDB] get_ghost_recipients_live error: {e}")
+        print(f"[DuckDB] get_ghost_capacity_live error: {e}")
+        return []
+
+
+def get_policy_misalignment_live(limit: int = 20) -> list[dict]:
+    """Challenge #7: Federal spending by department for policy alignment analysis."""
+    grants = _read("fed", "grants_contributions")
+    sql = f"""
+    SELECT
+        owner_org as department,
+        COUNT(*) as grant_count,
+        ROUND(SUM(TRY_CAST(agreement_value AS DOUBLE)), 0) as total_spending,
+        COUNT(DISTINCT recipient_legal_name) as recipient_count,
+        ROUND(AVG(TRY_CAST(agreement_value AS DOUBLE)), 0) as avg_grant_size,
+        MIN(LEFT(CAST(amendment_date AS VARCHAR), 4)) as earliest_year,
+        MAX(LEFT(CAST(amendment_date AS VARCHAR), 4)) as latest_year
+    FROM {grants}
+    WHERE TRY_CAST(agreement_value AS DOUBLE) > 0
+      AND owner_org IS NOT NULL
+      AND TRIM(owner_org) != ''
+    GROUP BY owner_org
+    ORDER BY total_spending DESC
+    LIMIT {limit}
+    """
+    try:
+        rows = query(sql)
+        for r in rows:
+            r["total_spending"] = float(r.get("total_spending") or 0)
+            r["avg_grant_size"] = float(r.get("avg_grant_size") or 0)
+        return rows
+    except Exception as e:
+        print(f"[DuckDB] get_policy_misalignment_live error: {e}")
         return []
 
 

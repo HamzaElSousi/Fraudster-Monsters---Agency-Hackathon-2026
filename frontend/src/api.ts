@@ -254,3 +254,21 @@ export async function fetchVendorConcentrationAnalysis() {
 }
 
 // ── END CHALLENGE 5 ─────────────────────────────────────────────────────────
+
+// ── CHALLENGE 7: Policy Misalignment ────────────────────────────────────────
+export async function fetchPolicyMisalignment(limit = 20) {
+  const res = await fetch(`${API_BASE}/api/policy-misalignment?limit=${limit}`);
+  if (!res.ok) throw new Error('Failed to fetch policy misalignment data');
+  return res.json();
+}
+
+// ── CHALLENGE 10: Adverse Media ─────────────────────────────────────────────
+export async function fetchAdverseMedia(name, bn) {
+  const res = await fetch(`${API_BASE}/api/adverse-media`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ name, bn }),
+  });
+  if (!res.ok) throw new Error('Failed to fetch adverse media analysis');
+  return res.json();
+}

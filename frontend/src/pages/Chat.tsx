@@ -15,21 +15,22 @@ function buildWelcomeMessage(stats) {
   return {
     role: 'assistant',
     id: 0,
-    content: `Welcome to the **Follow The Money** AI Investigator!
+    content: `Welcome to the **Follow The Money** Agentic AI Investigator!
 
-I can help you explore government spending accountability across **${recordStr} records** from CRA T3010 charity filings, Federal Grants & Contributions, and Alberta Open Data.
+I autonomously query a live database of **${recordStr} records** across CRA T3010 charity filings, Federal Grants & Contributions, and Alberta Open Data using **12 investigative tools**.
 
-Try asking me about:
-• **Zombie recipients** — organizations that vanished after receiving funding
-• **Funding loops** — circular money flows between charities
-• **Governance networks** — directors controlling multiple funded entities
-• **Spending overview** — total funding across all datasets`,
+I don't just answer questions — I **investigate**. Tell me what to look into and I'll search, cross-reference, and build a case:
+
+• **"Investigate the highest-risk entity in the database"** — I'll pull cross-challenge alerts, find the worst case, and build a dossier
+• **"Which organizations received the most public funding before going dark?"** — I'll query zombie recipients and explain what makes each suspicious
+• **"Who sits on the most charity boards simultaneously?"** — I'll search governance networks and follow the money
+• **"Where do zombie recipients, funding loops, and governance issues overlap?"** — I'll cross-reference all challenge datasets`,
     data_type: 'help',
     follow_up: [
-      'Show me zombie recipients',
-      'Find funding loops',
-      'Show governance networks',
-      'Give me an overview',
+      'Investigate the highest-risk entity across all categories',
+      'Which funding loops involve same-year transactions?',
+      'Where does governance overlap with zombie recipients?',
+      'Give me a full platform overview',
     ],
   };
 }
@@ -233,6 +234,7 @@ export default function Chat() {
         data_type: response.data_type,
         sql_hint: response.sql_hint,
         follow_up: response.follow_up,
+        tools_used: response.tools_used,
       };
       setMessages(prev => [...prev, assistantMsg]);
     } catch (err) {
@@ -264,6 +266,15 @@ export default function Chat() {
               <div style={{ fontSize: 10, color: 'var(--text-muted)', marginTop: 8, display: 'flex', alignItems: 'center', gap: 4 }}>
                 <span style={{ width: 6, height: 6, borderRadius: '50%', background: 'var(--accent-emerald)', display: 'inline-block' }} />
                 {msg.sql_hint}
+              </div>
+            )}
+            {msg.tools_used && msg.tools_used.length > 0 && (
+              <div style={{ display: 'flex', gap: 4, flexWrap: 'wrap', marginTop: 6 }}>
+                {[...new Set(msg.tools_used)].map(tool => (
+                  <span key={tool} style={{ fontSize: 10, padding: '2px 8px', borderRadius: 99, background: 'rgba(99,102,241,0.1)', border: '1px solid rgba(99,102,241,0.2)', color: 'var(--accent-indigo-light)' }}>
+                    {tool.replace(/_/g, ' ')}
+                  </span>
+                ))}
               </div>
             )}
 

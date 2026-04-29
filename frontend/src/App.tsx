@@ -19,6 +19,8 @@ import DuplicativeFunding from './pages/DuplicativeFunding';
 import Methodology from './pages/Methodology';
 import ThresholdGaming from './pages/ThresholdGaming';
 import VendorConcentration from './pages/VendorConcentration';
+import PolicyMisalignment from './pages/PolicyMisalignment';
+import AdverseMedia from './pages/AdverseMedia';
 import './index.css';
 
 const API_BASE = import.meta.env.VITE_API_URL || '';
@@ -231,7 +233,7 @@ function Sidebar() {
         </NavLink>
         <NavLink to="/ghost-recipients" className={({ isActive }) => `nav-link ${isActive ? 'active' : ''}`}>
           <Ghost className="nav-link-icon" />
-          #2 Ghost Recipients
+          #2 Ghost Capacity
           <span className="nav-link-badge">{navStats?.ghost_count != null ? navStats.ghost_count.toLocaleString() : '...'}</span>
         </NavLink>
         <NavLink to="/loops" className={({ isActive }) => `nav-link ${isActive ? 'active' : ''}`}>
@@ -254,14 +256,19 @@ function Sidebar() {
           #6 Governance Networks
           <span className="nav-link-badge">{navStats?.multi_board_directors != null ? navStats.multi_board_directors.toLocaleString() : '...'}</span>
         </NavLink>
+        <NavLink to="/duplicative-funding" className={({ isActive }) => `nav-link ${isActive ? 'active' : ''}`}>
+          #8 Duplicative Funding
+        </NavLink>
         <NavLink to="/threshold-gaming" className={({ isActive }) => `nav-link ${isActive ? 'active' : ''}`}>
           <BarChart3 className="nav-link-icon" />
           #9 Threshold Gaming
           <span className="nav-link-badge">{navStats?.threshold_gaming_count != null ? navStats.threshold_gaming_count.toLocaleString() : '...'}</span>
         </NavLink>
-        <NavLink to="/duplicative-funding" className={({ isActive }) => `nav-link ${isActive ? 'active' : ''}`}>
-          <Shuffle className="nav-link-icon" />
-          Duplicative Funding
+        <NavLink to="/policy-misalignment" className={({ isActive }) => `nav-link ${isActive ? 'active' : ''}`}>
+          #7 Policy Misalignment
+        </NavLink>
+        <NavLink to="/adverse-media" className={({ isActive }) => `nav-link ${isActive ? 'active' : ''}`}>
+          #10 Adverse Media
         </NavLink>
 
         <div className="sidebar-section-label">AI Assistant</div>
@@ -300,12 +307,14 @@ const PAGE_TITLES = {
   '/dashboard': 'Investigation Dashboard',
   '/alerts': 'Multi-Flag Alerts — Cross-Challenge Intersections',
   '/zombies': 'Challenge #1 — Zombie Recipients',
-  '/ghost-recipients': 'Challenge #2 — Ghost Recipients',
+  '/ghost-recipients': 'Challenge #2 — Ghost Capacity',
   '/loops': 'Challenge #3 — Funding Loops',
   '/sole-source': 'Challenge #4 — Sole Source & Amendment Creep',
   '/governance': 'Challenge #6 — Governance Networks',
   '/threshold-gaming': 'Challenge #9 — Threshold Gaming',
   '/vendor-concentration': 'Challenge #5 — Vendor Concentration',
+  '/policy-misalignment': 'Challenge #7 — Policy Misalignment',
+  '/adverse-media': 'Challenge #10 — Adverse Media',
   '/chat': 'AI Investigator',
   '/entity': 'Entity Case File',
   '/duplicative-funding': 'Cross-Government Funding — Challenges #6 + #8',
@@ -323,6 +332,8 @@ const PAGE_CLASSES = {
   '/sole-source': 'page-dashboard',
   '/threshold-gaming': 'page-sole-source',
   '/vendor-concentration': 'page-dashboard',
+  '/policy-misalignment': 'page-dashboard',
+  '/adverse-media': 'page-zombies',
   '/chat': 'page-dashboard',
   '/duplicative-funding': 'page-governance',
 };
@@ -361,6 +372,8 @@ function MainLayout() {
             <Route path="/duplicative-funding" element={<DuplicativeFunding />} />
             <Route path="/about" element={<Methodology />} />
             <Route path="/vendor-concentration" element={<VendorConcentration />} />
+            <Route path="/policy-misalignment" element={<PolicyMisalignment />} />
+            <Route path="/adverse-media" element={<AdverseMedia />} />
           </Routes>
         </div>
       </main>

@@ -13,7 +13,7 @@
 
 - **Backend**: FastAPI + DuckDB (embedded, queries JSONL directly, no PostgreSQL needed)
 - **Frontend**: React + Vite (NOT create-react-app — use `import.meta.env.VITE_*` NOT `process.env.REACT_APP_*`)
-- **AI**: AWS Bedrock Converse API (primary on event day) + Anthropic SDK fallback
+- **AI**: AWS Bedrock Converse API (primary on event day) + Anthropic SDK fallback — **agentic tool_use** for chat, unified provider for all AI endpoints (no more Gemini dependency)
 - **Data**: 10GB JSONL files at `/mnt/c/Users/Hamza/Desktop/Current Project/AI Accountability Hackathon/data/`
 - **DuckDB file**: `data/hackathon.duckdb` — auto-created on first run, preloads JSONL tables into persistent tables (~2min first run, instant after)
 
@@ -38,13 +38,17 @@ If frontend shows blank screen: `window.location.href = 'http://localhost:5173/?
 | # | Name | Page | Status |
 |---|------|------|--------|
 | 1 | Zombie Recipients | `/zombies` | ✅ Working (table + loop crossref tab) |
-| 2 | Ghost Recipients | `/zombies` (Ghost tab) | ✅ Working (federal recipients silent 4+ years post-$500K grant) |
+| 2 | Ghost Capacity | `/ghost-recipients` | ✅ Working (persistent orgs with 0-3 employees, 80%+ govt dependency, $500K+ funding) |
 | 3 | Funding Loops | `/loops` | ✅ Working (table + MoneyTrace + classification filter + year-over-year chart) |
 | 4 | Sole Source & Amendment Creep | `/sole-source` | ✅ Working |
+| 5 | Vendor Concentration | `/vendor-concentration` | ✅ Working (HHI + CR-3 by dept/NAICS/region, AI briefs) |
 | 6 | Governance Networks | `/governance` | ✅ Working (self-dealing toggle) |
-| 9 | Threshold Gaming | `/threshold-gaming` | ✅ Working (grants clustered 85–99.9% below $25K/$100K/$1M) |
+| 7 | Policy Misalignment | `/policy-misalignment` | ✅ Working (dept spending vs stated priorities, AI analysis) |
+| 8 | Duplicative Funding | `/duplicative-funding` | ✅ Working (fed + AB dual funding + related parties) |
+| 9 | Threshold Gaming | `/threshold-gaming` | ✅ Working (grants clustered 85-99.9% below $25K/$100K/$1M) |
+| 10 | Adverse Media | `/adverse-media` | ✅ Working (AI-powered entity risk assessment + search queries) |
 | Multi | Cross-challenge Alerts | `/alerts` | ✅ Working |
-| AI | Ask AI Chat | `/chat` | ✅ Working |
+| AI | Agentic AI Investigator | `/chat` | ✅ Working (12 tools, Anthropic tool_use + Bedrock converse toolConfig, multi-turn autonomous investigation) |
 | Deep | Entity Case File | `/entity/:bn` | ✅ Working (flags, T3010 anomalies, overhead ratio, funding chart, loop table, AI narrative) |
 
 **PostgreSQL**: Shared Render.com DB connected (89 tables) — same data as DuckDB, provides dual-verification badge in sidebar
@@ -78,10 +82,8 @@ If frontend shows blank screen: `window.location.href = 'http://localhost:5173/?
 - Risk level filter and classification filter stacking without indicator — cosmetic only, both work correctly
 
 ### Data gaps
-- Chat: AI responses are template-only without Bedrock (`ai_enabled: false` in health check)
-- Alerts: `sole_source` flag not cross-referenced yet
-- Challenges not implemented: #8 Grant Stacking
 - `multi_board_directors` uses name-only matching — common names (e.g. "John Smith") across different people inflate count; no position/province disambiguation
+- Challenge #10 (Adverse Media) is AI-generated search queries, not actual media database integration
 
 ### Presentation depth
 - ~~Entity case file lacks zombie flag~~ → **FIXED**: zombie banner added (govt_share ≥ 70%, last_year ≤ 2022, total_govt ≥ $100K)
@@ -102,7 +104,9 @@ Key preloaded tables (in `_PRELOAD_TABLES`):
 - `cra__loops`, `cra__loop_charity_financials`, `cra__loop_financials`, `cra__loop_participants`
 - `cra__loop_edges`, `cra__loop_edge_year_flows`, `cra__identified_hubs`, `cra__scc_summary`
 - `cra__govt_funding_by_charity`, `cra__cra_identification`, `cra__cra_directors`
-- `ab__ab_sole_source`
+- `cra__cra_compensation` (Ghost Capacity employee counts)
+- `ab__ab_sole_source`, `ab__ab_contracts`
+- `general__entity_golden_records`, `fed__grants_contributions`
 
 ---
 
@@ -121,13 +125,25 @@ GET  /api/governance?min_boards=3&limit=50
 GET  /api/governance/self-dealing?min_boards=2&limit=50
 GET  /api/alerts?min_flags=2&limit=20
 GET  /api/sole-source?min_ratio=3&limit=50
-GET  /api/threshold-gaming?limit=50   — grants clustered 85–99.9% below $25K/$100K/$1M thresholds
-GET  /api/ghost-recipients?min_funding=500000&limit=50   — federal recipients silent 4+ years
+GET  /api/threshold-gaming?limit=50
+GET  /api/ghost-recipients?min_funding=500000&limit=50   — Ghost Capacity (0-3 employees, 80%+ govt)
+GET  /api/vendor-concentration?dimension=department&min_spending=1000000&limit=50
+GET  /api/vendor-concentration/stats
+GET  /api/vendor-concentration/detail?group_key=...&dimension=department&limit=20
+POST /api/vendor-concentration/brief   — AI concentration intelligence brief
+POST /api/vendor-concentration/analyze — AI auto-analysis across all dimensions
+GET  /api/duplicative-funding?min_fed=100000&min_ab=100000&limit=50
+GET  /api/duplicative-funding/stats
+GET  /api/related-parties?min_orgs=2&limit=50
+POST /api/duplicative-funding/summary  — AI investigative narrative
+GET  /api/policy-misalignment?limit=20 — Challenge #7: dept spending vs priorities + AI analysis
+POST /api/adverse-media                — Challenge #10: AI entity risk assessment (body: {name, bn})
+POST /api/entity-summary               — AI entity accountability summary
 GET  /api/entity/{bn}          — full case file (uses LEFT(bn,9) matching across all tables)
 GET  /api/dashboard/featured   — top 5 high-risk entities
 GET  /api/search?q=...
 GET  /api/health
-POST /api/chat  (body: {message: string})
+POST /api/chat  (body: {message: string}) — **AGENTIC**: 12 tools, multi-turn, autonomous investigation
 ```
 
 **Query param bounds** (FastAPI `Query` validators): `min_hops` 2–20, `max_hops` 2–20, `limit` 1–500, `risk_level` max 20 chars, `classification` max 50 chars.
@@ -139,17 +155,22 @@ POST /api/chat  (body: {message: string})
 | File | Purpose |
 |------|---------|
 | `backend/db_duckdb.py` | All DuckDB queries — all `get_*_live` functions |
-| `backend/main.py` | FastAPI routes + LLM chat logic + Query validators |
+| `backend/main.py` | FastAPI routes + agentic AI chat (12 tools, Bedrock + Anthropic tool_use) + Query validators |
 | `frontend/src/api.js` | All fetch functions — uses `import.meta.env.VITE_API_URL \|\| 'http://localhost:8000'` |
-| `frontend/src/App.jsx` | Router + sidebar with live alert count badge; `/entity/:bn` route |
+| `frontend/src/App.jsx` | Router + sidebar with live alert count badge; all 10 challenge routes |
 | `frontend/src/pages/FundingLoops.jsx` | Table + MoneyTrace expand + classification filter + suspicion tooltip |
 | `frontend/src/pages/Zombies.jsx` | Table + loop crossref tab |
+| `frontend/src/pages/GhostRecipients.jsx` | Ghost Capacity — orgs with 0-3 employees, 80%+ govt dependency |
 | `frontend/src/pages/Governance.jsx` | Director cards + self-dealing toggle |
 | `frontend/src/pages/EntityCaseFile.jsx` | Deep dive: flags, ECharts funding chart, loop table, AI narrative |
-| `frontend/src/pages/Dashboard.jsx` | Hero + Kill Shot card + featured cases |
+| `frontend/src/pages/Dashboard.jsx` | Hero + 6 key finding cards + AI investigator card |
 | `frontend/src/pages/Alerts.jsx` | Multi-flag alert cards |
-| `frontend/src/pages/Chat.jsx` | AI chat |
+| `frontend/src/pages/Chat.jsx` | Agentic AI chat with tool-use badges |
 | `frontend/src/pages/ThresholdGaming.jsx` | Threshold gaming detections (Challenge #9) |
+| `frontend/src/pages/VendorConcentration.jsx` | HHI + CR-3 analysis by dept/NAICS/region (Challenge #5) |
+| `frontend/src/pages/DuplicativeFunding.jsx` | Dual-funded orgs + related parties (Challenge #8) |
+| `frontend/src/pages/PolicyMisalignment.jsx` | Dept spending vs stated priorities + AI analysis (Challenge #7) |
+| `frontend/src/pages/AdverseMedia.jsx` | AI-powered entity adverse media risk assessment (Challenge #10) |
 | `frontend/src/index.css` | All CSS variables + component styles |
 
 ---
@@ -232,6 +253,27 @@ Classification: `score >= 6` → High Alert 🔴 · `score >= 3` → Suspicious 
 58. Challenge #9 not implemented — added `get_threshold_gaming_live` in db_duckdb.py (WITH thresholds CTE for $25K/$100K/$1M, 85–99.9% band, HAVING ≥3 grants), `/api/threshold-gaming` endpoint in main.py, `fetchThresholdGaming` in api.js, full ThresholdGaming.jsx page, NavLink + route in App.jsx.
 59. Challenge #2 (Ghost Recipients) not implemented — added `get_ghost_recipients_live` in db_duckdb.py (federal recipients with ≥$500K then ≥4 years silent or untraced BN), `/api/ghost-recipients` endpoint in main.py, `fetchGhostRecipients` in api.js, Ghost Recipients tab in Zombies.jsx with lazy-load.
 60. Threshold gaming cache key not parameterized — `cached("threshold_gaming", ...)` always returned same 50-row result regardless of `limit` param; fixed to `cached(f"threshold_gaming:{limit}", ...)`.
+61. Gemini-only AI endpoints silently failed — 4 POST endpoints (`/api/entity-summary`, `/api/duplicative-funding/summary`, `/api/vendor-concentration/brief`, `/api/vendor-concentration/analyze`) hardcoded Google Gemini API; returned empty `""` when GEMINI_API_KEY missing. Replaced all 4 with unified `_call_llm_simple()` using Bedrock/Anthropic cascade. Rule-based fallback preserved for vendor-concentration/analyze.
+62. Chat was keyword-routing, not agentic — `llm_enhanced_query()` matched keywords to pre-fetch data, pasted into prompt, asked LLM to narrate. Replaced with proper Anthropic SDK `tool_use` / Bedrock `converse toolConfig`: 12 investigative tools, max 6 turns, Claude autonomously queries databases, cross-references findings, generates narrative. `template_query()` kept as ultimate fallback.
+63. Ghost Recipients didn't match Challenge #2 spec — was finding "silent recipients" (no grants for 4+ years). Challenge asks for "Ghost Capacity" (persistent orgs with no delivery capability). Rewrote `get_ghost_capacity_live()` using `cra_compensation` (employee counts) + `govt_funding_by_charity` (dependency %): active orgs with 0-3 employees, 80%+ govt revenue, $500K+ funding. Risk-tiered: critical/high/medium. Added `cra_compensation` to `_PRELOAD_TABLES`.
+64. Challenge #7 (Policy Misalignment) not implemented — added `get_policy_misalignment_live()` in db_duckdb.py (federal spending by department), `/api/policy-misalignment` endpoint with LLM analysis comparing spending vs stated priorities, full PolicyMisalignment.jsx page.
+65. Challenge #10 (Adverse Media) not implemented — added `/api/adverse-media` POST endpoint with AI-powered entity risk assessment (search queries + red flag indicators from entity dossier), full AdverseMedia.jsx page with entity search + quick picks.
+66. Dashboard only showed 3 finding cards — added Sole-Source Contracts, Vendor Concentration, and AI Investigator cards; now 6 cards covering breadth of analysis.
+
+---
+
+## Agentic AI architecture
+
+The `/api/chat` endpoint uses proper Anthropic tool_use (not keyword routing). Claude autonomously decides which database tools to call.
+
+**Tools available** (defined in `INVESTIGATOR_TOOLS`):
+`search_zombies`, `search_funding_loops`, `search_governance`, `search_sole_source`, `search_vendor_concentration`, `search_duplicative_funding`, `search_threshold_gaming`, `get_entity_dossier`, `search_entities`, `get_cross_challenge_alerts`, `get_platform_stats`
+
+**Provider cascade**: Bedrock converse API (with toolConfig) → Anthropic SDK (with tools=) → template fallback
+
+**Flow**: User message → system prompt + tools → Claude calls tools (up to 6 turns) → backend executes via `_execute_tool()` → tool results back to Claude → final narrative
+
+**Tool results truncated** to 12,000 chars to stay within token limits.
 
 ---
 
