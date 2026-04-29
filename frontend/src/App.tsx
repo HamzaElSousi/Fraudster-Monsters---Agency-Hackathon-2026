@@ -41,7 +41,7 @@ function BackendStatus() {
   );
 }
 
-function Sidebar() {
+function Sidebar({ extraClass = '' }) {
   const [alertCount, setAlertCount] = useState(null);
   const [navStats, setNavStats] = useState(null);
   const [searchQuery, setSearchQuery] = useState('');
@@ -102,7 +102,7 @@ function Sidebar() {
   };
 
   return (
-    <aside className="sidebar">
+    <aside className={`sidebar ${extraClass}`}>
       <div className="sidebar-header">
         <NavLink to="/" className="sidebar-logo">
           <div className="sidebar-logo-icon" style={{ fontSize: 18, fontWeight: 900, fontFamily: "var(--font-mono)" }}>$</div>
@@ -365,18 +365,25 @@ const PAGE_CLASSES = {
 
 function MainLayout() {
   const location = useLocation();
+  const [sidebarOpen, setSidebarOpen] = useState(false);
   const pathKey = location.pathname.startsWith('/entity/') ? '/entity' : location.pathname;
   const pageTitle = PAGE_TITLES[pathKey] || 'Follow The Money';
   const pageClass = PAGE_CLASSES[pathKey] || '';
 
+  useEffect(() => { setSidebarOpen(false); }, [location.pathname]);
+
   return (
     <div className="app-layout">
-      <Sidebar />
+      {sidebarOpen && <div className="sidebar-overlay" onClick={() => setSidebarOpen(false)} />}
+      <Sidebar extraClass={sidebarOpen ? 'open' : ''} />
       <main className={`main-content ${pageClass}`}>
         <header className="main-header">
+          <button className="mobile-menu-btn" onClick={() => setSidebarOpen(o => !o)} aria-label="Menu">
+            <span /><span /><span />
+          </button>
           <h1 className="main-header-title">{pageTitle}</h1>
           <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
-            <span style={{ fontSize: 12, color: 'var(--text-muted)' }}>
+            <span style={{ fontSize: 12, color: 'var(--text-muted)' }} className="hide-mobile">
               Agency 2026 · AI Accountability Hackathon
             </span>
           </div>
