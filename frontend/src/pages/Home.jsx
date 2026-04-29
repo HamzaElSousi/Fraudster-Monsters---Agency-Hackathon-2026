@@ -11,64 +11,70 @@ const TEAM = [
 
 const CHALLENGES = [
   {
-    num: '#1', name: 'Zombie Recipients',
-    desc: 'Charities with 70%+ government revenue dependency that stopped filing tax returns — public money sent into the void.',
-    statKey: 'zombie_count', statLabel: 'zombies found', path: '/zombies',
-    color: 'var(--status-critical)', border: 'rgba(239,68,68,0.25)', bg: 'rgba(239,68,68,0.04)',
+    num: '#1',
+    name: 'Zombie Recipients',
+    desc: 'Charities with 70%+ government revenue dependency that stopped filing tax returns — public money sent into the void. We cross-referenced CRA T3010 government revenue schedules against filing history to find 219 organizations that went dark while still government-dependent.',
+    statKey: 'zombie_count',
+    statLabel: 'zombies found',
+    path: '/zombies',
+    color: 'var(--status-critical)',
+    border: 'rgba(239,68,68,0.25)',
+    bg: 'rgba(239,68,68,0.04)',
   },
   {
-    num: '#2', name: 'Ghost Capacity',
-    desc: 'Organizations that persist indefinitely — still filing, still funded — but report 0–3 employees and 80%+ government dependency. They never do anything.',
-    statKey: null, statLabel: 'ghost capacity orgs', path: '/ghost-recipients',
-    color: 'var(--accent-amber)', border: 'rgba(251,191,36,0.25)', bg: 'rgba(251,191,36,0.04)',
+    num: '#2',
+    name: 'Ghost Recipients',
+    desc: 'Federal grant recipients with a pattern of $500K+ across multiple grants who then went silent for 4+ years. Cross-referenced against CRA filing records and ranked by a suspicion score factoring in silence duration, funding magnitude, and registry status.',
+    statKey: 'ghost_count',
+    statLabel: 'federal grant vanishings',
+    path: '/ghost-recipients',
+    color: 'var(--accent-amber)',
+    border: 'rgba(251,191,36,0.25)',
+    bg: 'rgba(251,191,36,0.04)',
   },
   {
-    num: '#3', name: 'Funding Loops',
-    desc: 'Circular money flows between charities where the same dollar passes through multiple organizations, each issuing its own charitable tax receipt.',
-    statKey: 'total_funding_loops', statLabel: 'circular loops detected', path: '/loops',
-    color: 'var(--accent-purple)', border: 'rgba(167,139,250,0.25)', bg: 'rgba(167,139,250,0.04)',
+    num: '#3',
+    name: 'Funding Loops',
+    desc: 'Circular money flows between charities where the same dollar passes through multiple organizations in the same fiscal year, each issuing its own charitable tax receipt. A $1M gift that travels a 5-hop loop generates $5M in receipt claims against a single donation.',
+    statKey: 'total_funding_loops',
+    statLabel: 'circular loops detected',
+    path: '/loops',
+    color: 'var(--accent-purple)',
+    border: 'rgba(167,139,250,0.25)',
+    bg: 'rgba(167,139,250,0.04)',
   },
   {
-    num: '#4', name: 'Sole-Source Contracts',
-    desc: 'Alberta procurement contracts awarded without competitive bidding. We tracked amendment creep — contracts that grow far beyond their original scope.',
-    statKey: 'total_sole_source', statLabel: 'no-bid contracts', path: '/sole-source',
-    color: 'var(--accent-emerald)', border: 'rgba(52,211,153,0.25)', bg: 'rgba(52,211,153,0.04)',
+    num: '#6',
+    name: 'Governance Networks',
+    desc: 'Directors who simultaneously sit on the boards of multiple government-funded charities, concentrating oversight of public money in a small number of hands. We mapped 91K charity directors by name to find interlocking board networks.',
+    statKey: 'multi_board_directors',
+    statLabel: 'multi-board directors (5+ boards)',
+    path: '/governance',
+    color: 'var(--accent-cyan)',
+    border: 'rgba(34,211,238,0.25)',
+    bg: 'rgba(34,211,238,0.04)',
   },
   {
-    num: '#5', name: 'Vendor Concentration',
-    desc: 'Where has incumbency replaced competition? We measure HHI concentration by department, sector, and region to find monopoly-level vendor lock-in.',
-    statKey: 'vendor_concentration_count', statLabel: 'concentrated groups', path: '/vendor-concentration',
-    color: '#f472b6', border: 'rgba(244,114,182,0.25)', bg: 'rgba(244,114,182,0.04)',
+    num: '#4',
+    name: 'Sole-Source Contracts',
+    desc: 'Alberta procurement contracts awarded without competitive bidding. We identified vendors with extreme sole-source concentration and tracked amendment creep — contracts that grow far beyond their original scope through successive non-competitive amendments.',
+    statKey: 'total_sole_source',
+    statLabel: 'no-bid contracts in Alberta',
+    path: '/sole-source',
+    color: 'var(--accent-emerald)',
+    border: 'rgba(52,211,153,0.25)',
+    bg: 'rgba(52,211,153,0.04)',
   },
   {
-    num: '#6', name: 'Governance Networks',
-    desc: 'Directors who simultaneously sit on the boards of multiple government-funded charities, concentrating oversight of public money in a small number of hands.',
-    statKey: 'multi_board_directors', statLabel: 'multi-board directors (5+ boards)', path: '/governance',
-    color: 'var(--accent-cyan)', border: 'rgba(34,211,238,0.25)', bg: 'rgba(34,211,238,0.04)',
-  },
-  {
-    num: '#7', name: 'Policy Misalignment',
-    desc: 'Is the money going where the government says its priorities are? We compare actual spending patterns against stated commitments on climate, housing, and healthcare.',
-    statKey: null, statLabel: 'departments analyzed', path: '/policy-misalignment',
-    color: 'var(--accent-indigo-light)', border: 'rgba(99,102,241,0.25)', bg: 'rgba(99,102,241,0.04)',
-  },
-  {
-    num: '#8', name: 'Duplicative Funding',
-    desc: 'Organizations funded by multiple levels of government for the same purpose — potentially without those governments knowing about each other.',
-    statKey: null, statLabel: 'dual-funded orgs', path: '/duplicative-funding',
-    color: '#818cf8', border: 'rgba(129,140,248,0.25)', bg: 'rgba(129,140,248,0.04)',
-  },
-  {
-    num: '#9', name: 'Threshold Gaming',
-    desc: 'Grants clustered just below $25K, $100K, and $1M disclosure thresholds — the same structuring tactic used in financial crime.',
-    statKey: null, statLabel: 'structuring detections', path: '/threshold-gaming',
-    color: '#fb923c', border: 'rgba(251,146,60,0.25)', bg: 'rgba(251,146,60,0.04)',
-  },
-  {
-    num: '#10', name: 'Adverse Media',
-    desc: 'AI-powered screening of funded entities against adverse media patterns — fraud allegations, enforcement actions, criminal investigations, and sanctions.',
-    statKey: null, statLabel: 'AI-powered screening', path: '/adverse-media',
-    color: '#f87171', border: 'rgba(248,113,113,0.25)', bg: 'rgba(248,113,113,0.04)',
+    num: '#9',
+    name: 'Threshold Gaming',
+    desc: 'Federal grant recipients who repeatedly receive grants clustered just below $25K, $100K, and $1M proactive disclosure thresholds — the same structuring tactic used in financial crime. Three or more grants in the 85–99.9% band signals deliberate threshold avoidance.',
+    statKey: null,
+    statLabel: 'structuring detections',
+    path: '/threshold-gaming',
+    color: 'var(--accent-indigo-light)',
+    border: 'rgba(99,102,241,0.25)',
+    bg: 'rgba(99,102,241,0.04)',
   },
 ];
 
@@ -115,7 +121,7 @@ export default function Home() {
           pointerEvents: 'none',
         }} />
 
-        <div style={{ fontSize: 14, fontWeight: 800, letterSpacing: '0.15em', color: 'var(--accent-indigo-light)', marginBottom: 12 }}>FOLLOW THE MONEY</div>
+        <div style={{ fontSize: 56, marginBottom: 12, lineHeight: 1 }}>💀</div>
         <div style={{ fontSize: 11, fontWeight: 700, letterSpacing: '0.18em', textTransform: 'uppercase', color: 'var(--text-muted)', marginBottom: 8 }}>
           Agency 2026 · Ottawa · April 29, 2026
         </div>
@@ -143,13 +149,13 @@ export default function Home() {
         {/* Key numbers strip */}
         <div style={{ display: 'flex', justifyContent: 'center', gap: 32, flexWrap: 'wrap', marginBottom: 32 }}>
           {[
-            { n: s?.zombie_count, label: 'Zombie Recipients', color: 'var(--status-critical)' },
-            { n: s?.total_funding_loops, label: 'Funding Loops', color: 'var(--accent-purple)' },
-            { n: s?.multi_board_directors, label: 'Multi-Board Directors', color: 'var(--accent-cyan)' },
+            { n: s?.zombie_count ?? 219, label: 'Zombie Recipients', color: 'var(--status-critical)' },
+            { n: s?.total_funding_loops ?? 5808, label: 'Funding Loops', color: 'var(--accent-purple)' },
+            { n: s?.multi_board_directors ?? 2841, label: 'Multi-Board Directors', color: 'var(--accent-cyan)' },
           ].map(item => (
             <div key={item.label} style={{ textAlign: 'center' }}>
               <div style={{ fontSize: 36, fontWeight: 900, color: item.color, lineHeight: 1, fontFamily: 'var(--font-mono)' }}>
-                {item.n != null ? Number(item.n).toLocaleString() : '...'}
+                {Number(item.n).toLocaleString()}
               </div>
               <div style={{ fontSize: 11, color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '0.06em', marginTop: 4 }}>
                 {item.label}

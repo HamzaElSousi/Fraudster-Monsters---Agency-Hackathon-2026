@@ -297,6 +297,8 @@ body {
 .main-content {
   flex: 1;
   margin-left: var(--sidebar-width);
+  max-width: calc(100vw - var(--sidebar-width));
+  overflow-x: hidden;
   min-height: 100vh;
   display: flex;
   flex-direction: column;
