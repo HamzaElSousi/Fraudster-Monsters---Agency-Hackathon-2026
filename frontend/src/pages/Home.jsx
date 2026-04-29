@@ -4,8 +4,8 @@ import { fetchStats, formatNumber, formatCurrency } from '../api';
 
 const TEAM = [
   { name: 'Hamza El Sousi', email: 'hamza.sousi1998@gmail.com', role: 'Lead SWE / AI', link: 'https://github.com/HamzaElSousi' },
-  { name: 'Mansi Joshi', email: 'mansijoshi.mj04@gmail.com', role: 'Frontend SWE / AI', link: 'https://github.com/FaraDuMatin' },
-  { name: 'Farah Mohammed', email: 'mohameffarah1@gmail.com', role: 'Data / AI', link: 'https://github.com/mansijoshi04' },
+  { name: 'Mansi Joshi', email: 'mansijoshi.mj04@gmail.com', role: 'Frontend SWE / AI', link: 'https://github.com/mansijoshi04' },
+  { name: 'Farah Mohammed', email: 'mohameffarah1@gmail.com', role: 'Data / AI', link: 'https://github.com/FaraDuMatin' },
   { name: 'Keena Swanson', email: 'Keenas@gmail.com', role: 'SWE / AI', link: 'https://github.com/k334a' },
 ];
 
@@ -24,8 +24,8 @@ const CHALLENGES = [
   {
     num: '#2',
     name: 'Ghost Recipients',
-    desc: 'Federal grant recipients who received $500K or more in public funds, then went completely silent for 4+ years with no traceable business number in the CRA registry. These organizations exist in the federal disclosure database but nowhere else.',
-    statKey: null,
+    desc: 'Federal grant recipients with a pattern of $500K+ across multiple grants who then went silent for 4+ years. Cross-referenced against CRA filing records and ranked by a suspicion score factoring in silence duration, funding magnitude, and registry status.',
+    statKey: 'ghost_count',
     statLabel: 'federal grant vanishings',
     path: '/ghost-recipients',
     color: 'var(--accent-amber)',

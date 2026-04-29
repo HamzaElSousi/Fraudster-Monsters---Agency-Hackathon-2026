@@ -1,5 +1,39 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useMemo } from 'react';
 import { fetchGhostRecipients, fmtDollars } from '../api';
+
+const CRA_STATUS_META = {
+  cra_inactive: { label: 'CRA INACTIVE', color: 'var(--status-critical)', bg: 'rgba(239,68,68,0.1)' },
+  not_in_cra:   { label: 'NOT IN CRA',   color: 'var(--accent-amber)',    bg: 'rgba(251,191,36,0.1)' },
+  no_bn:        { label: 'NO BN',         color: 'var(--text-muted)',      bg: 'rgba(148,163,184,0.1)' },
+  cra_active:   { label: 'CRA ACTIVE',    color: 'var(--status-low)',      bg: 'rgba(34,197,94,0.08)' },
+};
+
+function SuspicionBadge({ score }) {
+  const color = score >= 70 ? 'var(--status-critical)' : score >= 40 ? 'var(--status-medium)' : 'var(--text-secondary)';
+  const bg = score >= 70 ? 'rgba(239,68,68,0.12)' : score >= 40 ? 'rgba(234,179,8,0.1)' : 'rgba(148,163,184,0.08)';
+  return (
+    <span style={{
+      display: 'inline-block', padding: '2px 8px', borderRadius: 'var(--radius-sm)',
+      fontWeight: 800, fontFamily: 'var(--font-mono)', fontSize: 13,
+      color, background: bg, border: `1px solid ${color}30`,
+    }}>
+      {score}
+    </span>
+  );
+}
+
+function CraStatusBadge({ status }) {
+  const meta = CRA_STATUS_META[status] || CRA_STATUS_META.no_bn;
+  return (
+    <span style={{
+      fontSize: 10, fontWeight: 700, fontFamily: 'var(--font-mono)',
+      padding: '2px 6px', borderRadius: 'var(--radius-sm)',
+      color: meta.color, background: meta.bg, border: `1px solid ${meta.color}30`,
+    }}>
+      {meta.label}
+    </span>
+  );
+}
 
 function MethodologyPanel() {
   const [open, setOpen] = useState(false);
@@ -20,21 +54,25 @@ function MethodologyPanel() {
       {open && (
         <div style={{ padding: '16px 20px', background: 'var(--bg-card)', fontSize: 13, color: 'var(--text-secondary)', lineHeight: 1.8 }}>
           <p style={{ marginBottom: 10 }}>
-            <strong style={{ color: 'var(--text-primary)' }}>Data source:</strong> Federal Proactive Disclosure dataset (1.27M records from 51+ departments, 2010–2024).
+            <strong style={{ color: 'var(--text-primary)' }}>Data source:</strong> Federal Proactive Disclosure dataset (1.27M records from 51+ departments, 2010–2024),
+            cross-referenced with CRA T3010 charity registry filing history.
           </p>
           <p style={{ marginBottom: 10 }}>
-            <strong style={{ color: 'var(--text-primary)' }}>Detection criteria:</strong> Recipients with cumulative grants of <strong>$500,000 or more</strong> who had
-            no recorded grant activity for <strong>4 or more consecutive years</strong> following their last payment. Business numbers (9-digit CRA BN)
-            were cross-referenced against the CRA charity registry — recipients without a matching BN are flagged as untraced.
+            <strong style={{ color: 'var(--text-primary)' }}>Detection criteria:</strong> Recipients with <strong>2 or more grants</strong> totaling
+            <strong> $500,000+</strong> who had no recorded grant activity for <strong>4+ consecutive years</strong>.
+            The minimum grant count requirement filters out one-time project funding and surfaces recipients with an established pattern that suddenly stopped.
           </p>
           <p style={{ marginBottom: 10 }}>
-            <strong style={{ color: 'var(--text-primary)' }}>Why it matters:</strong> Canada's Access to Information Act and the Proactive Disclosure regime require
-            departments to publish grants over $25,000. When a recipient vanishes from all public records after receiving substantial public funding,
-            there is no mechanism to verify how the money was spent or whether the organization still exists.
+            <strong style={{ color: 'var(--text-primary)' }}>CRA cross-reference:</strong> Each recipient's Business Number is checked against CRA T3010 filing records.
+            Organizations that stopped filing with CRA ("CRA Inactive") or have no CRA record at all ("Not in CRA") receive higher suspicion scores.
+          </p>
+          <p style={{ marginBottom: 10 }}>
+            <strong style={{ color: 'var(--text-primary)' }}>Suspicion score (0–100):</strong> Weighted composite of years silent (max 35), funding magnitude (max 25),
+            grant pattern depth (max 20), and CRA filing status (max 20). Higher scores indicate stronger investigative leads.
           </p>
           <p>
             <strong style={{ color: 'var(--text-primary)' }}>Limitations:</strong> Silence does not confirm fraud — organizations may have legitimately wound down.
-            However, the absence of any public record (CRA filing, incorporation registry, federal grants) warrants audit-level scrutiny.
+            However, the combination of sustained public funding followed by disappearance from all public registries warrants audit-level scrutiny.
           </p>
         </div>
       )}
@@ -48,7 +86,8 @@ export default function GhostRecipients() {
   const [error, setError] = useState(null);
   const [search, setSearch] = useState('');
   const [provinceFilter, setProvinceFilter] = useState('');
-  const [bnFilter, setBnFilter] = useState('');
+  const [craFilter, setCraFilter] = useState('');
+  const [sortBy, setSortBy] = useState('suspicion_score');
 
   useEffect(() => {
     setLoading(true);
@@ -61,17 +100,22 @@ export default function GhostRecipients() {
 
   const provinces = [...new Set(data.map(r => r.recipient_province).filter(Boolean))].sort();
 
-  const filtered = data.filter(r => {
-    const matchSearch = !search
-      || (r.recipient_legal_name || '').toLowerCase().includes(search.toLowerCase())
-      || (r.bn9 || '').includes(search);
-    const matchProvince = !provinceFilter || r.recipient_province === provinceFilter;
-    const matchBn = !bnFilter || (bnFilter === 'untraced' ? r.no_bn : !r.no_bn);
-    return matchSearch && matchProvince && matchBn;
-  });
+  const filtered = useMemo(() => {
+    let rows = data.filter(r => {
+      const matchSearch = !search
+        || (r.recipient_legal_name || '').toLowerCase().includes(search.toLowerCase())
+        || (r.bn9 || '').includes(search);
+      const matchProvince = !provinceFilter || r.recipient_province === provinceFilter;
+      const matchCra = !craFilter || r.cra_status === craFilter;
+      return matchSearch && matchProvince && matchCra;
+    });
+    rows.sort((a, b) => (b[sortBy] || 0) - (a[sortBy] || 0));
+    return rows;
+  }, [data, search, provinceFilter, craFilter, sortBy]);
 
   const totalValue = data.reduce((s, r) => s + (r.total_received || 0), 0);
-  const untracedCount = data.filter(r => r.no_bn).length;
+  const highSuspicion = data.filter(r => (r.suspicion_score || 0) >= 70).length;
+  const craInactive = data.filter(r => r.cra_status === 'cra_inactive' || r.cra_status === 'not_in_cra').length;
   const avgSilence = data.length > 0
     ? Math.round(data.reduce((s, r) => s + (r.years_silent || 0), 0) / data.length)
     : 0;
@@ -92,23 +136,24 @@ export default function GhostRecipients() {
         </div>
         <p style={{ fontSize: 15, color: 'var(--text-primary)', lineHeight: 1.7, marginBottom: 12, maxWidth: 820 }}>
           Between 2010 and 2024, the federal government sent over{' '}
-          <strong style={{ color: 'var(--accent-amber)' }}>{fmtDollars(totalValue)}</strong> to organizations that subsequently
-          disappeared from all public records. These are not bureaucratic oversights — they are entities that received substantial
-          public funding and then ceased to exist in any verifiable form. No CRA filings. No incorporation records. No further
-          federal activity. The money entered a void.
+          <strong style={{ color: 'var(--accent-amber)' }}>{fmtDollars(totalValue)}</strong> to organizations that received
+          multiple grants and then disappeared from all public records. These are entities with an established funding pattern
+          that suddenly ceased — no CRA filings, no further federal activity.
         </p>
         {!loading && data.length > 0 && (
           <p style={{ fontSize: 13, color: 'var(--text-secondary)', lineHeight: 1.6, maxWidth: 820 }}>
-            Our analysis flagged <strong style={{ color: 'var(--accent-amber)' }}>{data.length.toLocaleString()} recipient–department combinations</strong>{' '}
-            meeting the criteria: $500K+ in cumulative grants followed by {avgSilence}+ years of silence on average.{' '}
-            <strong style={{ color: 'var(--status-critical)' }}>{untracedCount}</strong> of these have no traceable Business Number in the CRA registry.
+            Our analysis flagged <strong style={{ color: 'var(--accent-amber)' }}>{data.length.toLocaleString()} recipients</strong>{' '}
+            meeting the criteria: 2+ grants totaling $500K+ followed by {avgSilence}+ years of silence on average.{' '}
+            <strong style={{ color: 'var(--status-critical)' }}>{highSuspicion}</strong> scored 70+ on our suspicion index, and{' '}
+            <strong style={{ color: 'var(--status-critical)' }}>{craInactive}</strong> have no active CRA filing record.
           </p>
         )}
         <div style={{ display: 'flex', gap: 28, flexWrap: 'wrap', marginTop: 16 }}>
           {[
             { label: 'Total Funds at Risk', value: loading ? '...' : fmtDollars(totalValue), color: 'var(--accent-amber)' },
             { label: 'Ghost Recipients', value: loading ? '...' : data.length.toLocaleString(), color: 'var(--text-primary)' },
-            { label: 'Untraced (No BN)', value: loading ? '...' : untracedCount.toLocaleString(), color: 'var(--status-critical)' },
+            { label: 'High Suspicion (70+)', value: loading ? '...' : highSuspicion.toLocaleString(), color: 'var(--status-critical)' },
+            { label: 'CRA Inactive/Missing', value: loading ? '...' : craInactive.toLocaleString(), color: 'var(--status-critical)' },
             { label: 'Avg Years Silent', value: loading ? '...' : `${avgSilence}y`, color: 'var(--text-secondary)' },
           ].map(stat => (
             <div key={stat.label}>
@@ -152,18 +197,33 @@ export default function GhostRecipients() {
         <div style={{ display: 'flex', gap: 6 }}>
           {[
             { key: '', label: 'All' },
-            { key: 'untraced', label: 'Untraced BN' },
-            { key: 'traced', label: 'Traced BN' },
+            { key: 'cra_inactive', label: 'CRA Inactive' },
+            { key: 'not_in_cra', label: 'Not in CRA' },
+            { key: 'no_bn', label: 'No BN' },
+            { key: 'cra_active', label: 'CRA Active' },
           ].map(opt => (
-            <button key={opt.key} onClick={() => setBnFilter(opt.key)} style={{
+            <button key={opt.key} onClick={() => setCraFilter(opt.key)} style={{
               padding: '7px 14px', fontSize: 12, cursor: 'pointer',
               borderRadius: 'var(--radius-md)',
-              border: `1px solid ${bnFilter === opt.key ? 'var(--accent-amber)' : 'var(--border-primary)'}`,
-              background: bnFilter === opt.key ? 'rgba(251,191,36,0.15)' : 'var(--bg-tertiary)',
-              color: bnFilter === opt.key ? 'var(--accent-amber)' : 'var(--text-secondary)',
+              border: `1px solid ${craFilter === opt.key ? 'var(--accent-amber)' : 'var(--border-primary)'}`,
+              background: craFilter === opt.key ? 'rgba(251,191,36,0.15)' : 'var(--bg-tertiary)',
+              color: craFilter === opt.key ? 'var(--accent-amber)' : 'var(--text-secondary)',
             }}>{opt.label}</button>
           ))}
         </div>
+        <select
+          value={sortBy}
+          onChange={e => setSortBy(e.target.value)}
+          style={{
+            background: 'var(--bg-tertiary)', border: '1px solid var(--border-primary)',
+            borderRadius: 'var(--radius-md)', color: 'var(--text-primary)',
+            padding: '8px 12px', fontSize: 13, outline: 'none', cursor: 'pointer',
+          }}
+        >
+          <option value="suspicion_score">Sort: Suspicion Score</option>
+          <option value="total_received">Sort: Total Received</option>
+          <option value="years_silent">Sort: Years Silent</option>
+        </select>
         <span style={{ fontSize: 12, color: 'var(--text-muted)', marginLeft: 'auto' }}>
           {filtered.length.toLocaleString()} results
         </span>
@@ -195,14 +255,16 @@ export default function GhostRecipients() {
           <table className="data-table">
             <thead>
               <tr>
+                <th title="Suspicion score 0-100 based on silence, funding, pattern, CRA status">Score</th>
                 <th>Recipient</th>
                 <th>Province</th>
                 <th title="Total federal grants received across all departments">Total Received</th>
                 <th title="Year of last recorded federal grant">Last Grant</th>
-                <th title="Years elapsed since last federal grant with no public activity">Years Silent</th>
+                <th title="Years elapsed since last federal grant">Years Silent</th>
                 <th title="Number of distinct grant disbursements"># Grants</th>
                 <th title="Number of distinct federal departments that funded this recipient">Depts</th>
-                <th title="Whether a valid 9-digit CRA Business Number was recorded">BN Status</th>
+                <th title="CRA filing status cross-reference">CRA Status</th>
+                <th title="Last year the organization filed with CRA">CRA Last Filed</th>
               </tr>
             </thead>
             <tbody>
@@ -211,6 +273,7 @@ export default function GhostRecipients() {
                 const silentColor = silent >= 8 ? 'var(--status-critical)' : silent >= 5 ? 'var(--status-medium)' : 'var(--text-secondary)';
                 return (
                   <tr key={i}>
+                    <td><SuspicionBadge score={r.suspicion_score || 0} /></td>
                     <td>
                       <div style={{ fontWeight: 600, fontSize: 13 }}>{r.recipient_legal_name || '—'}</div>
                       {r.bn9 && r.bn9.length >= 9 && (
@@ -235,10 +298,9 @@ export default function GhostRecipients() {
                     <td style={{ fontFamily: 'var(--font-mono)', fontSize: 13, color: 'var(--text-secondary)' }}>
                       {r.dept_count || '—'}
                     </td>
-                    <td>
-                      {r.no_bn
-                        ? <span style={{ color: 'var(--status-critical)', fontWeight: 700, fontSize: 11, fontFamily: 'var(--font-mono)' }}>UNTRACED</span>
-                        : <span style={{ color: 'var(--status-low)', fontSize: 11, fontFamily: 'var(--font-mono)' }}>TRACED</span>}
+                    <td><CraStatusBadge status={r.cra_status} /></td>
+                    <td style={{ fontFamily: 'var(--font-mono)', fontSize: 12, color: 'var(--text-muted)' }}>
+                      {r.cra_last_filing > 0 ? r.cra_last_filing : '—'}
                     </td>
                   </tr>
                 );

@@ -201,6 +201,12 @@ export async function fetchDuplicativeFundingSummary() {
   return res.json();
 }
 
+export async function fetchFlaggedOrgs(filter = 'all', sort = 'risk_score', limit = 50) {
+  const res = await fetch(`${API_BASE}/api/flagged-orgs?filter=${filter}&sort=${sort}&limit=${limit}`);
+  if (!res.ok) throw new Error('Failed to fetch flagged orgs');
+  return res.json();
+}
+
 export async function fetchThresholdGaming(limit = 50) {
   const res = await fetch(`${API_BASE}/api/threshold-gaming?limit=${limit}`);
   if (!res.ok) throw new Error('Failed to fetch threshold gaming');
@@ -248,3 +254,32 @@ export async function fetchVendorConcentrationAnalysis() {
 }
 
 // ── END CHALLENGE 5 ─────────────────────────────────────────────────────────
+
+// ── CHALLENGE 7: Policy Misalignment ────────────────────────────────────────
+export async function fetchPolicyMisalignment(limit = 20) {
+  const res = await fetch(`${API_BASE}/api/policy-misalignment?limit=${limit}`);
+  if (!res.ok) throw new Error('Failed to fetch policy misalignment data');
+  return res.json();
+}
+
+// ── OSINT Investigation ────────────────────────────────────────────────────
+export async function fetchInvestigation(name: string, bn: string) {
+  const res = await fetch(`${API_BASE}/api/investigate`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ name, bn }),
+  });
+  if (!res.ok) throw new Error('Failed to generate investigation report');
+  return res.json();
+}
+
+// ── CHALLENGE 10: Adverse Media ─────────────────────────────────────────────
+export async function fetchAdverseMedia(name, bn) {
+  const res = await fetch(`${API_BASE}/api/adverse-media`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ name, bn }),
+  });
+  if (!res.ok) throw new Error('Failed to fetch adverse media analysis');
+  return res.json();
+}
