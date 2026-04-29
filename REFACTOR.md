@@ -1,4 +1,4 @@
-# CLAUDE.md — AuditLens: AI-Powered Public Funds Accountability Engine
+# CLAUDE.md — FraudsterMonsters: AI-Powered Public Funds Accountability Engine
 > **Hackathon:** Agency 2026 — AI For Accountability | **Date:** April 29, 2026
 > **Team:** MJ (Frontend/React/TypeScript) + Partner (Backend/Python/Data)
 > **Stack:** React + TypeScript + Vite | Python + FastAPI | DuckDB | Gemini API (→ Claude on day)
@@ -15,10 +15,10 @@ Canadian government auditors investigate funding fraud, waste, and misuse **manu
 - **Duplicate-funded recipients** receiving money from both federal and provincial governments for identical purposes
 - **Governance networks** where the same individuals control multiple funded organizations
 
-**AuditLens replaces 3 weeks of manual auditor research with a 3-minute AI-generated investigation case file.**
+**FraudsterMonsters replaces 3 weeks of manual auditor research with a 3-minute AI-generated investigation case file.**
 
 ### What the Product Does
-A government auditor arrives at AuditLens and either:
+A government auditor arrives at FraudsterMonsters and either:
 1. **Searches** for a specific organization by name, Business Number, or keyword
 2. **Browses** the AI-ranked feed of highest-risk flagged organizations
 
@@ -292,14 +292,14 @@ This is a tool for serious professional use — auditors in federal and provinci
 ```
 ┌─────────────────────────────────────────────────────────────────┐
 │  HEADER                                                         │
-│  AuditLens logo (left) | "Methodology" link (right)            │
+│  FraudsterMonsters logo (left) | "Methodology" link (right)            │
 ├─────────────────────────────────────────────────────────────────┤
 │  HERO SECTION                                                   │
 │                                                                 │
 │  "Public money.                                                 │
 │   Accountable to the public."                                   │
 │                                                                 │
-│  [subtitle: "AuditLens surfaces funding anomalies across        │
+│  [subtitle: "FraudsterMonsters surfaces funding anomalies across        │
 │   23M+ government records — giving auditors an AI-generated     │
 │   investigation brief in seconds, not weeks."]                  │
 │                                                                 │
@@ -327,7 +327,7 @@ This is a tool for serious professional use — auditors in federal and provinci
 │  │          │  │          │  │          │  │interest  │       │
 │  └──────────┘  └──────────┘  └──────────┘  └──────────┘       │
 │                                                                 │
-│  "Without a tool like AuditLens, investigating one organization │
+│  "Without a tool like FraudsterMonsters, investigating one organization │
 │   takes an auditor 2–3 weeks of manual cross-referencing.       │
 │   We reduce that to under 3 minutes."                           │
 ├─────────────────────────────────────────────────────────────────┤
@@ -1020,7 +1020,7 @@ This page is important for judges. It explains:
 1. **Data sources** — CRA T3010, Federal G&C, Alberta Open Data, Entity Resolution layer
 2. **How risk scoring works** — exact criteria for each flag (tables from Section 3 above)
 3. **What AI does** — prompt construction, what data goes in, what comes out
-4. **Limitations** — what AuditLens does NOT claim (it surfaces risk signals, not guilt)
+4. **Limitations** — what FraudsterMonsters does NOT claim (it surfaces risk signals, not guilt)
 5. **How to read a case file** — brief guide for new auditors
 
 ---
@@ -1055,13 +1055,13 @@ This page is important for judges. It explains:
 
 ## 13. DEMO SCRIPT (60 seconds)
 
-> "We built AuditLens — an AI investigation engine for government auditors.
+> "We built FraudsterMonsters — an AI investigation engine for government auditors.
 >
 > The problem: auditors today cross-reference CRA charity filings, federal grants, and provincial contracts manually. One investigation takes weeks.
 >
 > Watch. I type in an organization name. [type]
 >
-> Instantly, AuditLens pulls live data across 23 million government records, scores this organization across four risk dimensions — zombie signals, circular funding loops, duplicate federal-provincial funding, and governance networks — and generates an AI investigation brief.
+> Instantly, FraudsterMonsters pulls live data across 23 million government records, scores this organization across four risk dimensions — zombie signals, circular funding loops, duplicate federal-provincial funding, and governance networks — and generates an AI investigation brief.
 >
 > [scroll to brief] This is what a senior analyst would write after two weeks of research. We generate it in seconds.
 >

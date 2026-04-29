@@ -7,7 +7,7 @@ export default function Methodology() {
       {/* Intro */}
       <div style={{ marginBottom: 24 }}>
         <p style={{ fontSize: 15, color: 'var(--text-secondary)', lineHeight: 1.8 }}>
-          AuditLens surfaces funding anomalies across 23M+ government records. This page explains exactly how it works —
+          FraudsterMonsters surfaces funding anomalies across 23M+ government records. This page explains exactly how it works —
           what data we use, how risk scores are calculated, what AI does, and what the tool does not claim.
         </p>
       </div>
@@ -119,7 +119,7 @@ export default function Methodology() {
       <div className="methodology-section">
         <h2 style={{ display: 'flex', alignItems: 'center', gap: 8 }}><Bot size={18} /> What the AI Does</h2>
         <p style={{ fontSize: 14, color: 'var(--text-secondary)', lineHeight: 1.7, marginBottom: 16 }}>
-          AuditLens uses AI in two ways: generating investigation briefs and answering natural-language questions about the data.
+          FraudsterMonsters uses AI in two ways: generating investigation briefs and answering natural-language questions about the data.
         </p>
         <table className="methodology-table">
           <thead><tr><th>Feature</th><th>What goes in</th><th>What comes out</th><th>AI Provider</th></tr></thead>
