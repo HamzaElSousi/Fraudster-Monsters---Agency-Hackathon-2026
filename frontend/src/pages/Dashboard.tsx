@@ -23,21 +23,25 @@ const PROBLEM_CARDS = [
     Icon: Skull,
     title: 'Zombie Orgs',
     desc: 'Received public funding then dissolved shortly after — money may not have reached stated purpose.',
+    link: '/zombies',
   },
   {
     Icon: Repeat2,
     title: 'Circular Loops',
     desc: 'Charity money cycling between related entities, inflating revenue with no real program output.',
+    link: '/loops',
   },
   {
     Icon: Banknote,
     title: 'Duplicate Funding',
     desc: 'Same organization funded by both federal and provincial governments for the same purpose.',
+    link: '/duplicative-funding',
   },
   {
     Icon: Users,
     title: 'Governance Networks',
     desc: 'Same directors controlling multiple funded organizations — conflicts of interest at scale.',
+    link: '/governance',
   },
 ];
 
@@ -172,7 +176,7 @@ export default function Dashboard() {
         {viewMode === 'grid' ? (
           <div className="problem-strip-grid">
             {PROBLEM_CARDS.map(c => (
-              <div className="problem-card" key={c.title}>
+              <div className="problem-card" key={c.title} onClick={() => navigate(c.link)} style={{ cursor: 'pointer' }}>
                 <div className="problem-card-icon"><c.Icon size={20} /></div>
                 <div className="problem-card-title">{c.title}</div>
                 <div className="problem-card-desc">{c.desc}</div>
@@ -182,7 +186,7 @@ export default function Dashboard() {
         ) : (
           <div className="problem-list">
             {PROBLEM_CARDS.map(c => (
-              <div className="problem-list-row" key={c.title}>
+              <div className="problem-list-row" key={c.title} onClick={() => navigate(c.link)} style={{ cursor: 'pointer' }}>
                 <div className="problem-list-row-icon"><c.Icon size={22} /></div>
                 <div className="problem-list-row-body">
                   <div className="problem-list-row-title">{c.title}</div>
@@ -213,7 +217,16 @@ export default function Dashboard() {
       {/* ── Flagged Orgs Feed ── */}
       <div style={{ marginTop: 28 }}>
         <div className="feed-header">
-          <div className="feed-title">Today's Highest-Risk Recipients</div>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+            <div className="feed-title">Today's Highest-Risk Recipients</div>
+            <a
+              href={`${import.meta.env.VITE_API_URL || ''}/api/export/flagged-orgs.csv?filter=${filter}&sort=${sort}`}
+              download
+              className="feed-export-btn"
+            >
+              Export CSV
+            </a>
+          </div>
           <div className="feed-controls">
             {FILTER_OPTIONS.map(f => (
               <button

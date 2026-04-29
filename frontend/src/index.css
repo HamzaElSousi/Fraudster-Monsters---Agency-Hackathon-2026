@@ -1461,6 +1461,24 @@ body {
   background: var(--color-accent);
   color: #000;
 }
+.feed-export-btn {
+  display: inline-flex;
+  align-items: center;
+  padding: 5px 12px;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--text-muted);
+  border: 1px solid var(--border-primary);
+  border-radius: var(--radius-sm);
+  background: var(--bg-tertiary);
+  text-decoration: none;
+  transition: all var(--transition-fast);
+  white-space: nowrap;
+}
+.feed-export-btn:hover {
+  color: var(--text-primary);
+  border-color: var(--color-accent);
+}
 
 /* ── Case File Tabs ──────────────────────────────────────────────────────── */
 .case-tabs {

@@ -143,16 +143,20 @@ function OrgCard({ row, index }) {
   const handleGenerateAI = async (e) => {
     e.stopPropagation();
     setAiLoading(true);
-    const result = await fetchEntitySummary({
-      name: row.canonical_name,
-      fed_total: row.fed_total,
-      ab_total: row.ab_total,
-      fed_departments: fedDepts,
-      ab_ministries: abMins,
-      entity_type: row.entity_type,
-      city: row.city,
-    });
-    setAiSummary(result.summary || '');
+    try {
+      const result = await fetchEntitySummary({
+        name: row.canonical_name,
+        fed_total: row.fed_total,
+        ab_total: row.ab_total,
+        fed_departments: fedDepts,
+        ab_ministries: abMins,
+        entity_type: row.entity_type,
+        city: row.city,
+      });
+      setAiSummary(result.summary || '⚠ AI analysis unavailable — no response from model.');
+    } catch {
+      setAiSummary('⚠ AI analysis unavailable — request failed.');
+    }
     setAiLoading(false);
   };
 

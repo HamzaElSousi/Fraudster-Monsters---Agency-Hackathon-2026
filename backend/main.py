@@ -5,12 +5,15 @@ Agency 2026 Ottawa Hackathon
 """
 
 import os
+import csv
+import io
 import json
 import asyncio
 from datetime import datetime
 from contextlib import asynccontextmanager
 
 from fastapi import FastAPI, Query, HTTPException
+from fastapi.responses import StreamingResponse
 from fastapi.middleware.cors import CORSMiddleware
 from dotenv import load_dotenv
 
@@ -513,9 +516,30 @@ def get_related_parties(
     return {"results": results, "count": len(results), "query_mode": "duckdb-live"}
 
 
+def _entity_summary_fallback(name, fed_total, ab_total, fed_departments, ab_ministries, entity_type, city):
+    """Data-driven template when AI APIs are unavailable."""
+    combined = fed_total + ab_total
+    parts = []
+    loc = f" based in {city}" if city else ""
+    parts.append(f"{name}{loc} receives ${combined:,.0f} in combined government funding — "
+                 f"${fed_total:,.0f} federal and ${ab_total:,.0f} from Alberta.")
+    if len(fed_departments) > 1 or len(ab_ministries) > 1:
+        sources = []
+        if len(fed_departments) > 1:
+            sources.append(f"{len(fed_departments)} federal departments")
+        if len(ab_ministries) > 1:
+            sources.append(f"{len(ab_ministries)} Alberta ministries")
+        parts.append(f"This organization draws from {' and '.join(sources)} simultaneously, "
+                     "creating overlapping oversight responsibilities that may reduce accountability.")
+    else:
+        parts.append("Dual-source funding from both levels of government warrants review "
+                     "for potential duplication of purpose.")
+    return " ".join(parts)
+
+
 @app.post("/api/entity-summary")
 async def get_entity_summary(body: dict):
-    """Per-org Gemini narrative: 2-sentence accountability summary for a specific organization."""
+    """Per-org AI narrative: 2-sentence accountability summary for a specific organization."""
     name = body.get("name", "")
     fed_total = float(body.get("fed_total") or 0)
     ab_total = float(body.get("ab_total") or 0)
@@ -524,32 +548,56 @@ async def get_entity_summary(body: dict):
     entity_type = body.get("entity_type", "")
     city = body.get("city", "")
 
-    gemini_key = os.getenv("GEMINI_API_KEY", "")
-    if not gemini_key or not name:
+    if not name:
         return {"summary": ""}
 
-    try:
-        import httpx
-        fed_dept_str = json.dumps(fed_departments) if isinstance(fed_departments, list) else str(fed_departments)
-        ab_min_str = json.dumps(ab_ministries) if isinstance(ab_ministries, list) else str(ab_ministries)
-        prompt = (
-            f"Organization: {name} ({entity_type}, {city})\n"
-            f"Federal funding: ${fed_total:,.0f} from departments: {fed_dept_str}\n"
-            f"Alberta funding: ${ab_total:,.0f} from ministries: {ab_min_str}\n\n"
-            "In 2 sentences, explain why this organization's dual-government funding pattern is "
-            "noteworthy from an accountability perspective. Be specific about the departments and "
-            "dollar amounts. Plain text only, no markdown."
-        )
-        async with httpx.AsyncClient(timeout=12) as client:
-            r = await client.post(
-                f"https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key={gemini_key}",
-                json={"contents": [{"parts": [{"text": prompt}]}]},
+    # Try Gemini first
+    gemini_key = os.getenv("GEMINI_API_KEY", "")
+    if gemini_key:
+        try:
+            import urllib.request
+            fed_dept_str = json.dumps(fed_departments) if isinstance(fed_departments, list) else str(fed_departments)
+            ab_min_str = json.dumps(ab_ministries) if isinstance(ab_ministries, list) else str(ab_ministries)
+            prompt = (
+                f"Organization: {name} ({entity_type}, {city})\n"
+                f"Federal funding: ${fed_total:,.0f} from departments: {fed_dept_str}\n"
+                f"Alberta funding: ${ab_total:,.0f} from ministries: {ab_min_str}\n\n"
+                "In 2 sentences, explain why this organization's dual-government funding pattern is "
+                "noteworthy from an accountability perspective. Be specific about the departments and "
+                "dollar amounts. Plain text only, no markdown."
             )
-        text = r.json()["candidates"][0]["content"]["parts"][0]["text"]
-        return {"summary": text.strip()}
+            payload = json.dumps({"contents": [{"parts": [{"text": prompt}]}]}).encode()
+            req = urllib.request.Request(
+                f"https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key={gemini_key}",
+                data=payload,
+                headers={"Content-Type": "application/json"},
+                method="POST",
+            )
+            with urllib.request.urlopen(req, timeout=12) as resp:
+                data = json.loads(resp.read())
+            text = data["candidates"][0]["content"]["parts"][0]["text"]
+            if text.strip():
+                return {"summary": text.strip()}
+        except Exception as e:
+            print(f"[Gemini] entity-summary error for {name}: {e}")
+
+    # Try Bedrock / Anthropic
+    try:
+        prompt = (
+            f"Organization: {name} ({entity_type}, {city}). "
+            f"Federal funding: ${fed_total:,.0f} from {len(fed_departments)} departments. "
+            f"Alberta funding: ${ab_total:,.0f} from {len(ab_ministries)} ministries. "
+            "In 2 sentences, explain why this dual-government funding is noteworthy for accountability. "
+            "Be specific. Plain text only."
+        )
+        text = await _call_llm("You are an investigative analyst reviewing Canadian government funding.", prompt)
+        if text.strip():
+            return {"summary": text.strip()}
     except Exception as e:
-        print(f"[Gemini] entity-summary error for {name}: {e}")
-        return {"summary": ""}
+        print(f"[LLM] entity-summary fallback error for {name}: {e}")
+
+    # Data-driven template fallback
+    return {"summary": _entity_summary_fallback(name, fed_total, ab_total, fed_departments, ab_ministries, entity_type, city)}
 
 
 @app.post("/api/duplicative-funding/summary")
@@ -561,33 +609,65 @@ async def get_duplicative_funding_summary():
     top_orgs = _duck.get_duplicative_funding_live(min_fed=10_000_000, min_ab=10_000_000, limit=5)
     top_directors = _duck.get_related_parties_live(min_orgs=3, limit=3)
 
-    gemini_key = os.getenv("GEMINI_API_KEY", "")
-    if not gemini_key:
-        return {"summary": ""}
+    orgs_data = [{"name": o["canonical_name"], "fed": o["fed_total"], "ab": o["ab_total"]} for o in top_orgs]
+    dirs_data = [{"name": d["first_name"] + " " + d["last_name"], "orgs": d["org_count"], "funding": d["total_gov_funding"]} for d in top_directors]
 
-    try:
-        import httpx
-        orgs_data = [{"name": o["canonical_name"], "fed": o["fed_total"], "ab": o["ab_total"]} for o in top_orgs]
-        dirs_data = [{"name": d["first_name"] + " " + d["last_name"], "orgs": d["org_count"], "funding": d["total_gov_funding"]} for d in top_directors]
-        prompt = (
-            "You are an investigative analyst for a Canadian government accountability tool.\n"
-            "Based on these real findings from public government data:\n\n"
-            "Top dual-funded organizations:\n" + json.dumps(orgs_data, indent=2) + "\n\n"
-            "Top cross-org directors:\n" + json.dumps(dirs_data, indent=2) + "\n\n"
-            "Write a 2-3 sentence investigative summary highlighting the most significant findings about "
-            "organizations receiving funding from both federal and Alberta governments simultaneously, "
-            "and any notable governance overlap. Be specific, cite names and dollar amounts. Plain text only, no markdown."
-        )
-        async with httpx.AsyncClient(timeout=15) as client:
-            r = await client.post(
+    ai_prompt = (
+        "You are an investigative analyst for a Canadian government accountability tool.\n"
+        "Based on these real findings from public government data:\n\n"
+        "Top dual-funded organizations:\n" + json.dumps(orgs_data, indent=2) + "\n\n"
+        "Top cross-org directors:\n" + json.dumps(dirs_data, indent=2) + "\n\n"
+        "Write a 2-3 sentence investigative summary highlighting the most significant findings about "
+        "organizations receiving funding from both federal and Alberta governments simultaneously, "
+        "and any notable governance overlap. Be specific, cite names and dollar amounts. Plain text only, no markdown."
+    )
+
+    # Try Gemini
+    gemini_key = os.getenv("GEMINI_API_KEY", "")
+    if gemini_key:
+        try:
+            import urllib.request
+            payload = json.dumps({"contents": [{"parts": [{"text": ai_prompt}]}]}).encode()
+            req = urllib.request.Request(
                 f"https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key={gemini_key}",
-                json={"contents": [{"parts": [{"text": prompt}]}]},
+                data=payload,
+                headers={"Content-Type": "application/json"},
+                method="POST",
             )
-        text = r.json()["candidates"][0]["content"]["parts"][0]["text"]
-        return {"summary": text.strip()}
+            with urllib.request.urlopen(req, timeout=15) as resp:
+                data = json.loads(resp.read())
+            text = data["candidates"][0]["content"]["parts"][0]["text"]
+            if text.strip():
+                return {"summary": text.strip()}
+        except Exception as e:
+            print(f"[Gemini] duplicative-funding summary error: {e}")
+
+    # Try Bedrock / Anthropic
+    try:
+        text = await _call_llm("You are an investigative analyst for a Canadian government accountability tool.", ai_prompt)
+        if text.strip():
+            return {"summary": text.strip()}
     except Exception as e:
-        print(f"[Gemini] duplicative-funding summary error: {e}")
-        return {"summary": ""}
+        print(f"[LLM] duplicative-funding summary fallback error: {e}")
+
+    # Data-driven template fallback
+    parts = []
+    if orgs_data:
+        top = orgs_data[0]
+        parts.append(
+            f"Our analysis identified {len(top_orgs)} organizations receiving over $10M from both "
+            f"federal and Alberta governments. The largest, {top['name']}, receives "
+            f"${top['fed']:,.0f} in federal funding and ${top['ab']:,.0f} from Alberta."
+        )
+    if dirs_data:
+        d = dirs_data[0]
+        parts.append(
+            f"Director {d['name']} governs {d['orgs']} dual-funded organizations controlling "
+            f"${d['funding']:,.0f} in combined government funding, raising conflict-of-interest concerns."
+        )
+    if not parts:
+        parts.append("Insufficient data to generate a summary at this time.")
+    return {"summary": " ".join(parts)}
 
 
 # ── Sole Source / Amendment Creep ────────────────────────────────────────────
@@ -682,14 +762,29 @@ def get_entity_case_file(bn: str):
     if len(bn) < 9:
         raise HTTPException(400, "Invalid BN format — must be at least 9 characters")
     data = _duck.cached(f"entity:{bn}", _duck.get_entity_case_file_live, bn)
-    # Append risk score
+    # Append risk score — build a flat scoring dict with the field names risk_scorer expects
     try:
         from risk_scorer import calculate_score, get_triggered_flags
-        result = calculate_score(data)
-        data["risk_score"]    = result["score"]
-        data["risk_tier"]     = result["tier"]
+        zs       = data.get("zombie_status") or {}
+        loops    = data.get("loops") or []
+        dirs     = data.get("directors") or []
+        fed_rows = data.get("federal_grants") or []
+        scoring = {
+            "govt_share":          (zs.get("govt_share_pct") or 0) / 100.0,
+            "last_year":           zs.get("last_filing_year") or 9999,
+            "total_govt":          zs.get("total_govt_funding") or 0,
+            "loop_count":          data.get("loop_count") or 0,
+            "loop_total":          max((l.get("total_flow") or 0 for l in loops), default=0),
+            "max_loop_hops":       max((l.get("hops") or 0 for l in loops), default=0),
+            "fed_total":           sum(r.get("amount") or 0 for r in fed_rows),
+            "ab_total":            0,
+            "max_director_boards": max((d.get("board_count") or 1 for d in dirs), default=0),
+        }
+        result = calculate_score(scoring)
+        data["risk_score"]     = result["score"]
+        data["risk_tier"]      = result["tier"]
         data["risk_breakdown"] = result["breakdown"]
-        data["risk_flags"]    = get_triggered_flags(data, result["breakdown"])
+        data["risk_flags"]     = get_triggered_flags(scoring, result["breakdown"])
     except Exception as e:
         print(f"[risk_scorer] entity scoring error: {e}")
         data.setdefault("risk_score", 0)
@@ -712,6 +807,32 @@ def get_flagged_orgs(
     return {"orgs": orgs, "total": len(orgs)}
 
 
+# ── CSV Export ────────────────────────────────────────────────────────────────
+@app.get("/api/export/flagged-orgs.csv")
+def export_flagged_orgs_csv(
+    filter: str = Query(default="all", max_length=20),
+    sort:   str = Query(default="risk_score", max_length=20),
+):
+    """Download flagged orgs as CSV. Always fetches fresh (bypasses cache)."""
+    orgs = _duck.get_flagged_orgs_live(500, filter, sort)
+    output = io.StringIO()
+    fields = ["bn_root", "canonical_name", "city", "province",
+              "risk_score", "tier", "flags", "combined_funding", "last_year",
+              "loop_count", "max_director_boards"]
+    writer = csv.DictWriter(output, fieldnames=fields, extrasaction="ignore")
+    writer.writeheader()
+    for row in orgs:
+        row = dict(row)
+        row["flags"] = "|".join(row.get("flags") or [])
+        writer.writerow(row)
+    output.seek(0)
+    return StreamingResponse(
+        iter([output.getvalue()]),
+        media_type="text/csv",
+        headers={"Content-Disposition": "attachment; filename=flagged-orgs.csv"},
+    )
+
+
 # ── Dashboard Featured Cases ──────────────────────────────────────────────────
 @app.get("/api/dashboard/featured")
 def get_dashboard_featured():
@@ -726,7 +847,7 @@ async def chat(body: dict):
     if not message:
         raise HTTPException(400, "Message required")
 
-    has_bedrock = bool(os.getenv("AWS_ACCESS_KEY_ID"))
+    has_bedrock = bool(os.getenv("AWS_ACCESS_KEY_ID") or os.getenv("BEDROCK_API_KEY"))
     has_anthropic = bool(os.getenv("ANTHROPIC_API_KEY"))
 
     if has_bedrock or has_anthropic:
@@ -879,10 +1000,11 @@ async def llm_enhanced_query(message: str) -> dict:
 
 async def _call_llm(system: str, user_content: str) -> str:
     """Call Claude via AWS Bedrock (primary on event day) or Anthropic API (fallback)."""
+    bedrock_api_key = os.getenv("BEDROCK_API_KEY")
     aws_key = os.getenv("AWS_ACCESS_KEY_ID")
     anthropic_key = os.getenv("ANTHROPIC_API_KEY")
 
-    if aws_key:
+    if bedrock_api_key or aws_key:
         return await _call_bedrock(system, user_content)
     elif anthropic_key:
         return await _call_anthropic(system, user_content, anthropic_key)
@@ -891,26 +1013,47 @@ async def _call_llm(system: str, user_content: str) -> str:
 
 
 async def _call_bedrock(system: str, user_content: str) -> str:
-    import boto3
+    region = os.getenv("AWS_REGION", "us-east-1")
+    model_id = os.getenv("BEDROCK_MODEL_ID", "us.anthropic.claude-sonnet-4-20250514-v1:0")
+    bedrock_api_key = os.getenv("BEDROCK_API_KEY")
 
-    client = boto3.client(
-        "bedrock-runtime",
-        region_name=os.getenv("AWS_REGION", "us-east-1"),
-        aws_access_key_id=os.getenv("AWS_ACCESS_KEY_ID"),
-        aws_secret_access_key=os.getenv("AWS_SECRET_ACCESS_KEY"),
-        aws_session_token=os.getenv("AWS_SESSION_TOKEN") or None,
-    )
-
-    model_id = os.getenv("BEDROCK_MODEL_ID", "us.anthropic.claude-opus-4-6-20251101-v1:0")
-
-    response = client.converse(
-        modelId=model_id,
-        system=[{"text": system}],
-        messages=[{"role": "user", "content": [{"text": user_content}]}],
-        inferenceConfig={"maxTokens": 1800, "temperature": 0.7},
-    )
-
-    return response["output"]["message"]["content"][0]["text"]
+    if bedrock_api_key:
+        # Bearer token auth via Bedrock API Key
+        import urllib.request
+        url = f"https://bedrock-runtime.{region}.amazonaws.com/model/{model_id}/converse"
+        payload = json.dumps({
+            "system": [{"text": system}],
+            "messages": [{"role": "user", "content": [{"text": user_content}]}],
+            "inferenceConfig": {"maxTokens": 1800, "temperature": 0.7},
+        }).encode()
+        req = urllib.request.Request(
+            url, data=payload,
+            headers={
+                "Content-Type": "application/json",
+                "Authorization": f"Bearer {bedrock_api_key}",
+            },
+            method="POST",
+        )
+        with urllib.request.urlopen(req, timeout=30) as resp:
+            data = json.loads(resp.read())
+        return data["output"]["message"]["content"][0]["text"]
+    else:
+        # Traditional IAM SigV4 auth
+        import boto3
+        client = boto3.client(
+            "bedrock-runtime",
+            region_name=region,
+            aws_access_key_id=os.getenv("AWS_ACCESS_KEY_ID"),
+            aws_secret_access_key=os.getenv("AWS_SECRET_ACCESS_KEY"),
+            aws_session_token=os.getenv("AWS_SESSION_TOKEN") or None,
+        )
+        response = client.converse(
+            modelId=model_id,
+            system=[{"text": system}],
+            messages=[{"role": "user", "content": [{"text": user_content}]}],
+            inferenceConfig={"maxTokens": 1800, "temperature": 0.7},
+        )
+        return response["output"]["message"]["content"][0]["text"]
 
 
 async def _call_anthropic(system: str, user_content: str, api_key: str) -> str:
@@ -1077,7 +1220,7 @@ def global_search(q: str = Query(...), limit: int = Query(10)):
 # ── Health Check ─────────────────────────────────────────────────────────────
 @app.get("/api/health")
 def health():
-    has_ai = bool(os.getenv("AWS_ACCESS_KEY_ID") or os.getenv("ANTHROPIC_API_KEY"))
+    has_ai = bool(os.getenv("AWS_ACCESS_KEY_ID") or os.getenv("BEDROCK_API_KEY") or os.getenv("ANTHROPIC_API_KEY"))
     mode = "duckdb-live" if DUCKDB_MODE else "postgres"
     return {
         "status": "healthy",
