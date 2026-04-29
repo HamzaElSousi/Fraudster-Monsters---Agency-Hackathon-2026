@@ -24,22 +24,24 @@ const FLAG_META = {
   governance:    { Icon: Network,        label: 'Governance Risk',  color: 'var(--accent-cyan)',     bg: 'rgba(6,182,212,0.1)' },
   sole_source:   { Icon: FileSearch,     label: 'Sole Source',      color: 'var(--accent-amber)',    bg: 'rgba(245,158,11,0.1)' },
   dependency:    { Icon: AlertTriangle,  label: 'Gov Dependency',   color: 'var(--accent-amber)',    bg: 'rgba(245,158,11,0.1)' },
-  concentration: { Icon: Target,         label: 'Concentration',    color: 'var(--accent-indigo-light)', bg: 'rgba(37,99,235,0.1)' },
+  concentration: { Icon: Target,         label: 'Concentration',    color: 'var(--accent-indigo-light)', bg: 'rgba(99,102,241,0.1)' },
 };
 
 export default function Alerts() {
   const navigate = useNavigate();
   const [data, setData] = useState(null);
   const [loading, setLoading] = useState(true);
+  const [loadError, setLoadError] = useState(null);
   const [minFlags, setMinFlags] = useState(2);
   const [expanded, setExpanded] = useState(null);
   const [search, setSearch] = useState('');
 
   useEffect(() => {
     setLoading(true);
+    setLoadError(null);
     fetchAlerts(minFlags, 20)
       .then(setData)
-      .catch(console.error)
+      .catch(err => setLoadError(err?.message || 'Failed to load alerts'))
       .finally(() => setLoading(false));
   }, [minFlags]);
 
@@ -130,7 +132,13 @@ export default function Alerts() {
       </div>
 
       {/* Alert Cards */}
-      {loading ? (
+      {loadError ? (
+        <div style={{ padding: 32, textAlign: 'center', background: 'rgba(239,68,68,0.08)', border: '1px solid rgba(239,68,68,0.3)', borderRadius: 'var(--radius-lg)', marginBottom: 16 }}>
+          <div style={{ fontSize: 20, marginBottom: 8 }}>Alerts Failed to Load</div>
+          <div style={{ color: 'var(--status-critical)', fontFamily: 'var(--font-mono)', fontSize: 13, marginBottom: 8 }}>{loadError}</div>
+          <div style={{ color: 'var(--text-muted)', fontSize: 12 }}>Check backend at <code>http://localhost:8000/api/alerts</code></div>
+        </div>
+      ) : loading ? (
         <div style={{ padding: 40, textAlign: 'center', color: 'var(--text-muted)' }}>
           Loading cross-challenge alerts...
         </div>

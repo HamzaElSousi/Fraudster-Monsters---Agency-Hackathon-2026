@@ -6,10 +6,12 @@ COPY backend/requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 
 COPY backend/ .
+RUN chmod +x entrypoint.sh
 
 EXPOSE 8000
 ENV DATA_DIR=/data
 ENV DUCKDB_PATH=/app/duckdb_cache/hackathon.duckdb
 
-# Single worker — DuckDB is single-writer
-CMD ["uvicorn", "main:app", "--host", "0.0.0.0", "--port", "8000", "--workers", "1"]
+# entrypoint.sh copies pre-built hackathon.duckdb to writable cache on first run,
+# then starts uvicorn. Single worker — DuckDB is single-writer.
+CMD ["./entrypoint.sh"]

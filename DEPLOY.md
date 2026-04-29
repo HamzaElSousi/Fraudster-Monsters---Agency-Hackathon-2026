@@ -575,20 +575,31 @@ App works **without any API keys** — AI chat degrades to template responses. A
 
 A `docker-compose.yml` is included at the project root. It starts both services and serves the frontend via nginx on port 80.
 
+### `docker-rebuild.sh` — fire-and-forget script (recommended)
+
 ```bash
-# Build and start
-docker-compose up --build
-
-# With data volume (edit docker-compose.yml to mount your data/ path):
-# volumes:
-#   - ./data:/app/data
-
-# Backend only
-docker build -f Dockerfile -t ftm-backend .
-docker run -p 8000:8000 -v $(pwd)/data:/app/data --env-file backend/.env ftm-backend
+bash docker-rebuild.sh              # rebuild both, keep DuckDB volume
+bash docker-rebuild.sh frontend     # frontend only (~30s, fastest)
+bash docker-rebuild.sh backend      # backend only
+bash docker-rebuild.sh clean        # nuke DuckDB cache (~2 min first run)
+bash docker-rebuild.sh -d           # detached — returns terminal, polls health, prints URLs
+bash docker-rebuild.sh frontend -d  # combine target + detached
 ```
 
-**Dockerfile** is at project root, targets the backend. Frontend is built as a multi-stage image and served via nginx.
+The script handles: Docker daemon check, `docker compose` vs `docker-compose` detection, WSL zombie process cleanup on ports 8000/3000, missing `data/hackathon.duckdb` warning, and URL output in detached mode.
+
+### Manual commands
+
+```bash
+# Build and start (attached)
+docker compose up --build
+
+# Backend only
+docker build -f Dockerfile.backend -t ftm-backend .
+docker run -p 8000:8000 -v $(pwd)/data:/data --env-file backend/.env ftm-backend
+```
+
+**Dockerfiles:** `Dockerfile.backend` (Python/FastAPI) and `Dockerfile.frontend` (React/nginx). Frontend served via nginx on port 80 (mapped to 3000 externally).
 
 ---
 
@@ -625,20 +636,51 @@ All 6 passing = deployment successful.
 
 ---
 
+## Day-of Checklist (Hackathon Judging)
+
+Run through this before presenting:
+
+- [ ] `curl $BASE/api/health` → `"status":"ok"`, `"tables_loaded":true`
+- [ ] `curl $BASE/api/health` → `"ai_enabled":true` (confirms Bedrock/Anthropic key loaded)
+- [ ] `curl $BASE/api/stats` → `zombie_count: 219`, `total_funding_loops: 5808` (not 0)
+- [ ] `/dashboard` loads in browser with real numbers (not `…` after 5 seconds)
+- [ ] `/loops` graph renders nodes (not blank)
+- [ ] `/threshold-gaming` shows rows (not empty table)
+- [ ] `/chat` — type "show me zombie charities" → AI responds (not spinner forever)
+- [ ] If `ai_enabled: false`: add `ANTHROPIC_API_KEY` or AWS Bedrock keys to `.env`, restart backend
+- [ ] Check `docker compose logs backend` for any `ERROR` lines before judges arrive
+
+**AWS/GCP specific:**
+- Confirm security group allows inbound 80 (frontend) and 8000 (backend API)
+- Confirm data volume is mounted: `docker exec ftm-backend ls /data/hackathon.duckdb`
+- If DuckDB re-copy ran (new volume): wait for `"tables_loaded":true` before opening browser
+
+---
+
+## Cloud Run Caveat (GCP)
+
+> ⚠️ **Cloud Run is NOT recommended as the backend host for this app.**
+>
+> Cloud Run containers are **stateless** — the DuckDB file written during one request is not available in the next container invocation. The app will appear to work but will re-load from JSONL on every cold start (~2 min each time), and data may be lost between requests on multi-instance deployments.
+>
+> **Use Compute Engine (C2)** for the backend — it has a persistent disk where `data/hackathon.duckdb` survives restarts. Cloud Run is fine for a **stateless API proxy** that forwards to a Compute Engine backend.
+
+---
+
 ## Cost Comparison
 
 | Option | Platform | Monthly Cost | RAM | Notes |
 |--------|----------|-------------|-----|-------|
-| A1 Railway | Railway | Free–$5 | 1–2GB | Best for quick demo |
-| A2 Render | Render | Free | 512MB | Cold starts on free tier |
-| A3 Fly.io | Fly | Free | 256MB–4GB | Best free option with full control |
-| B1 EC2 t3.medium | AWS | ~$30 | 4GB | Simple, predictable |
-| B1 EC2 t3.large | AWS | ~$60 | 8GB | Recommended for DuckDB headroom |
-| B2 ECS Fargate | AWS | ~$60–80 | 4–8GB | Production-grade |
-| B3 Elastic Beanstalk | AWS | ~$35 | 4GB | Easier than ECS |
-| C1 Cloud Run | GCP | ~$0–10 | 4GB | Needs persistent disk workaround |
-| C2 e2-medium GCE | GCP | ~$27 | 4GB | Cheapest persistent VM |
+| A1 Railway | Railway | Free–$5 | 512MB–2GB | Best for quick demo; upgrade to Hobby ($5/mo) for 10GB volume |
+| A2 Render | Render | Free | 512MB | 30s cold starts on free tier; fine for judging demos |
+| A3 Fly.io | Fly | Free* | 256MB–4GB | *Requires credit card on file; best free option with full control |
+| B1 EC2 t3.medium | AWS | ~$30 | 4GB | Minimum viable; may OOM on first DuckDB load |
+| **B1 EC2 t3.large** | **AWS** | **~$60** | **8GB** | **Recommended — DuckDB needs headroom for 10GB dataset** |
+| B2 ECS Fargate | AWS | ~$60–80 | 4–8GB | Production-grade; overkill for single-writer DuckDB |
+| B3 Elastic Beanstalk | AWS | ~$35 | 4GB | Easier than ECS; good middle ground |
+| C1 Cloud Run | GCP | N/A | — | ⚠️ NOT recommended — stateless; DuckDB doesn't persist (see caveat above) |
+| **C2 e2-medium GCE** | **GCP** | **~$27** | **4GB** | **Cheapest persistent VM — recommended for GCP** |
 
-**Recommendation for hackathon day:** Deploy to **Railway (A1)** or **Fly.io (A3)** in the morning. Takes ~15 minutes, free, and gives you a public HTTPS URL to show judges without any cloud account billing surprises.
+**Recommendation for hackathon day:** Deploy to **Railway (A1)** in the morning. Takes ~15 minutes, free tier is enough for judging, and gives you a public HTTPS URL with zero billing surprises.
 
-**Recommendation post-hackathon:** Move to **EC2 t3.large (B1)** or **GCE e2-medium (C2)** for a persistent public demo. ~$30/mo, full control, no cold starts.
+**Recommendation post-hackathon:** Move to **EC2 t3.large (B1)** or **GCE e2-medium (C2)** for a persistent public demo. ~$30–60/mo, full control, no cold starts, no stateless issues.

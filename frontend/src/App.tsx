@@ -2,9 +2,12 @@ import { useState, useEffect } from 'react';
 import { BrowserRouter, Routes, Route, NavLink, useLocation, useNavigate } from 'react-router-dom';
 import {
   LayoutDashboard, ShieldAlert, Skull, Repeat2, Network, FileSearch,
-  Shuffle, Bot, BookOpen, AlertTriangle, Zap, Database, Search
+  Shuffle, Bot, BookOpen, AlertTriangle, Zap, Database, Search,
+  Ghost, BarChart3, Package
 } from 'lucide-react';
+import Home from './pages/Home';
 import Dashboard from './pages/Dashboard';
+import GhostRecipients from './pages/GhostRecipients';
 import Zombies from './pages/Zombies';
 import FundingLoops from './pages/FundingLoops';
 import Governance from './pages/Governance';
@@ -14,6 +17,8 @@ import Chat from './pages/Chat';
 import EntityCaseFile from './pages/EntityCaseFile';
 import DuplicativeFunding from './pages/DuplicativeFunding';
 import Methodology from './pages/Methodology';
+import ThresholdGaming from './pages/ThresholdGaming';
+import VendorConcentration from './pages/VendorConcentration';
 import './index.css';
 
 const API_BASE = import.meta.env.VITE_API_URL || '';
@@ -93,7 +98,7 @@ function Sidebar() {
     <aside className="sidebar">
       <div className="sidebar-header">
         <NavLink to="/" className="sidebar-logo">
-          <div className="sidebar-logo-icon">A</div>
+          <div className="sidebar-logo-icon" style={{ fontSize: 18, fontWeight: 900, fontFamily: "var(--font-mono)" }}>$</div>
           <div className="sidebar-logo-text">
             <span className="sidebar-logo-title">AuditLens</span>
             <span className="sidebar-logo-subtitle">Agency 2026 Ottawa</span>
@@ -198,10 +203,14 @@ function Sidebar() {
         <div className="sidebar-section-label">Overview</div>
         <NavLink to="/" end className={({ isActive }) => `nav-link ${isActive ? 'active' : ''}`}>
           <LayoutDashboard className="nav-link-icon" />
+          Home
+        </NavLink>
+        <NavLink to="/dashboard" className={({ isActive }) => `nav-link ${isActive ? 'active' : ''}`}>
+          <LayoutDashboard className="nav-link-icon" />
           Dashboard
         </NavLink>
 
-        <div className="sidebar-section-label">Investigations</div>
+        <div className="sidebar-section-label">Challenges</div>
         <NavLink to="/alerts" className={({ isActive }) => `nav-link ${isActive ? 'active' : ''}`}>
           <ShieldAlert className="nav-link-icon" />
           Multi-Flag Alerts
@@ -212,31 +221,44 @@ function Sidebar() {
               animation: alertCount > 0 ? 'pulse-glow 2s infinite' : 'none',
             }}
           >
-            {alertCount !== null ? alertCount.toLocaleString() : '…'}
+            {alertCount !== null ? alertCount.toLocaleString() : '...'}
           </span>
         </NavLink>
         <NavLink to="/zombies" className={({ isActive }) => `nav-link ${isActive ? 'active' : ''}`}>
           <Skull className="nav-link-icon" />
-          Zombie Recipients
-          <span className="nav-link-badge">{navStats?.zombie_count ?? '…'}</span>
+          #1 Zombie Recipients
+          <span className="nav-link-badge">{navStats?.zombie_count != null ? navStats.zombie_count.toLocaleString() : '...'}</span>
+        </NavLink>
+        <NavLink to="/ghost-recipients" className={({ isActive }) => `nav-link ${isActive ? 'active' : ''}`}>
+          <Ghost className="nav-link-icon" />
+          #2 Ghost Recipients
+          <span className="nav-link-badge">{navStats?.ghost_count != null ? navStats.ghost_count.toLocaleString() : '...'}</span>
         </NavLink>
         <NavLink to="/loops" className={({ isActive }) => `nav-link ${isActive ? 'active' : ''}`}>
           <Repeat2 className="nav-link-icon" />
-          Funding Loops
-          <span className="nav-link-badge">{navStats?.total_funding_loops != null ? navStats.total_funding_loops.toLocaleString() : '…'}</span>
-        </NavLink>
-        <NavLink to="/governance" className={({ isActive }) => `nav-link ${isActive ? 'active' : ''}`}>
-          <Network className="nav-link-icon" />
-          Governance Networks
-          <span className="nav-link-badge">{navStats?.multi_board_directors != null ? navStats.multi_board_directors.toLocaleString() : '…'}</span>
+          #3 Funding Loops
+          <span className="nav-link-badge">{navStats?.total_funding_loops != null ? navStats.total_funding_loops.toLocaleString() : '...'}</span>
         </NavLink>
         <NavLink to="/sole-source" className={({ isActive }) => `nav-link ${isActive ? 'active' : ''}`}>
           <FileSearch className="nav-link-icon" />
-          Sole Source
-          <span className="nav-link-badge">{navStats?.total_sole_source != null ? (navStats.total_sole_source >= 1000 ? Math.round(navStats.total_sole_source / 1000) + 'K' : navStats.total_sole_source) : '…'}</span>
+          #4 Sole Source
+          <span className="nav-link-badge">{navStats?.total_sole_source != null ? (navStats.total_sole_source >= 1000 ? Math.round(navStats.total_sole_source / 1000) + 'K' : navStats.total_sole_source) : '...'}</span>
         </NavLink>
-
-        <div className="sidebar-section-label">Cross-Government Analysis</div>
+        <NavLink to="/vendor-concentration" className={({ isActive }) => `nav-link ${isActive ? 'active' : ''}`}>
+          <Package className="nav-link-icon" />
+          #5 Vendor Concentration
+          <span className="nav-link-badge">{navStats?.vendor_concentration_count != null ? navStats.vendor_concentration_count.toLocaleString() : '...'}</span>
+        </NavLink>
+        <NavLink to="/governance" className={({ isActive }) => `nav-link ${isActive ? 'active' : ''}`}>
+          <Network className="nav-link-icon" />
+          #6 Governance Networks
+          <span className="nav-link-badge">{navStats?.multi_board_directors != null ? navStats.multi_board_directors.toLocaleString() : '...'}</span>
+        </NavLink>
+        <NavLink to="/threshold-gaming" className={({ isActive }) => `nav-link ${isActive ? 'active' : ''}`}>
+          <BarChart3 className="nav-link-icon" />
+          #9 Threshold Gaming
+          <span className="nav-link-badge">{navStats?.threshold_gaming_count != null ? navStats.threshold_gaming_count.toLocaleString() : '...'}</span>
+        </NavLink>
         <NavLink to="/duplicative-funding" className={({ isActive }) => `nav-link ${isActive ? 'active' : ''}`}>
           <Shuffle className="nav-link-icon" />
           Duplicative Funding
@@ -274,12 +296,16 @@ function Sidebar() {
 }
 
 const PAGE_TITLES = {
-  '/': 'Command Center',
+  '/': 'Fraudster Monsters — Agency 2026 Ottawa',
+  '/dashboard': 'Investigation Dashboard',
   '/alerts': 'Multi-Flag Alerts — Cross-Challenge Intersections',
-  '/zombies': 'Zombie Recipients — Challenge #1',
-  '/loops': 'Funding Loops — Challenge #3',
-  '/governance': 'Governance Networks — Challenge #6',
-  '/sole-source': 'Sole Source & Amendment Creep — Challenge #4',
+  '/zombies': 'Challenge #1 — Zombie Recipients',
+  '/ghost-recipients': 'Challenge #2 — Ghost Recipients',
+  '/loops': 'Challenge #3 — Funding Loops',
+  '/sole-source': 'Challenge #4 — Sole Source & Amendment Creep',
+  '/governance': 'Challenge #6 — Governance Networks',
+  '/threshold-gaming': 'Challenge #9 — Threshold Gaming',
+  '/vendor-concentration': 'Challenge #5 — Vendor Concentration',
   '/chat': 'AI Investigator',
   '/entity': 'Entity Case File',
   '/duplicative-funding': 'Cross-Government Funding — Challenges #6 + #8',
@@ -288,11 +314,15 @@ const PAGE_TITLES = {
 
 const PAGE_CLASSES = {
   '/': 'page-dashboard',
+  '/dashboard': 'page-dashboard',
   '/alerts': 'page-zombies',
   '/zombies': 'page-zombies',
+  '/ghost-recipients': 'page-zombies',
   '/loops': 'page-loops',
   '/governance': 'page-governance',
   '/sole-source': 'page-dashboard',
+  '/threshold-gaming': 'page-sole-source',
+  '/vendor-concentration': 'page-dashboard',
   '/chat': 'page-dashboard',
   '/duplicative-funding': 'page-governance',
 };
@@ -317,16 +347,20 @@ function MainLayout() {
         </header>
         <div className="page-content">
           <Routes>
-            <Route path="/" element={<Dashboard />} />
+            <Route path="/" element={<Home />} />
+            <Route path="/dashboard" element={<Dashboard />} />
             <Route path="/alerts" element={<Alerts />} />
             <Route path="/zombies" element={<Zombies />} />
+            <Route path="/ghost-recipients" element={<GhostRecipients />} />
             <Route path="/loops" element={<FundingLoops />} />
             <Route path="/governance" element={<Governance />} />
             <Route path="/sole-source" element={<SoleSource />} />
             <Route path="/chat" element={<Chat />} />
             <Route path="/entity/:bn" element={<EntityCaseFile />} />
+            <Route path="/threshold-gaming" element={<ThresholdGaming />} />
             <Route path="/duplicative-funding" element={<DuplicativeFunding />} />
             <Route path="/about" element={<Methodology />} />
+            <Route path="/vendor-concentration" element={<VendorConcentration />} />
           </Routes>
         </div>
       </main>

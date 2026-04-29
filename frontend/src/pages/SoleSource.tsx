@@ -3,6 +3,27 @@ import { useState, useEffect } from 'react';
 import { FileSearch, AlertTriangle, Search } from 'lucide-react';
 import { fetchSoleSource, formatCurrency } from '../api';
 
+function MethodologyPanel() {
+  const [open, setOpen] = useState(false);
+  return (
+    <div style={{ marginBottom: 20, border: '1px solid var(--border-primary)', borderRadius: 'var(--radius-lg)', overflow: 'hidden' }}>
+      <button onClick={() => setOpen(o => !o)} style={{ width: '100%', padding: '12px 20px', background: 'var(--bg-tertiary)', border: 'none', cursor: 'pointer', textAlign: 'left', display: 'flex', justifyContent: 'space-between', alignItems: 'center', color: 'var(--text-secondary)', fontSize: 13, fontWeight: 600 }}>
+        <span>How we detected this — Challenge #4 Sole-Source Contracts</span>
+        <span style={{ fontSize: 11, transform: open ? 'rotate(180deg)' : 'none', display: 'inline-block', transition: 'transform 0.2s' }}>▼</span>
+      </button>
+      {open && (
+        <div style={{ padding: '16px 20px', background: 'var(--bg-card)', borderTop: '1px solid var(--border-primary)', fontSize: 13, color: 'var(--text-secondary)', lineHeight: 1.8 }}>
+          <div style={{ marginBottom: 10 }}><strong style={{ color: 'var(--text-primary)' }}>Data source:</strong> Alberta Open Data — public procurement records (<code>ab__ab_sole_source</code>), 15,533 contracts from provincial ministries and agencies.</div>
+          <div style={{ marginBottom: 10 }}><strong style={{ color: 'var(--text-primary)' }}>Method:</strong> Records are grouped by <code>(vendor, department)</code> pair. The "amendment ratio" is calculated as <code>total combined value ÷ smallest individual award</code> in the group. A high ratio indicates that a vendor accumulated far more from a single ministry than any single contract would suggest — the hallmark of contract splitting or incremental sole-source awards.</div>
+          <div style={{ marginBottom: 10 }}><strong style={{ color: 'var(--text-primary)' }}>Near-threshold flag:</strong> Individual awards between $45K–$50K are highlighted. Alberta's competitive bidding threshold is $50K — awards just below this amount avoid the requirement for open competition. Multiple such awards to the same vendor from the same ministry are a structuring signal.</div>
+          <div style={{ marginBottom: 10 }}><strong style={{ color: 'var(--text-primary)' }}>Risk levels:</strong> Ratio 10x+ → Critical; 5x–10x → High; 3x–5x → Medium. The "Worst Cases" panel above sorts by total contract value, not ratio — because a high ratio on a small contract is less significant than a moderate ratio on a large one.</div>
+          <div style={{ color: 'var(--text-muted)', fontSize: 12 }}><strong>Limitations:</strong> Sole-source procurement is legal and often appropriate (proprietary software, emergency services, specialized expertise with no alternatives). Ratio alone does not prove wrongdoing. Some vendors serve niche government needs where they are the only qualified supplier.</div>
+        </div>
+      )}
+    </div>
+  );
+}
+
 function fmtDollars(n) {
   if (!n || n === 0) return '$0';
   if (n >= 1e9) return `$${(n / 1e9).toFixed(1)}B`;
@@ -14,14 +35,16 @@ function fmtDollars(n) {
 export default function SoleSource() {
   const [data, setData] = useState(null);
   const [loading, setLoading] = useState(true);
+  const [loadError, setLoadError] = useState(null);
   const [minRatio, setMinRatio] = useState(3);
   const [search, setSearch] = useState('');
 
   useEffect(() => {
     setLoading(true);
+    setLoadError(null);
     fetchSoleSource(minRatio, 50)
       .then(setData)
-      .catch(console.error)
+      .catch(err => setLoadError(err?.message || 'Failed to load sole-source data'))
       .finally(() => setLoading(false));
   }, [minRatio]);
 
@@ -57,7 +80,7 @@ export default function SoleSource() {
         borderRadius: 'var(--radius-lg)',
       }}>
         <div style={{ fontSize: 12, color: 'var(--accent-amber)', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.06em', marginBottom: 8 }}>
-          Contract Creep — The Amendment Game
+          Challenge #4 — Sole Source & Amendment Creep
         </div>
         <div style={{ fontSize: 16, fontWeight: 400, color: 'var(--text-primary)', lineHeight: 1.7, marginBottom: 12 }}>
           Alberta has <strong>{stats.total_sole_source_contracts?.toLocaleString() ?? '…'}</strong> sole-source contracts on record.{' '}
@@ -87,6 +110,8 @@ export default function SoleSource() {
           Source: Alberta Open Procurement Data · All public records · "Amendment ratio" = total contract value ÷ smallest individual award for same vendor/department
         </div>
       </div>
+
+      <MethodologyPanel />
 
       {/* Top 5 Worst Cases */}
       {topOffenders.length > 0 && (
@@ -187,7 +212,13 @@ export default function SoleSource() {
           <span className="data-table-title" style={{ display: 'flex', alignItems: 'center', gap: 6 }}><FileSearch size={15} /> All Sole-Source Contracts ({filtered.length})</span>
           <span className="badge info">{data?.query_mode || 'loading'}</span>
         </div>
-        {loading ? (
+        {loadError ? (
+          <div style={{ padding: 32, textAlign: 'center', background: 'rgba(239,68,68,0.08)', border: '1px solid rgba(239,68,68,0.3)', borderRadius: 'var(--radius-lg)', margin: 16 }}>
+            <div style={{ fontSize: 20, marginBottom: 8 }}>Sole-Source Data Failed</div>
+            <div style={{ color: 'var(--status-critical)', fontFamily: 'var(--font-mono)', fontSize: 13, marginBottom: 8 }}>{loadError}</div>
+            <div style={{ color: 'var(--text-muted)', fontSize: 12 }}>Check backend at <code>http://localhost:8000/api/sole-source</code></div>
+          </div>
+        ) : loading ? (
           <div style={{ padding: 40, textAlign: 'center', color: 'var(--text-muted)' }}>
             Loading sole-source analysis...
           </div>

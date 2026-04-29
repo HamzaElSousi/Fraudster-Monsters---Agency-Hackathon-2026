@@ -3,10 +3,32 @@ import { useState, useEffect } from 'react';
 import { Network, Repeat2, AlertTriangle, Search } from 'lucide-react';
 import { fetchGovernance, fetchSelfDealingDirectors, formatCurrency, fmtDollars } from '../api';
 
+function MethodologyPanel() {
+  const [open, setOpen] = useState(false);
+  return (
+    <div style={{ marginBottom: 20, border: '1px solid var(--border-primary)', borderRadius: 'var(--radius-lg)', overflow: 'hidden' }}>
+      <button onClick={() => setOpen(o => !o)} style={{ width: '100%', padding: '12px 20px', background: 'var(--bg-tertiary)', border: 'none', cursor: 'pointer', textAlign: 'left', display: 'flex', justifyContent: 'space-between', alignItems: 'center', color: 'var(--text-secondary)', fontSize: 13, fontWeight: 600 }}>
+        <span>How we detected this — Challenge #6 Governance Networks</span>
+        <span style={{ fontSize: 11, transform: open ? 'rotate(180deg)' : 'none', display: 'inline-block', transition: 'transform 0.2s' }}>▼</span>
+      </button>
+      {open && (
+        <div style={{ padding: '16px 20px', background: 'var(--bg-card)', borderTop: '1px solid var(--border-primary)', fontSize: 13, color: 'var(--text-secondary)', lineHeight: 1.8 }}>
+          <div style={{ marginBottom: 10 }}><strong style={{ color: 'var(--text-primary)' }}>Data source:</strong> CRA T3010 director filings — <code>cra__cra_directors</code>. Each row is a (charity, first_name, last_name, position, fiscal_year) record. We restrict to government-funded charities only (<code>total_govt &gt; 0</code>) to focus on public accountability.</div>
+          <div style={{ marginBottom: 10 }}><strong style={{ color: 'var(--text-primary)' }}>Method:</strong> Exact name matching — <code>(first_name, last_name)</code> pairs that appear as directors across 3+ distinct BN roots (charity registration numbers). "Controlled flow" is the sum of government funding received by all organizations where the director holds a position.</div>
+          <div style={{ marginBottom: 10 }}><strong style={{ color: 'var(--text-primary)' }}>Loop Exposure filter:</strong> Directors are cross-referenced against <code>cra__loop_participants</code>. If two or more of a director's organizations appear in the same funding loop, it flags a potential conflict of interest — the director may influence fund flows between organizations they control simultaneously.</div>
+          <div style={{ marginBottom: 10 }}><strong style={{ color: 'var(--text-primary)' }}>Exposed flow:</strong> The total government funding flowing through loops that involve these directors' organizations — not the amount the director personally received, but the scale of public money they had governance influence over in circular-flow situations.</div>
+          <div style={{ color: 'var(--text-muted)', fontSize: 12 }}><strong>Limitations:</strong> Name matching without disambiguation — common names (e.g., "John Smith", "Mary Johnson") will aggregate records from multiple distinct individuals. No province or position cross-check is applied. The count is approximate and likely inflates the true number of multi-board directors. "Loop Exposure" is a correlation, not proof of self-dealing.</div>
+        </div>
+      )}
+    </div>
+  );
+}
+
 export default function Governance() {
   const [data, setData] = useState(null);
   const [selfDealingData, setSelfDealingData] = useState(null);
   const [loading, setLoading] = useState(true);
+  const [loadError, setLoadError] = useState(null);
   const [expandedDirector, setExpandedDirector] = useState(null);
   const [minBoards, setMinBoards] = useState(3);
   const [search, setSearch] = useState('');
@@ -14,9 +36,10 @@ export default function Governance() {
 
   useEffect(() => {
     setLoading(true);
+    setLoadError(null);
     fetchGovernance(minBoards, 50)
       .then(setData)
-      .catch(console.error)
+      .catch(err => setLoadError(err?.message || 'Failed to load governance data'))
       .finally(() => setLoading(false));
   }, [minBoards]);
 
@@ -63,10 +86,11 @@ export default function Governance() {
     <div className="animate-in">
       {/* Header / Stats Bar */}
       <div style={{
-        display: 'flex', gap: 16, marginBottom: 24, flexWrap: 'wrap',
-        padding: '20px 24px',
+        marginBottom: 24,
+        padding: '24px 28px',
         background: 'rgba(34, 211, 238, 0.06)',
         border: '1px solid rgba(34, 211, 238, 0.15)',
+        borderTop: '3px solid var(--accent-cyan)',
         borderRadius: 'var(--radius-lg)',
       }}>
         <div style={{ flex: 1 }}>
@@ -101,6 +125,8 @@ export default function Governance() {
           </div>
         </div>
       </div>
+
+      <MethodologyPanel />
 
       {/* Controls */}
       <div style={{ display: 'flex', alignItems: 'center', gap: 16, marginBottom: 20, flexWrap: 'wrap' }}>
@@ -158,7 +184,13 @@ export default function Governance() {
 
       {/* Director Cards */}
       <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
-        {loading && !selfDealingOnly ? (
+        {loadError ? (
+          <div style={{ padding: 32, textAlign: 'center', background: 'rgba(239,68,68,0.08)', border: '1px solid rgba(239,68,68,0.3)', borderRadius: 'var(--radius-lg)' }}>
+            <div style={{ fontSize: 20, marginBottom: 8 }}>Governance Data Failed</div>
+            <div style={{ color: 'var(--status-critical)', fontFamily: 'var(--font-mono)', fontSize: 13, marginBottom: 8 }}>{loadError}</div>
+            <div style={{ color: 'var(--text-muted)', fontSize: 12 }}>Check backend at <code>http://localhost:8000/api/governance</code></div>
+          </div>
+        ) : loading && !selfDealingOnly ? (
           <div style={{ padding: 40, textAlign: 'center', color: 'var(--text-muted)' }}>Loading governance networks...</div>
         ) : filtered.length === 0 ? (
           <div style={{ padding: '48px 24px', textAlign: 'center', background: 'var(--bg-card)', border: '1px solid var(--border-primary)', borderRadius: 'var(--radius-lg)' }}>

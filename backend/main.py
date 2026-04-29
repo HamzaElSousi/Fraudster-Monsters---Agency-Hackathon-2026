@@ -36,8 +36,12 @@ def get_db_connection():
     import psycopg2
     conn_str = os.getenv("DB_CONNECTION_STRING")
     if not conn_str:
-        raise HTTPException(500, "DB_CONNECTION_STRING not configured")
-    return psycopg2.connect(conn_str)
+        return None
+    try:
+        return psycopg2.connect(conn_str, connect_timeout=5)
+    except Exception as e:
+        print(f"[PG] Connection failed: {e}")
+        return None
 
 
 def query_db(sql, params=None):
@@ -162,9 +166,10 @@ def debug_golden_records():
 @app.get("/api/stats")
 def get_stats():
     if DUCKDB_MODE:
-        live = _duck.cached("stats", _duck.get_stats_live)
-        if live:
-            return live
+        # Always return DuckDB result — never fall through to PG fallback, which uses
+        # different query definitions (old threshold, no govt-funded filter) and produces
+        # inconsistent numbers.
+        return _duck.cached("stats", _duck.get_stats_live) or {}
 
     results = {}
     queries = {
@@ -196,8 +201,13 @@ def get_stats():
             SELECT d.last_name, d.first_name, COUNT(DISTINCT LEFT(d.bn, 9)) as boards
             FROM cra.cra_directors d
             WHERE d.last_name IS NOT NULL AND d.first_name IS NOT NULL
+              AND LENGTH(d.last_name) > 1 AND LENGTH(d.first_name) > 1
+              AND LEFT(d.bn, 9) IN (
+                  SELECT DISTINCT LEFT(bn, 9) FROM cra.govt_funding_by_charity
+                  WHERE COALESCE(total_govt::numeric, 0) > 0
+              )
             GROUP BY d.last_name, d.first_name
-            HAVING COUNT(DISTINCT LEFT(d.bn, 9)) >= 3
+            HAVING COUNT(DISTINCT LEFT(d.bn, 9)) >= 5
         ) multi_board
     """
     row = query_db(gov_sql)
@@ -670,6 +680,160 @@ async def get_duplicative_funding_summary():
     return {"summary": " ".join(parts)}
 
 
+# ── CHALLENGE 5 — Vendor Concentration ────────────────────────────────────────
+
+@app.get("/api/vendor-concentration")
+def get_vendor_concentration(
+    dimension: str = Query("department", description="Group by: department, naics, region"),
+    min_spending: float = Query(1_000_000, description="Minimum spending threshold"),
+    limit: int = Query(50),
+):
+    """Challenge #5: Vendor concentration analysis by department, NAICS, or region."""
+    if DUCKDB_MODE:
+        results = _duck.cached(
+            f"vc:{dimension}:{min_spending}:{limit}",
+            _duck.get_vendor_concentration_live, dimension, min_spending, limit,
+        )
+        return {"results": results, "count": len(results), "dimension": dimension, "query_mode": "duckdb-live"}
+    return {"results": [], "count": 0, "dimension": dimension, "query_mode": "unavailable"}
+
+
+@app.get("/api/vendor-concentration/stats")
+def get_vendor_concentration_stats():
+    """Challenge #5: Headline stats for vendor concentration."""
+    if DUCKDB_MODE:
+        return _duck.cached("vc_stats", _duck.get_vendor_concentration_stats_live) or {}
+    return {}
+
+
+@app.get("/api/vendor-concentration/detail")
+def get_vendor_concentration_detail(
+    group_key: str = Query(..., description="Department/sector/region name"),
+    dimension: str = Query("department"),
+    limit: int = Query(20),
+):
+    """Challenge #5: Detailed vendor breakdown for a specific group."""
+    if DUCKDB_MODE:
+        return _duck.cached(
+            f"vc_detail:{dimension}:{group_key}:{limit}",
+            _duck.get_vendor_concentration_detail_live, group_key, dimension, limit,
+        )
+    return {"group_key": group_key, "vendors": [], "trend": []}
+
+
+@app.post("/api/vendor-concentration/brief")
+async def get_vendor_concentration_brief(body: dict):
+    """Challenge #5: Gemini-powered concentration intelligence brief for a department/sector."""
+    group_key = body.get("group_key", "")
+    dimension = body.get("dimension", "department")
+    hhi = body.get("hhi", 0)
+    cr3_pct = body.get("cr3_pct", 0)
+    group_total = body.get("group_total", 0)
+    top3_names = body.get("top3_names", [])
+    top3_millions = body.get("top3_millions", [])
+    recipient_count = body.get("recipient_count", 0)
+
+    gemini_key = os.getenv("GEMINI_API_KEY", "")
+    if not gemini_key or not group_key:
+        return {"brief": ""}
+
+    try:
+        import httpx
+
+        top3_detail = ""
+        for i, name in enumerate(top3_names[:3]):
+            amount = top3_millions[i] if i < len(top3_millions) else "?"
+            top3_detail += f"  {i+1}. {name}: ${amount}M\n"
+
+        prompt = (
+            "You are an investigative analyst for a Canadian government accountability tool.\n"
+            "Based on these real findings from public government data:\n\n"
+            f"{'Department' if dimension == 'department' else 'Sector' if dimension == 'naics' else 'Region'}: {group_key}\n"
+            f"HHI (Herfindahl-Hirschman Index): {hhi} "
+            f"({'HIGHLY CONCENTRATED — monopoly risk' if hhi > 2500 else 'Moderately concentrated' if hhi > 1500 else 'Competitive'})\n"
+            f"CR-3 (top 3 vendors share): {cr3_pct}%\n"
+            f"Total spending: ${group_total:,.0f}\n"
+            f"Number of vendors: {recipient_count}\n"
+            f"Top 3 vendors:\n{top3_detail}\n"
+            "Write a 3-paragraph Concentration Intelligence Brief:\n"
+            "Paragraph 1: Name the specific concentration risk — who dominates and by how much.\n"
+            "Paragraph 2: Explain the accountability concern — what happens if the dominant vendor fails or underperforms? Can the government walk away?\n"
+            "Paragraph 3: Generate an investigator hypothesis — what should an auditor look for next? "
+            "Suggest cross-referencing with CRA filings, sole-source data, or amendment patterns.\n\n"
+            "Be specific with names and dollar amounts. Write in an investigative journalism tone. Plain text only, no markdown."
+        )
+
+        async with httpx.AsyncClient(timeout=15) as client:
+            gemini_model = os.getenv("GEMINI_MODEL", "gemini-2.5-flash")
+            r = await client.post(
+                f"https://generativelanguage.googleapis.com/v1beta/models/{gemini_model}:generateContent?key={gemini_key}",
+                json={"contents": [{"parts": [{"text": prompt}]}]},
+            )
+        text = r.json()["candidates"][0]["content"]["parts"][0]["text"]
+        return {"brief": text.strip()}
+    except Exception as e:
+        print(f"[Gemini] vendor-concentration brief error for {group_key}: {e}")
+        return {"brief": ""}
+
+
+@app.post("/api/vendor-concentration/analyze")
+async def get_vendor_concentration_analysis():
+    """Challenge #5: LLM-powered auto-analysis across all 3 dimensions."""
+    if not DUCKDB_MODE:
+        return {"analysis": "", "source": "unavailable"}
+
+    data = _duck.get_vendor_concentration_analysis_data()
+    gemini_key = os.getenv("GEMINI_API_KEY", "")
+    gemini_model = os.getenv("GEMINI_MODEL", "gemini-2.0-flash")
+
+    if not gemini_key:
+        # Rule-based fallback
+        depts = data.get("departments", [])
+        highly = [d for d in depts if d["hhi"] > 2500]
+        lines = []
+        if highly:
+            lines.append(f"⚠️ {len(highly)} departments are highly concentrated (HHI > 2,500).")
+            top = highly[0]
+            lines.append(f"Most concentrated: **{top['name']}** — HHI {top['hhi']:,}, CR-3 {top['cr3_pct']}%, {top['vendor_count']} vendors, ${top['total_spending']}M total.")
+            if top.get("top3"):
+                lines.append(f"Top recipients: {', '.join(top['top3'][:3])}.")
+        stats = data.get("stats", {})
+        if stats.get("monopoly_programs"):
+            lines.append(f"🔴 {stats['monopoly_programs']} programs have a single recipient above $1M — zero competition.")
+        return {"analysis": "\n".join(lines) if lines else "No concentration issues detected.", "source": "rule-based"}
+
+    try:
+        import httpx
+        prompt = (
+            "You are an investigative analyst for a Canadian government accountability tool.\n"
+            "Analyze this vendor concentration data from federal government grants & contributions.\n\n"
+            f"HEADLINE STATS: {json.dumps(data.get('stats', {}))}\n\n"
+            f"TOP CONCENTRATED DEPARTMENTS (by HHI):\n{json.dumps(data.get('departments', []), indent=1)}\n\n"
+            f"TOP CONCENTRATED NAICS SECTORS:\n{json.dumps(data.get('sectors', []), indent=1)}\n\n"
+            f"TOP CONCENTRATED REGIONS:\n{json.dumps(data.get('regions', []), indent=1)}\n\n"
+            "Write a concise investigative analysis (4-6 bullet points) covering:\n"
+            "1. The most alarming concentration patterns — name specific departments and vendors\n"
+            "2. Cross-dimension insights — does the same vendor dominate across sectors AND departments?\n"
+            "3. Data quality flags — any entries that look like data artifacts rather than real vendors\n"
+            "4. Risk assessment — where has government become dependent on a vendor it can't walk away from?\n\n"
+            "Use bullet points with emoji prefixes (🔴 critical, ⚠️ warning, 📊 insight). "
+            "Be specific with names and dollar amounts. Plain text only."
+        )
+        async with httpx.AsyncClient(timeout=20) as client:
+            r = await client.post(
+                f"https://generativelanguage.googleapis.com/v1beta/models/{gemini_model}:generateContent?key={gemini_key}",
+                json={"contents": [{"parts": [{"text": prompt}]}]},
+            )
+        text = r.json()["candidates"][0]["content"]["parts"][0]["text"]
+        return {"analysis": text.strip(), "source": "gemini"}
+    except Exception as e:
+        print(f"[Gemini] vendor-concentration analyze error: {e}")
+        return {"analysis": "AI analysis unavailable — check GEMINI_API_KEY.", "source": "error"}
+
+
+# ── END CHALLENGE 5 ──────────────────────────────────────────────────────────
+
+
 # ── Sole Source / Amendment Creep ────────────────────────────────────────────
 @app.get("/api/sole-source")
 def get_sole_source(
@@ -706,6 +870,24 @@ def get_sole_source(
     if results is None:
         return _no_data()
     return {"results": results, "count": len(results), "stats": {}, "query_mode": "live"}
+
+
+# ── Threshold Gaming (Challenge #9) ─────────────────────────────────────────
+@app.get("/api/threshold-gaming")
+def get_threshold_gaming(limit: int = Query(default=50, ge=1, le=200)):
+    return _duck.cached(f"threshold_gaming:{limit}", _duck.get_threshold_gaming_live, limit) or []
+
+
+# ── Ghost Recipients (Challenge #2) ─────────────────────────────────────────
+@app.get("/api/ghost-recipients")
+def get_ghost_recipients(
+    min_funding: float = Query(default=500000, ge=0),
+    limit: int = Query(default=50, ge=1, le=200),
+):
+    return _duck.cached(
+        f"ghost_recipients:{min_funding}",
+        _duck.get_ghost_recipients_live, min_funding, limit
+    ) or []
 
 
 # ── Entity Search & Dossier ──────────────────────────────────────────────────
@@ -1132,6 +1314,21 @@ def template_query(message: str) -> dict:
             "sql_hint": "Cross-referenced cra_directors with loop_charity_financials for multi-board directors",
             "follow_up": ["Who controls the most funding?", "Do any of these directors' organizations fund each other?", "Show me the governance network graph"],
         }
+    # CHALLENGE 5
+    elif any(w in msg for w in ["concentration", "monopoly", "hhi", "incumbent", "market share", "vendor lock"]):
+        if DUCKDB_MODE:
+            vc_results = _duck.cached("vc:department:1000000:10", _duck.get_vendor_concentration_live, "department", 1_000_000, 10)
+            vc_stats = _duck.cached("vc_stats", _duck.get_vendor_concentration_stats_live) or {}
+        else:
+            vc_results, vc_stats = [], {}
+        return {
+            "answer": f"**Vendor Concentration Analysis (Challenge #5)**: Across federal departments with >$1M in spending, **{vc_stats.get('highly_concentrated', 0)} departments** are highly concentrated (HHI >2,500). There are **{vc_stats.get('monopoly_programs', 0)} monopoly programs** where a single recipient receives all funding >$1M.",
+            "data_type": "vendor_concentration",
+            "data": vc_results[:10],
+            "sql_hint": "Computed HHI (Herfindahl-Hirschman Index) per department from fed.grants_contributions",
+            "follow_up": ["Show me the most concentrated departments", "Which vendors appear across the most departments?", "Show monopoly programs"],
+        }
+    # END CHALLENGE 5
     elif any(w in msg for w in ["sole source", "no-bid", "amendment", "contract", "vendor"]):
         data = _data_sole_source(min_ratio=3.0, limit=20)
         return {
@@ -1236,4 +1433,56 @@ def health():
 
 if __name__ == "__main__":
     import uvicorn
-    uvicorn.run("main:app", host="0.0.0.0", port=8000, reload=True)
+    import socket
+    import sys
+
+    # Fix Python 3.10 Windows ProactorEventLoop self-pipe crash
+    if sys.platform == "win32":
+        asyncio.set_event_loop_policy(asyncio.WindowsSelectorEventLoopPolicy())
+
+    # Check if port 8000 is already in use (zombie socket or other process)
+    # If so, fall back to port 8001
+    default_port = 8000
+    test_socket = None
+    try:
+        test_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        test_socket.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+        test_socket.bind(('0.0.0.0', default_port))
+        test_socket.close()
+        print(f"[INFO] Port {default_port} is available")
+    except OSError:
+        print(f"[WARN] Port {default_port} is in use (zombie socket?); falling back to 8001")
+        default_port = 8001
+    finally:
+        if test_socket:
+            try:
+                test_socket.close()
+            except:
+                pass
+
+    # Configure socket to allow immediate reuse and avoid TIME_WAIT blocking
+    config = uvicorn.Config(
+        "main:app",
+        host="0.0.0.0",
+        port=default_port,
+        reload=False,
+        server_header=False,
+    )
+
+    # Create a custom socket factory that enables SO_REUSEADDR
+    original_socket = socket.socket
+    def socket_with_options(*args, **kwargs):
+        sock = original_socket(*args, **kwargs)
+        # Enable SO_REUSEADDR for immediate port reuse after shutdown
+        sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+        # Try to enable SO_REUSEPORT (may not be available on all systems)
+        try:
+            sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEPORT, 1)
+        except (AttributeError, OSError):
+            pass
+        return sock
+
+    socket.socket = socket_with_options
+
+    server = uvicorn.Server(config)
+    server.run()

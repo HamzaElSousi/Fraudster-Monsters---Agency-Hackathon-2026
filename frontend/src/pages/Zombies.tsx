@@ -3,10 +3,32 @@ import { useState, useEffect } from 'react';
 import { Skull, Repeat2, Table2, Search } from 'lucide-react';
 import { fetchZombies, fetchZombieLoopCrossref, formatCurrency, fmtDollars } from '../api';
 
+function MethodologyPanel() {
+  const [open, setOpen] = useState(false);
+  return (
+    <div style={{ marginBottom: 20, border: '1px solid var(--border-primary)', borderRadius: 'var(--radius-lg)', overflow: 'hidden' }}>
+      <button onClick={() => setOpen(o => !o)} style={{ width: '100%', padding: '12px 20px', background: 'var(--bg-tertiary)', border: 'none', cursor: 'pointer', textAlign: 'left', display: 'flex', justifyContent: 'space-between', alignItems: 'center', color: 'var(--text-secondary)', fontSize: 13, fontWeight: 600 }}>
+        <span>How we detected this — Challenge #1 Zombie Recipients</span>
+        <span style={{ fontSize: 11, transform: open ? 'rotate(180deg)' : 'none', display: 'inline-block', transition: 'transform 0.2s' }}>▼</span>
+      </button>
+      {open && (
+        <div style={{ padding: '16px 20px', background: 'var(--bg-card)', borderTop: '1px solid var(--border-primary)', fontSize: 13, color: 'var(--text-secondary)', lineHeight: 1.8 }}>
+          <div style={{ marginBottom: 10 }}><strong style={{ color: 'var(--text-primary)' }}>Data source:</strong> CRA T3010 annual charity filings — <code>cra_identification</code> (registration status, name, last filing year) joined with <code>govt_funding_by_charity</code> (government revenue share, total government funding received).</div>
+          <div style={{ marginBottom: 10 }}><strong style={{ color: 'var(--text-primary)' }}>Definition:</strong> A "zombie" meets all three conditions: (1) government funding represents 70%+ of total reported revenue — signalling near-total government dependency; (2) total government funding received is at least $100K — excluding trivially small recipients; (3) last CRA filing year is 2022 or earlier — the organization has stopped filing while still holding public money.</div>
+          <div style={{ marginBottom: 10 }}><strong style={{ color: 'var(--text-primary)' }}>Why 70% threshold?</strong> Below 70%, the charity likely had independent revenue streams and may have wound down normally. At 70%+, the organization was essentially a government-funded entity — its cessation without accountability is a red flag.</div>
+          <div style={{ marginBottom: 10 }}><strong style={{ color: 'var(--text-primary)' }}>Loop cross-reference:</strong> Zombie BN roots are matched against <code>cra__loop_participants</code>. If a zombie org appears in a funding loop, it suggests money was being circulated — potentially to obscure the eventual cessation of filings.</div>
+          <div style={{ color: 'var(--text-muted)', fontSize: 12 }}><strong>Limitations:</strong> Some organizations dissolved legitimately (mission completed, merged, renamed). BN reissues by CRA can create false positives. Name changes are not tracked — the same legal entity may appear under a different charity registration number.</div>
+        </div>
+      )}
+    </div>
+  );
+}
+
 export default function Zombies() {
   const [data, setData] = useState(null);
   const [crossrefData, setCrossrefData] = useState(null);
   const [loading, setLoading] = useState(true);
+  const [loadError, setLoadError] = useState(null);
   const [crossrefLoading, setCrossrefLoading] = useState(false);
   const [minFunding, setMinFunding] = useState(100000);
   const [search, setSearch] = useState('');
@@ -15,13 +37,13 @@ export default function Zombies() {
 
   useEffect(() => {
     setLoading(true);
+    setLoadError(null);
     fetchZombies(minFunding, 50)
       .then(setData)
-      .catch(console.error)
+      .catch(err => setLoadError(err?.message || 'Failed to load zombie data'))
       .finally(() => setLoading(false));
   }, [minFunding]);
 
-  // Lazy-load crossref on first tab switch
   const handleViewMode = (mode) => {
     setViewMode(mode);
     if (mode === 'crossref' && !crossrefData && !crossrefLoading) {
@@ -53,34 +75,42 @@ export default function Zombies() {
     <div className="animate-in">
       {/* Summary Bar */}
       <div style={{
-        display: 'flex', gap: 16, marginBottom: 24, flexWrap: 'wrap',
-        padding: '20px 24px',
+        marginBottom: 24,
+        padding: '24px 28px',
         background: 'rgba(239, 68, 68, 0.06)',
         border: '1px solid rgba(239, 68, 68, 0.15)',
+        borderTop: '3px solid var(--status-critical)',
         borderRadius: 'var(--radius-lg)',
       }}>
-        <div style={{ flex: 1 }}>
-          <div style={{ fontSize: 12, color: 'var(--status-critical)', fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: 4 }}>
-            Challenge #1 — Zombie Recipients
-          </div>
-          <div style={{ fontSize: 14, color: 'var(--text-secondary)', lineHeight: 1.5 }}>
-            Organizations that received large amounts of public funding then ceased filing.
-            Cross-referenced with circular funding loops to detect pre-death loop participation.
-          </div>
+        <div style={{ fontSize: 12, color: 'var(--status-critical)', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.06em', marginBottom: 8 }}>
+          Challenge #1 — Zombie Recipients
         </div>
-        <div style={{ textAlign: 'center', minWidth: 130 }}>
-          <div style={{ fontSize: 11, color: 'var(--text-muted)', marginBottom: 4 }}>Total Public $ Lost</div>
-          <div style={{ fontSize: 24, fontWeight: 800, color: 'var(--status-critical)' }}>{formatCurrency(totalLost)}</div>
-          <div style={{ fontSize: 12, color: 'var(--text-muted)' }}>{zombies.length} entities</div>
+        <div style={{ fontSize: 16, fontWeight: 400, color: 'var(--text-primary)', lineHeight: 1.7, marginBottom: 12 }}>
+          Organizations that received significant government funding and then ceased all public reporting.
+          Government dependency of 70%+ signals near-total reliance on public money — when these entities stop filing, accountability breaks down.
+          {zombies.length > 0 && (
+            <> Our analysis flagged <strong style={{ color: 'var(--status-critical)' }}>{zombies.length} entities</strong> with at least $100K in government funding and no CRA filing since 2022.</>
+          )}
         </div>
-        {crossrefData && (
-          <div style={{ textAlign: 'center', minWidth: 140 }} title="Zombie orgs that were participating in circular funding loops before they stopped filing">
-            <div style={{ fontSize: 11, color: 'var(--text-muted)', marginBottom: 4 }}>Loop-Participating Zombies</div>
-            <div style={{ fontSize: 24, fontWeight: 800, color: 'var(--status-medium)' }}>{loopParticipantCount}</div>
-            <div style={{ fontSize: 12, color: 'var(--text-muted)' }}>{loopPct}% of zombies</div>
-          </div>
-        )}
+        <div style={{ display: 'flex', gap: 24, flexWrap: 'wrap' }}>
+          {[
+            { label: 'Flagged Entities', value: loading ? '…' : zombies.length.toLocaleString(), color: 'var(--status-critical)' },
+            { label: 'Total Public Funding', value: loading ? '…' : formatCurrency(totalLost), color: 'var(--text-primary)' },
+            { label: 'Loop Participants', value: crossrefData ? loopParticipantCount.toLocaleString() : '…', color: 'var(--status-medium)' },
+            { label: 'Loop Overlap', value: crossrefData ? `${loopPct}%` : '…', color: 'var(--text-muted)' },
+          ].map(item => (
+            <div key={item.label}>
+              <div style={{ fontSize: 10, color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: 2 }}>{item.label}</div>
+              <div style={{ fontSize: 20, fontWeight: 800, color: item.color }}>{item.value}</div>
+            </div>
+          ))}
+        </div>
+        <div style={{ marginTop: 10, fontSize: 11, color: 'var(--text-muted)' }}>
+          Source: CRA T3010 filings · govt_share ≥ 70% · total_govt ≥ $100K · last filing year ≤ 2022
+        </div>
       </div>
+
+      <MethodologyPanel />
 
       {/* View mode toggle */}
       <div style={{ display: 'flex', gap: 8, marginBottom: 16 }}>
@@ -133,7 +163,7 @@ export default function Zombies() {
         </div>
 
         <span style={{ fontSize: 12, color: 'var(--text-muted)', marginLeft: 'auto' }}>
-          {viewMode === 'table' ? `${filtered.length} of ${zombies.length}` : `${crossrefRows.length} orgs`}
+          {viewMode === 'table' ? `${filtered.length} of ${zombies.length}` : `${crossrefRows.length} organizations`}
         </span>
       </div>
 
@@ -144,7 +174,13 @@ export default function Zombies() {
             <span className="data-table-title" style={{ display: 'flex', alignItems: 'center', gap: 6 }}><Skull size={15} /> Zombie Recipients ({filtered.length})</span>
             <span className="badge info">{data?.query_mode || 'loading'}</span>
           </div>
-          {loading ? (
+          {loadError ? (
+            <div style={{ padding: 32, textAlign: 'center', background: 'rgba(239,68,68,0.08)', border: '1px solid rgba(239,68,68,0.3)', borderRadius: 'var(--radius-lg)', margin: 16 }}>
+              <div style={{ fontSize: 20, marginBottom: 8 }}>Zombie Data Failed</div>
+              <div style={{ color: 'var(--status-critical)', fontFamily: 'var(--font-mono)', fontSize: 13, marginBottom: 8 }}>{loadError}</div>
+              <div style={{ color: 'var(--text-muted)', fontSize: 12 }}>Check backend at <code>http://localhost:8000/api/zombies</code></div>
+            </div>
+          ) : loading ? (
             <div style={{ padding: 40, textAlign: 'center', color: 'var(--text-muted)' }}>Loading zombie recipients...</div>
           ) : filtered.length === 0 ? (
             <div style={{ padding: '40px 24px', textAlign: 'center', color: 'var(--text-muted)', fontSize: 14 }}>
@@ -259,6 +295,7 @@ export default function Zombies() {
           )}
         </div>
       )}
+
     </div>
   );
 }

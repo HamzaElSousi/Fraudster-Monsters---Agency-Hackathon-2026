@@ -3,6 +3,12 @@
 
 ---
 
+## Working conventions
+
+- **Never start servers, Docker containers, or background processes** unless the user explicitly asks. Make code changes and tell the user what command to run.
+
+---
+
 ## Stack
 
 - **Backend**: FastAPI + DuckDB (embedded, queries JSONL directly, no PostgreSQL needed)
@@ -32,12 +38,14 @@ If frontend shows blank screen: `window.location.href = 'http://localhost:5173/?
 | # | Name | Page | Status |
 |---|------|------|--------|
 | 1 | Zombie Recipients | `/zombies` | ✅ Working (table + loop crossref tab) |
-| 3 | Funding Loops | `/loops` | ✅ Working (table + MoneyTrace + classification filter) |
+| 2 | Ghost Recipients | `/zombies` (Ghost tab) | ✅ Working (federal recipients silent 4+ years post-$500K grant) |
+| 3 | Funding Loops | `/loops` | ✅ Working (table + MoneyTrace + classification filter + year-over-year chart) |
 | 4 | Sole Source & Amendment Creep | `/sole-source` | ✅ Working |
 | 6 | Governance Networks | `/governance` | ✅ Working (self-dealing toggle) |
+| 9 | Threshold Gaming | `/threshold-gaming` | ✅ Working (grants clustered 85–99.9% below $25K/$100K/$1M) |
 | Multi | Cross-challenge Alerts | `/alerts` | ✅ Working |
 | AI | Ask AI Chat | `/chat` | ✅ Working |
-| Deep | Entity Case File | `/entity/:bn` | ✅ Working (flags, funding chart, loop table, AI narrative) |
+| Deep | Entity Case File | `/entity/:bn` | ✅ Working (flags, T3010 anomalies, overhead ratio, funding chart, loop table, AI narrative) |
 
 **PostgreSQL**: Shared Render.com DB connected (89 tables) — same data as DuckDB, provides dual-verification badge in sidebar
 
@@ -72,13 +80,14 @@ If frontend shows blank screen: `window.location.href = 'http://localhost:5173/?
 ### Data gaps
 - Chat: AI responses are template-only without Bedrock (`ai_enabled: false` in health check)
 - Alerts: `sole_source` flag not cross-referenced yet
-- Challenges not implemented: #2 Receipt Inflation, #8 Grant Stacking, #9 Threshold Gaming
+- Challenges not implemented: #8 Grant Stacking
 - `multi_board_directors` uses name-only matching — common names (e.g. "John Smith") across different people inflate count; no position/province disambiguation
 
 ### Presentation depth
 - ~~Entity case file lacks zombie flag~~ → **FIXED**: zombie banner added (govt_share ≥ 70%, last_year ≤ 2022, total_govt ≥ $100K)
+- ~~Loop timeline chart (from `fetchLoopDetail`) exists in backend but unused in expanded row~~ → **FIXED**: year-over-year bar chart now renders in expanded loop rows (ECharts, 120px)
+- ~~Entity case file no T3010 anomaly data~~ → **FIXED**: FilingAnomalies component shows CRA filing violations with severity badges; overhead ratio badge in red-flags panel
 - No year-over-year trend line for funding history
-- Loop timeline chart (from `fetchLoopDetail`) exists in backend but unused in expanded row
 - `multi_board_directors` sidebar badge shows 37,481 (name-only match) while governance page uses stricter filter yielding ~2,841; cosmetic inconsistency only
 
 ---
@@ -112,6 +121,8 @@ GET  /api/governance?min_boards=3&limit=50
 GET  /api/governance/self-dealing?min_boards=2&limit=50
 GET  /api/alerts?min_flags=2&limit=20
 GET  /api/sole-source?min_ratio=3&limit=50
+GET  /api/threshold-gaming?limit=50   — grants clustered 85–99.9% below $25K/$100K/$1M thresholds
+GET  /api/ghost-recipients?min_funding=500000&limit=50   — federal recipients silent 4+ years
 GET  /api/entity/{bn}          — full case file (uses LEFT(bn,9) matching across all tables)
 GET  /api/dashboard/featured   — top 5 high-risk entities
 GET  /api/search?q=...
@@ -138,6 +149,7 @@ POST /api/chat  (body: {message: string})
 | `frontend/src/pages/Dashboard.jsx` | Hero + Kill Shot card + featured cases |
 | `frontend/src/pages/Alerts.jsx` | Multi-flag alert cards |
 | `frontend/src/pages/Chat.jsx` | AI chat |
+| `frontend/src/pages/ThresholdGaming.jsx` | Threshold gaming detections (Challenge #9) |
 | `frontend/src/index.css` | All CSS variables + component styles |
 
 ---
@@ -210,6 +222,16 @@ Classification: `score >= 6` → High Alert 🔴 · `score >= 3` → Suspicious 
 48. Multi-board director count label overclaimed → updated Governance page header to note name-matching methodology and approximate nature; renamed "Self-dealing" filter to "Loop Exposure"
 49. Multi-board directors stat inflated at 3+ boards → raised headline stat threshold to 5+ boards in `get_stats_live()`; governance page keeps 3+ default for browsing; Dashboard label updated to "5+ boards"
 50. docker-compose.yml env_file hard error for teammates without .env files → added `required: false` to both `.env` and `backend/.env` entries so the app still starts without credentials
+51. Docker zombie=0, directors=37,481 (discrepancy vs start.sh) → two root causes: (1) file lock conflict — Docker and start.sh both open same `hackathon.duckdb`; DuckDB is single-writer, Docker fails to open → `get_stats_live()` returns `{}` → `if live:` is falsy → PG fallback runs with wrong queries (old threshold 3, no govt-funded filter → 37,481; wrong zombie definition → 0). (2) PG fallback had stale query definitions. Fix: `entrypoint.sh` copies pre-built `hackathon.duckdb` to isolated `duckdb_vol` on first Docker start; `get_stats()` now returns DuckDB result directly (no PG fallback in DuckDB mode); PG fallback `gov_sql` updated to match DuckDB definitions
+52. Docker `/api/stats` 500 crash — `is_available()` checked only JSONL file paths; inside Docker the JSONL files are mounted at `/data/` but `DUCKDB_PATH` points to the isolated volume `/app/duckdb_cache/hackathon.duckdb`; at import time `is_available()` returned False → `DUCKDB_MODE=False` → PG path → DNS failure for Render.com host → 500. Fix: `is_available()` now checks the DuckDB file first (exists + >1MB); falls back to JSONL check only when no DB file found. Also hardened `get_db_connection()` to return None (not raise) on PG connection failure.
+53. Alerts page showing only 1 result — `get_alerts_live()` Step 3 governance query grouped by `(last_name, first_name, LEFT(bn,9))` so `COUNT(DISTINCT LEFT(bn,9))` within each group was always 1 → HAVING `>= 3` never passed → `gov_bns_set` always empty → governance flag never set → only zombie+loop combos survived. Fixed to CTE pattern: first find directors with 3+ boards, then join back to get all their BNs.
+54. Loop timeline chart never rendered — `fetchLoopDetail` returned `timeline` data but FundingLoops.jsx never consumed it; wired up ECharts bar chart in expanded row, renders when `expandedDetail.timeline.length > 1`; 120px height, indigo bars, M-formatted y-axis.
+55. Entity case file missing T3010 anomaly data — `get_entity_case_file_live` had no t3010 query; added `t3010_flags` from `cra__t3010_impossibilities` (last 10 rows, ordered by year DESC) + `overhead_history` from `cra__overhead_by_charity` (last 5 years); both returned in entity dict.
+56. Entity case file no overhead badge — added overhead ratio badge to Red Flags panel (>35% → red warning); pulls from `entity.overhead_history[0].overhead_ratio`.
+57. Loop graph hub nodes indistinct — all nodes same color/size regardless of hub status; added Python-side BN lookup from `cra__identified_hubs`; hub nodes rendered red, larger (28px), bold label, red shadow glow in FundingLoops.jsx graph; hub legend note added.
+58. Challenge #9 not implemented — added `get_threshold_gaming_live` in db_duckdb.py (WITH thresholds CTE for $25K/$100K/$1M, 85–99.9% band, HAVING ≥3 grants), `/api/threshold-gaming` endpoint in main.py, `fetchThresholdGaming` in api.js, full ThresholdGaming.jsx page, NavLink + route in App.jsx.
+59. Challenge #2 (Ghost Recipients) not implemented — added `get_ghost_recipients_live` in db_duckdb.py (federal recipients with ≥$500K then ≥4 years silent or untraced BN), `/api/ghost-recipients` endpoint in main.py, `fetchGhostRecipients` in api.js, Ghost Recipients tab in Zombies.jsx with lazy-load.
+60. Threshold gaming cache key not parameterized — `cached("threshold_gaming", ...)` always returned same 50-row result regardless of `limit` param; fixed to `cached(f"threshold_gaming:{limit}", ...)`.
 
 ---
 

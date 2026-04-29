@@ -7,6 +7,27 @@ import { fetchLoops, fetchLoopGraph, fetchLoopsStats, fetchLoopCharities, fetchL
 const RISK_COLOR = { high: '#ef4444', medium: '#f59e0b', low: '#22c55e' };
 const PAGE_SIZE = 20;
 
+function MethodologyPanel() {
+  const [open, setOpen] = useState(false);
+  return (
+    <div style={{ border: '1px solid var(--border-primary)', borderRadius: 'var(--radius-lg)', overflow: 'hidden' }}>
+      <button onClick={() => setOpen(o => !o)} style={{ width: '100%', padding: '12px 20px', background: 'var(--bg-tertiary)', border: 'none', cursor: 'pointer', textAlign: 'left', display: 'flex', justifyContent: 'space-between', alignItems: 'center', color: 'var(--text-secondary)', fontSize: 13, fontWeight: 600 }}>
+        <span>How we detected this — Challenge #3 Funding Loops</span>
+        <span style={{ fontSize: 11, transform: open ? 'rotate(180deg)' : 'none', display: 'inline-block', transition: 'transform 0.2s' }}>▼</span>
+      </button>
+      {open && (
+        <div style={{ padding: '16px 20px', background: 'var(--bg-card)', borderTop: '1px solid var(--border-primary)', fontSize: 13, color: 'var(--text-secondary)', lineHeight: 1.8 }}>
+          <div style={{ marginBottom: 10 }}><strong style={{ color: 'var(--text-primary)' }}>Data source:</strong> CRA T3010 annual charity filings — inter-charity fund flows. Each filing discloses how much a charity paid to other registered charities. We reconstruct a directed funding graph where an edge A → B means "A gave money to B in some fiscal year."</div>
+          <div style={{ marginBottom: 10 }}><strong style={{ color: 'var(--text-primary)' }}>Method:</strong> Strongly Connected Component (SCC) analysis on the directed graph — a standard algorithm for detecting cycles. A "funding loop" is any cycle of 2+ organizations where money can trace a path from A → B → ... → A. We use Tarjan's SCC algorithm implemented in Python, applied to all government-funded charities.</div>
+          <div style={{ marginBottom: 10 }}><strong style={{ color: 'var(--text-primary)' }}>Suspicion scoring:</strong> Each loop receives a score based on: same fiscal year (+3), average circular outflow above 30% of revenue (+2), average program spending below 40% of expenses (+2), short loop without a known hub (+1), known hub organization present (−3). Score ≥ 6 = High Alert; ≥ 3 = Suspicious; below 3 = Normal.</div>
+          <div style={{ marginBottom: 10 }}><strong style={{ color: 'var(--text-primary)' }}>Phantom receipts:</strong> For same-year loops, we calculate <code>total_flow × hops</code> as an upper-bound estimate of how much money could have been double-counted by charities issuing receipts for the same funds as they circulate. This is labelled as an estimate — actual double-receipt amounts require individual transaction review.</div>
+          <div style={{ color: 'var(--text-muted)', fontSize: 12 }}><strong>Limitations:</strong> CRA data is aggregated annual flows — we see total amounts paid between charities per year, not individual cheques. Loop detection cannot confirm intent; legitimate grant-making between related charities can create the same graph structure. The SCC algorithm detects structural cycles, not deliberate fraud.</div>
+        </div>
+      )}
+    </div>
+  );
+}
+
 function RangeSlider({ label, min, max, value, onChange, format }) {
   return (
     <div className="filter-slider-group">
@@ -344,6 +365,24 @@ function LoopsTable({ loops, searchTerm, page, setPage, selectedLoop, setSelecte
                       ) : (
                         <div style={{ textAlign: 'center', padding: 20, color: 'var(--text-muted)' }}>No participant details available</div>
                       )}
+                      {/* Timeline chart */}
+                      {expandedDetail?.timeline?.length > 1 && (
+                        <div style={{ marginTop: 16 }}>
+                          <div style={{ fontSize: 11, color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: 1, marginBottom: 6 }}>Year-over-Year Flow</div>
+                          <ReactECharts
+                            option={{
+                              backgroundColor: 'transparent',
+                              tooltip: { trigger: 'axis', formatter: (p) => `${p[0]?.name}: $${(p[0]?.value / 1e6).toFixed(1)}M` },
+                              xAxis: { type: 'category', data: expandedDetail.timeline.map(t => t.year), axisLabel: { color: 'var(--text-muted)', fontSize: 10 }, axisLine: { lineStyle: { color: 'var(--border-primary)' } } },
+                              yAxis: { type: 'value', axisLabel: { formatter: v => `$${(v / 1e6).toFixed(1)}M`, color: 'var(--text-muted)', fontSize: 10 }, splitLine: { lineStyle: { color: 'var(--border-primary)', opacity: 0.3 } } },
+                              series: [{ type: 'bar', data: expandedDetail.timeline.map(t => t.flow), itemStyle: { color: '#7c3aed', borderRadius: [3, 3, 0, 0] } }],
+                              grid: { left: 56, right: 12, top: 12, bottom: 28 },
+                            }}
+                            style={{ height: 120 }}
+                            notMerge
+                          />
+                        </div>
+                      )}
                     </td>
                   </tr>
                 )
@@ -419,18 +458,19 @@ function GraphTab({ graphData }) {
       data: nodes.map(n => ({
         id: n.bn || n.id,
         name: (n.name || '').length > 22 ? (n.name || '').slice(0, 20) + '…' : (n.name || ''),
-        symbolSize: Math.min(30, Math.max(8, Math.sqrt((n.revenue || 0) / 200_000) * 10 + 6)),
+        symbolSize: n.is_hub ? 28 : Math.min(30, Math.max(8, Math.sqrt((n.revenue || 0) / 200_000) * 10 + 6)),
         itemStyle: {
-          color: RISK_COLOR[n.risk] || RISK_COLOR.low,
-          borderColor: '#fff',
-          borderWidth: 1,
-          shadowBlur: n.risk === 'high' ? 12 : 4,
-          shadowColor: RISK_COLOR[n.risk] || RISK_COLOR.low,
+          color: n.is_hub ? '#ef4444' : (RISK_COLOR[n.risk] || RISK_COLOR.low),
+          borderColor: n.is_hub ? '#fff' : '#fff',
+          borderWidth: n.is_hub ? 2 : 1,
+          shadowBlur: n.is_hub ? 16 : (n.risk === 'high' ? 12 : 4),
+          shadowColor: n.is_hub ? '#ef4444' : (RISK_COLOR[n.risk] || RISK_COLOR.low),
         },
         label: {
           show: true,
           formatter: '{b}',
           fontSize: 10,
+          fontWeight: n.is_hub ? 'bold' : 'normal',
           color: '#f1f5f9',
           distance: 6,
         },
@@ -477,6 +517,10 @@ function GraphTab({ graphData }) {
               {risk.charAt(0).toUpperCase() + risk.slice(1)} risk
             </div>
           ))}
+          <div style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 11, color: 'var(--text-secondary)', marginTop: 4, paddingTop: 4, borderTop: '1px solid var(--border-primary)' }}>
+            <span style={{ width: 10, height: 10, borderRadius: '50%', background: '#ef4444', display: 'inline-block', boxShadow: '0 0 6px #ef4444' }} />
+            Known hub org
+          </div>
         </div>
         <ReactECharts
           ref={chartRef}
@@ -602,6 +646,7 @@ export default function FundingLoops() {
   const [charities, setCharities] = useState([]);
   const [statsData, setStatsData] = useState(null);
   const [loading, setLoading] = useState(true);
+  const [loadError, setLoadError] = useState(null);
   const [graphLoading, setGraphLoading] = useState(false);
   const [charitiesLoading, setCharitiesLoading] = useState(true);
 
@@ -628,7 +673,7 @@ export default function FundingLoops() {
 
     fetchLoopsEnriched(2, 6, 0, 0, false, '', '', 200)
       .then(d => setLoopsData(d.results ?? d.loops ?? []))
-      .catch(() => {})
+      .catch(err => setLoadError(err?.message || 'Failed to load funding loops'))
       .finally(() => setLoading(false));
 
     fetchLoopGraph(25)
@@ -709,6 +754,8 @@ export default function FundingLoops() {
     <div className="animate-in" style={{ display: 'flex', flexDirection: 'column', gap: 20 }}>
       <StatsBar stats={statsData} loading={!statsData} />
 
+      <MethodologyPanel />
+
       {/* Classification filter buttons */}
       <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
         {classificationOptions.map(opt => (
@@ -769,7 +816,13 @@ export default function FundingLoops() {
 
           {/* Tab content */}
           {(activeTab === 'table' || activeTab === 'suspicious_tab') && (
-            loading ? (
+            loadError ? (
+              <div style={{ padding: 32, textAlign: 'center', background: 'rgba(239,68,68,0.08)', border: '1px solid rgba(239,68,68,0.3)', borderRadius: 'var(--radius-lg)' }}>
+                <div style={{ fontSize: 20, marginBottom: 8 }}>Funding Loop Data Failed</div>
+                <div style={{ color: 'var(--status-critical)', fontFamily: 'var(--font-mono)', fontSize: 13, marginBottom: 8 }}>{loadError}</div>
+                <div style={{ color: 'var(--text-muted)', fontSize: 12 }}>Check backend at <code>http://localhost:8000/api/loops</code></div>
+              </div>
+            ) : loading ? (
               <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
                 {[...Array(8)].map((_, i) => <div key={i} className="loading-shimmer" style={{ height: 44, borderRadius: 6 }} />)}
               </div>

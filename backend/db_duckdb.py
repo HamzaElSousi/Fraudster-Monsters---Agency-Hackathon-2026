@@ -38,6 +38,7 @@ _PRELOAD_TABLES = [
     ("cra", "cra_identification"),
     ("cra", "govt_funding_by_charity"),
     ("ab", "ab_sole_source"),
+    ("ab", "ab_contracts"),  # CHALLENGE 5
     ("general", "entity_golden_records"),
     ("fed", "grants_contributions"),
 ]
@@ -69,7 +70,12 @@ def get_conn() -> duckdb.DuckDBPyConnection:
     global _conn
     if _conn is None:
         db_path = os.environ.get("DUCKDB_PATH") or os.path.join(_base(), "hackathon.duckdb")
-        _conn = duckdb.connect(db_path)
+        # Try read-write first; fall back to read-only if another process holds the lock
+        try:
+            _conn = duckdb.connect(db_path)
+        except duckdb.IOException:
+            print(f"[DuckDB] File locked — opening in read-only mode", flush=True)
+            _conn = duckdb.connect(db_path, read_only=True)
         _conn.execute("SET threads=4; SET memory_limit='3GB';")
     return _conn
 
@@ -469,6 +475,17 @@ def get_loop_graph_live(limit: int = 50) -> dict:
                 "revenue": 0, "circular_outflow": 0,
                 "loops_count": 1, "risk": "low",
             })
+
+    # Mark known hub organizations
+    try:
+        hubs_tbl = _read("cra", "identified_hubs")
+        hub_rows = query(f"SELECT LEFT(bn, 9) as bn9 FROM {hubs_tbl}")
+        hub_bn9s = {r["bn9"] for r in hub_rows if r.get("bn9")}
+        for n in nodes:
+            n["is_hub"] = n.get("bn", "") in hub_bn9s
+    except Exception:
+        for n in nodes:
+            n["is_hub"] = False
 
     for l in loop_rows:
         path = l.get("path_bns") or []
@@ -941,16 +958,23 @@ def get_alerts_live(min_flags: int = 2, limit: int = 20) -> list[dict]:
         print(f"[DuckDB] alerts loop_bns error: {e}")
 
     # Step 3: Get multi-board director BNs as a Python set
-    # Only include directors with 3+ boards (to match get_governance_live definition)
+    # Find all BNs associated with directors who sit on 3+ boards.
     gov_bns_set: set[str] = set()
     try:
         gov_rows = query(f"""
-            SELECT DISTINCT LEFT(bn, 9) as bn_root
-            FROM {dirs}
-            WHERE last_name IS NOT NULL AND first_name IS NOT NULL
-              AND LENGTH(last_name) > 1 AND LENGTH(first_name) > 1
-            GROUP BY last_name, first_name, LEFT(bn, 9)
-            HAVING COUNT(DISTINCT LEFT(bn, 9)) >= 3
+            WITH multi_directors AS (
+                SELECT last_name, first_name
+                FROM {dirs}
+                WHERE last_name IS NOT NULL AND first_name IS NOT NULL
+                  AND LENGTH(last_name) > 1 AND LENGTH(first_name) > 1
+                GROUP BY last_name, first_name
+                HAVING COUNT(DISTINCT LEFT(bn, 9)) >= 3
+            )
+            SELECT DISTINCT LEFT(d.bn, 9) as bn_root
+            FROM {dirs} d
+            JOIN multi_directors md
+              ON d.last_name = md.last_name AND d.first_name = md.first_name
+            WHERE d.last_name IS NOT NULL AND d.first_name IS NOT NULL
         """)
         gov_bns_set = {r["bn_root"][:9] for r in gov_rows if r.get("bn_root")}
     except Exception as e:
@@ -1054,10 +1078,12 @@ def get_stats_live() -> dict:
         ab_contract_value = float(ab_value_r[0]["total"] or 0) if ab_value_r else 0.0
 
         fed_n = 0
-        if _available("fed", "grants_contributions"):
+        try:
             r = query(f"SELECT COUNT(*) as n FROM {_read('fed', 'grants_contributions')}")
             if r:
                 fed_n = r[0]["n"]
+        except Exception:
+            pass
 
         # Compute zombie count + at-risk funding — same definition as get_zombies_live:
         # high govt dependency (>=70% of revenue) + stopped filing by 2022 + min $100K received
@@ -1094,18 +1120,92 @@ def get_stats_live() -> dict:
         """)
         total_public = float(funding_r[0]["total"] or 0) if funding_r else 0.0
 
+        # Ghost recipients count (Challenge #2): $500K+ then 4+ years silent
+        ghost_n = 0
+        try:
+            fed_tbl2 = _read("fed", "grants_contributions")
+            ghost_r = query(f"""
+                WITH rs AS (
+                    SELECT LEFT(COALESCE(recipient_business_number, ''), 9) as bn9,
+                           SUM(TRY_CAST(agreement_value AS DOUBLE)) as total_received,
+                           MAX(CAST(amendment_date AS VARCHAR)) as last_grant
+                    FROM {fed_tbl2}
+                    WHERE TRY_CAST(agreement_value AS DOUBLE) > 0
+                    GROUP BY recipient_legal_name, recipient_province,
+                             LEFT(COALESCE(recipient_business_number, ''), 9)
+                    HAVING SUM(TRY_CAST(agreement_value AS DOUBLE)) >= 500000
+                )
+                SELECT COUNT(*) as n FROM rs
+                WHERE TRY_CAST(LEFT(last_grant, 4) AS INT) <= CAST(EXTRACT(YEAR FROM CURRENT_DATE) AS INT) - 4
+                   OR LENGTH(TRIM(bn9)) < 9
+            """)
+            ghost_n = int(ghost_r[0]["n"]) if ghost_r else 0
+        except Exception:
+            pass
+
+        # Threshold gaming count (Challenge #9): grants clustered 85-99.9% below $25K/$100K/$1M
+        threshold_n = 0
+        try:
+            fed_tbl3 = _read("fed", "grants_contributions")
+            threshold_r = query(f"""
+                SELECT COUNT(*) as n FROM (
+                    SELECT g.recipient_legal_name, g.owner_org, t.t
+                    FROM {fed_tbl3} g
+                    JOIN (SELECT 25000 as t UNION ALL SELECT 100000 UNION ALL SELECT 1000000) t
+                      ON TRY_CAST(g.agreement_value AS DOUBLE) BETWEEN t.t * 0.85 AND t.t * 0.999
+                    WHERE TRY_CAST(g.agreement_value AS DOUBLE) > 0
+                    GROUP BY g.recipient_legal_name, g.owner_org, t.t
+                    HAVING COUNT(*) >= 3
+                )
+            """)
+            threshold_n = int(threshold_r[0]["n"]) if threshold_r else 0
+        except Exception:
+            pass
+        # CHALLENGE 5 — vendor concentration: count highly concentrated departments (HHI > 2500)
+        vc_count = 0
+        try:
+            fed_tbl4 = _read("fed", "grants_contributions")
+            vc_r = query(f"""
+                WITH rt AS (
+                    SELECT owner_org_title AS dept, recipient_legal_name AS recip,
+                           SUM(TRY_CAST(agreement_value AS DOUBLE)) AS recip_total
+                    FROM {fed_tbl4}
+                    WHERE TRY_CAST(agreement_value AS DOUBLE) > 0
+                      AND owner_org_title IS NOT NULL AND recipient_legal_name IS NOT NULL
+                    GROUP BY owner_org_title, recipient_legal_name
+                ),
+                dt AS (
+                    SELECT dept, SUM(recip_total) AS dept_total
+                    FROM rt GROUP BY dept HAVING SUM(recip_total) >= 1000000
+                ),
+                hhi AS (
+                    SELECT rt.dept,
+                           ROUND(SUM(POWER(rt.recip_total / NULLIF(dt.dept_total, 0) * 100, 2))) AS hhi_val
+                    FROM rt JOIN dt ON rt.dept = dt.dept
+                    GROUP BY rt.dept, dt.dept_total
+                )
+                SELECT COUNT(*) as n FROM hhi WHERE hhi_val > 2500
+            """)
+            vc_count = int(vc_r[0]["n"]) if vc_r else 0
+        except Exception:
+            pass
+        # END CHALLENGE 5
+
         return {
-            "total_entities": gov_funded_count,   # charities with recorded govt funding
+            "total_entities": gov_funded_count,
             "total_funding_loops": loop_n,
             "total_fed_grants": fed_n,
-            "total_ab_grants": sole_count,         # count of AB sole-source records
-            "total_ab_contract_value": ab_contract_value,  # dollar value of AB contracts
+            "total_ab_grants": sole_count,
+            "total_ab_contract_value": ab_contract_value,
             "total_sole_source": sole_count,
             "total_charities": charity_count,
             "zombie_count": zombie_n,
             "multi_board_directors": dir_n,
             "total_public_funding": total_public,
             "at_risk_funding": at_risk,
+            "ghost_count": ghost_n,
+            "threshold_gaming_count": threshold_n,
+            "vendor_concentration_count": vc_count,  # CHALLENGE 5
         }
     except Exception as e:
         print(f"[DuckDB] stats error: {e}")
@@ -1113,6 +1213,12 @@ def get_stats_live() -> dict:
 
 
 def is_available() -> bool:
+    # Check pre-built DuckDB file first (Docker / post-first-run path).
+    # DUCKDB_PATH is set explicitly in Docker; fall back to the default location.
+    db_path = os.environ.get("DUCKDB_PATH") or os.path.join(_base(), "hackathon.duckdb")
+    if os.path.exists(db_path) and os.path.getsize(db_path) > 1_000_000:
+        return True
+    # Fallback: check JSONL source files (local dev, first run before DB built)
     return (
         _available("cra", "loops") and
         _available("cra", "cra_directors") and
@@ -1704,6 +1810,38 @@ def get_entity_case_file_live(bn: str) -> dict:
 
     name = pf.get("name") or (funding[0].get("name") if funding else bn)
 
+    # T3010 filing impossibilities (arithmetic violations)
+    t3010_flags = []
+    try:
+        t3010_tbl = _read("cra", "t3010_impossibilities")
+        t3010_rows = query(f"""
+            SELECT fiscal_year, issue_type, description, severity
+            FROM {t3010_tbl}
+            WHERE LEFT(bn, 9) = '{bn9}'
+            ORDER BY fiscal_year DESC
+            LIMIT 10
+        """)
+        t3010_flags = t3010_rows if t3010_rows else []
+    except Exception as e:
+        print(f"[DuckDB] t3010_flags error: {e}")
+
+    # Overhead ratio history
+    overhead_history = []
+    try:
+        oh_tbl = _read("cra", "overhead_by_charity")
+        oh_rows = query(f"""
+            SELECT fiscal_year,
+                   TRY_CAST(overhead_ratio AS DOUBLE) as overhead_ratio,
+                   TRY_CAST(program_ratio AS DOUBLE) as program_ratio
+            FROM {oh_tbl}
+            WHERE LEFT(bn, 9) = '{bn9}'
+            ORDER BY fiscal_year DESC
+            LIMIT 5
+        """)
+        overhead_history = oh_rows if oh_rows else []
+    except Exception as e:
+        print(f"[DuckDB] overhead_history error: {e}")
+
     return {
         "bn":                  bn,
         "name":                name,
@@ -1721,6 +1859,8 @@ def get_entity_case_file_live(bn: str) -> dict:
         "directors":           directors,
         "federal_grants":      federal_grants,
         "loop_partners":       loop_partners,
+        "t3010_flags":         t3010_flags,
+        "overhead_history":    overhead_history,
     }
 
 
@@ -1759,6 +1899,88 @@ def get_zombie_loop_crossref_live(min_funding: float = 100000, limit: int = 50) 
 
 
 # ── Deep-Dive: Dashboard Featured Cases ───────────────────────────────────────
+
+def get_threshold_gaming_live(limit: int = 50) -> list[dict]:
+    """Challenge #9: Recipients receiving federal grants clustered just below accountability thresholds."""
+    grants = _read("fed", "grants_contributions")
+    sql = f"""
+    WITH thresholds AS (
+        SELECT 25000 as t UNION ALL SELECT 100000 UNION ALL SELECT 1000000
+    ),
+    just_below AS (
+        SELECT
+            g.recipient_legal_name,
+            g.recipient_province,
+            g.owner_org as department,
+            t.t as threshold,
+            COUNT(*) as grants_just_below,
+            SUM(TRY_CAST(g.agreement_value AS DOUBLE)) as total_value,
+            AVG(TRY_CAST(g.agreement_value AS DOUBLE)) as avg_value
+        FROM {grants} g
+        JOIN thresholds t
+          ON TRY_CAST(g.agreement_value AS DOUBLE) BETWEEN t.t * 0.85 AND t.t * 0.999
+        WHERE TRY_CAST(g.agreement_value AS DOUBLE) > 0
+        GROUP BY g.recipient_legal_name, g.recipient_province, g.owner_org, t.t
+        HAVING COUNT(*) >= 3
+    )
+    SELECT *,
+        ROUND(avg_value / threshold * 100, 1) as pct_of_threshold
+    FROM just_below
+    ORDER BY grants_just_below DESC, total_value DESC
+    LIMIT {limit}
+    """
+    try:
+        rows = query(sql)
+        for r in rows:
+            r["total_value"] = float(r.get("total_value") or 0)
+            r["avg_value"] = float(r.get("avg_value") or 0)
+        return rows
+    except Exception as e:
+        print(f"[DuckDB] get_threshold_gaming_live error: {e}")
+        return []
+
+
+def get_ghost_recipients_live(min_funding: float = 500000, limit: int = 50) -> list[dict]:
+    """Challenge #2: Federal grant recipients who received large amounts then went silent."""
+    grants = _read("fed", "grants_contributions")
+    sql = f"""
+    WITH recipient_summary AS (
+        SELECT
+            recipient_legal_name,
+            recipient_province,
+            LEFT(COALESCE(recipient_business_number, ''), 9) as bn9,
+            COUNT(*) as grant_count,
+            SUM(TRY_CAST(agreement_value AS DOUBLE)) as total_received,
+            MIN(CAST(amendment_date AS VARCHAR)) as first_grant,
+            MAX(CAST(amendment_date AS VARCHAR)) as last_grant,
+            COUNT(DISTINCT owner_org) as dept_count
+        FROM {grants}
+        WHERE TRY_CAST(agreement_value AS DOUBLE) > 0
+        GROUP BY recipient_legal_name, recipient_province,
+                 LEFT(COALESCE(recipient_business_number, ''), 9)
+        HAVING SUM(TRY_CAST(agreement_value AS DOUBLE)) >= {min_funding}
+    )
+    SELECT *,
+        CASE WHEN LENGTH(TRIM(bn9)) < 9 THEN 1 ELSE 0 END as no_bn,
+        CAST(EXTRACT(YEAR FROM CURRENT_DATE) AS INT) - TRY_CAST(LEFT(last_grant, 4) AS INT) as years_silent
+    FROM recipient_summary
+    WHERE (
+        TRY_CAST(LEFT(last_grant, 4) AS INT) <= CAST(EXTRACT(YEAR FROM CURRENT_DATE) AS INT) - 4
+        OR LENGTH(TRIM(bn9)) < 9
+    )
+    ORDER BY total_received DESC
+    LIMIT {limit}
+    """
+    try:
+        rows = query(sql)
+        for r in rows:
+            r["total_received"] = float(r.get("total_received") or 0)
+            r["years_silent"] = int(r.get("years_silent") or 0)
+        return rows
+    except Exception as e:
+        print(f"[DuckDB] get_ghost_recipients_live error: {e}")
+        return []
+
 
 def get_dashboard_featured_cases_live() -> list[dict]:
     """Top 5 high-impact entities for Dashboard 'Start Here' cards."""
@@ -1936,3 +2158,348 @@ def get_flagged_orgs_live(limit: int = 100, filter_flag: str = "all", sort_by: s
         scored.sort(key=lambda r: r["risk_score"], reverse=True)
 
     return scored[:limit]
+
+
+# ── CHALLENGE 5 — Vendor Concentration ────────────────────────────────────────
+
+# Noise filter: these are reporting artifacts, not real vendors
+_VC_NOISE_FILTER = """
+  AND LOWER(recipient_legal_name) NOT LIKE '%batch report%'
+  AND LOWER(recipient_legal_name) NOT LIKE '%rapport en lots%'
+  AND LOWER(recipient_legal_name) NOT LIKE '%various recipients%'
+  AND LOWER(recipient_legal_name) NOT LIKE '%various vendors%'
+  AND LOWER(recipient_legal_name) NOT LIKE '%multiple recipients%'
+  AND recipient_legal_name NOT IN ('N/A', 'n/a', 'NA', '-', '--', '.')
+  AND LENGTH(TRIM(recipient_legal_name)) > 2
+"""
+
+# NAICS code → human-readable sector names (top-level 2-digit codes)
+_NAICS_LABELS = {
+    "11": "Agriculture & Forestry", "21": "Mining & Oil/Gas", "22": "Utilities",
+    "23": "Construction", "31": "Manufacturing", "32": "Manufacturing",
+    "33": "Manufacturing", "41": "Wholesale Trade", "42": "Wholesale Trade",
+    "44": "Retail Trade", "45": "Retail Trade", "48": "Transportation",
+    "49": "Warehousing", "51": "Information & Culture", "52": "Finance & Insurance",
+    "53": "Real Estate", "54": "Professional Services", "55": "Management",
+    "56": "Admin & Support Services", "61": "Education", "62": "Health Care",
+    "71": "Arts & Recreation", "72": "Accommodation & Food", "81": "Other Services",
+    "91": "Public Administration", "92": "Public Administration",
+}
+
+def _naics_label(code: str) -> str:
+    if not code:
+        return "Unknown"
+    s = str(code).strip()
+    return _NAICS_LABELS.get(s[:2], s)
+
+
+def get_vendor_concentration_live(dimension: str = "department", min_spending: float = 1_000_000, limit: int = 50) -> list[dict]:
+    """
+    Challenge #5: Measure vendor concentration by department, NAICS sector, or region.
+    Computes HHI and CR-3 for each grouping. Filters out known data noise.
+    """
+    grants = _read("fed", "grants_contributions")
+    try:
+        if dimension == "naics":
+            group_col = "naics_identifier"
+            group_label = "naics_identifier"
+        elif dimension == "region":
+            group_col = "recipient_province"
+            group_label = "recipient_province"
+        else:
+            group_col = "owner_org_title"
+            group_label = "owner_org_title"
+
+        sql = f"""
+            WITH recipient_totals AS (
+                SELECT
+                    {group_col} AS group_key,
+                    recipient_legal_name AS recipient,
+                    SUM(TRY_CAST(agreement_value AS DOUBLE)) AS recipient_total,
+                    COUNT(*) as grant_count
+                FROM {grants}
+                WHERE TRY_CAST(agreement_value AS DOUBLE) > 0
+                  AND {group_col} IS NOT NULL AND {group_col} != ''
+                  AND recipient_legal_name IS NOT NULL
+                  {_VC_NOISE_FILTER}
+                GROUP BY {group_col}, recipient_legal_name
+            ),
+            group_totals AS (
+                SELECT
+                    group_key,
+                    SUM(recipient_total) AS group_total,
+                    COUNT(DISTINCT recipient) AS recipient_count,
+                    SUM(grant_count) as total_grants
+                FROM recipient_totals
+                GROUP BY group_key
+                HAVING SUM(recipient_total) >= {min_spending}
+            ),
+            group_hhi AS (
+                SELECT
+                    rt.group_key,
+                    gt.group_total,
+                    gt.recipient_count,
+                    gt.total_grants,
+                    ROUND(SUM(POWER(rt.recipient_total / NULLIF(gt.group_total, 0) * 100, 2))) AS hhi
+                FROM recipient_totals rt
+                JOIN group_totals gt ON rt.group_key = gt.group_key
+                GROUP BY rt.group_key, gt.group_total, gt.recipient_count, gt.total_grants
+            ),
+            top3_per_group AS (
+                SELECT
+                    rt.group_key,
+                    rt.recipient,
+                    rt.recipient_total,
+                    ROW_NUMBER() OVER (PARTITION BY rt.group_key ORDER BY rt.recipient_total DESC) as rn,
+                    SUM(rt.recipient_total) OVER (PARTITION BY rt.group_key) as g_total
+                FROM recipient_totals rt
+                JOIN group_totals gt ON rt.group_key = gt.group_key
+            ),
+            cr3 AS (
+                SELECT
+                    group_key,
+                    ROUND(SUM(recipient_total) / NULLIF(MAX(g_total), 0) * 100, 1) as cr3_pct,
+                    LIST(recipient ORDER BY rn) as top3_names,
+                    LIST(ROUND(recipient_total / 1e6, 2) ORDER BY rn) as top3_millions
+                FROM top3_per_group
+                WHERE rn <= 3
+                GROUP BY group_key
+            )
+            SELECT
+                gh.group_key,
+                gh.group_total,
+                gh.recipient_count,
+                gh.total_grants,
+                gh.hhi,
+                CASE
+                    WHEN gh.hhi > 2500 THEN 'Highly Concentrated'
+                    WHEN gh.hhi > 1500 THEN 'Moderately Concentrated'
+                    ELSE 'Competitive'
+                END AS concentration_level,
+                cr.cr3_pct,
+                cr.top3_names,
+                cr.top3_millions
+            FROM group_hhi gh
+            LEFT JOIN cr3 cr ON cr.group_key = gh.group_key
+            ORDER BY gh.hhi DESC
+            LIMIT {limit}
+        """
+        rows = query(sql)
+        for r in rows:
+            r["group_total"] = float(r.get("group_total") or 0)
+            r["hhi"] = int(r.get("hhi") or 0)
+            r["cr3_pct"] = float(r.get("cr3_pct") or 0)
+            r["recipient_count"] = int(r.get("recipient_count") or 0)
+            r["total_grants"] = int(r.get("total_grants") or 0)
+            r["top3_names"] = r.get("top3_names") or []
+            r["top3_millions"] = r.get("top3_millions") or []
+            # NAICS: add human-readable label
+            if dimension == "naics":
+                r["naics_label"] = _naics_label(r.get("group_key", ""))
+        return rows
+    except Exception as e:
+        print(f"[DuckDB] get_vendor_concentration_live error: {e}")
+        return []
+
+
+def get_vendor_concentration_stats_live() -> dict:
+    """Challenge #5: Headline stats for vendor concentration page."""
+    grants = _read("fed", "grants_contributions")
+    try:
+        # Count highly concentrated departments (HHI > 2500)
+        hhi_sql = f"""
+            WITH rt AS (
+                SELECT owner_org_title AS dept, recipient_legal_name AS recip,
+                       SUM(TRY_CAST(agreement_value AS DOUBLE)) AS recip_total
+                FROM {grants}
+                WHERE TRY_CAST(agreement_value AS DOUBLE) > 0
+                  AND owner_org_title IS NOT NULL AND recipient_legal_name IS NOT NULL
+                  {_VC_NOISE_FILTER}
+                GROUP BY owner_org_title, recipient_legal_name
+            ),
+            dt AS (
+                SELECT dept, SUM(recip_total) AS dept_total, COUNT(DISTINCT recip) AS recip_count
+                FROM rt GROUP BY dept HAVING SUM(recip_total) >= 1000000
+            ),
+            hhi AS (
+                SELECT rt.dept,
+                       ROUND(SUM(POWER(rt.recip_total / NULLIF(dt.dept_total, 0) * 100, 2))) AS hhi_val,
+                       dt.dept_total, dt.recip_count
+                FROM rt JOIN dt ON rt.dept = dt.dept
+                GROUP BY rt.dept, dt.dept_total, dt.recip_count
+            )
+            SELECT
+                COUNT(*) as total_depts_analyzed,
+                COUNT(CASE WHEN hhi_val > 2500 THEN 1 END) as highly_concentrated,
+                COUNT(CASE WHEN hhi_val > 1500 AND hhi_val <= 2500 THEN 1 END) as moderately_concentrated,
+                COUNT(CASE WHEN hhi_val <= 1500 THEN 1 END) as competitive,
+                MAX(hhi_val) as max_hhi
+            FROM hhi
+        """
+        hhi_rows = query(hhi_sql)
+        hhi = hhi_rows[0] if hhi_rows else {}
+
+        # Single-recipient programs (monopoly)
+        monopoly_sql = f"""
+            SELECT COUNT(*) as n FROM (
+                SELECT prog_name_en
+                FROM {grants}
+                WHERE TRY_CAST(agreement_value AS DOUBLE) > 0
+                  AND prog_name_en IS NOT NULL
+                  AND recipient_legal_name IS NOT NULL
+                  {_VC_NOISE_FILTER}
+                GROUP BY prog_name_en, owner_org_title
+                HAVING COUNT(DISTINCT recipient_legal_name) = 1
+                   AND SUM(TRY_CAST(agreement_value AS DOUBLE)) >= 1000000
+            )
+        """
+        monopoly_rows = query(monopoly_sql)
+        monopoly_n = int(monopoly_rows[0]["n"]) if monopoly_rows else 0
+
+        # Total spending in highly concentrated departments
+        locked_sql = f"""
+            WITH rt AS (
+                SELECT owner_org_title AS dept, recipient_legal_name AS recip,
+                       SUM(TRY_CAST(agreement_value AS DOUBLE)) AS recip_total
+                FROM {grants}
+                WHERE TRY_CAST(agreement_value AS DOUBLE) > 0
+                  AND owner_org_title IS NOT NULL AND recipient_legal_name IS NOT NULL
+                  {_VC_NOISE_FILTER}
+                GROUP BY owner_org_title, recipient_legal_name
+            ),
+            dt AS (
+                SELECT dept, SUM(recip_total) AS dept_total
+                FROM rt GROUP BY dept HAVING SUM(recip_total) >= 1000000
+            ),
+            hhi AS (
+                SELECT rt.dept, dt.dept_total,
+                       ROUND(SUM(POWER(rt.recip_total / NULLIF(dt.dept_total, 0) * 100, 2))) AS hhi_val
+                FROM rt JOIN dt ON rt.dept = dt.dept
+                GROUP BY rt.dept, dt.dept_total
+            )
+            SELECT SUM(dept_total) as locked_in_total
+            FROM hhi WHERE hhi_val > 2500
+        """
+        locked_rows = query(locked_sql)
+        locked_total = float(locked_rows[0]["locked_in_total"] or 0) if locked_rows else 0
+
+        return {
+            "total_depts_analyzed": int(hhi.get("total_depts_analyzed") or 0),
+            "highly_concentrated": int(hhi.get("highly_concentrated") or 0),
+            "moderately_concentrated": int(hhi.get("moderately_concentrated") or 0),
+            "competitive": int(hhi.get("competitive") or 0),
+            "max_hhi": int(hhi.get("max_hhi") or 0),
+            "monopoly_programs": monopoly_n,
+            "locked_in_spending": locked_total,
+        }
+    except Exception as e:
+        print(f"[DuckDB] get_vendor_concentration_stats_live error: {e}")
+        return {}
+
+
+def get_vendor_concentration_detail_live(group_key: str, dimension: str = "department", limit: int = 20) -> dict:
+    """Challenge #5: Detailed vendor breakdown for a single department/sector."""
+    grants = _read("fed", "grants_contributions")
+    try:
+        if dimension == "naics":
+            group_col = "naics_identifier"
+        elif dimension == "region":
+            group_col = "recipient_province"
+        else:
+            group_col = "owner_org_title"
+
+        # Top vendors in this group
+        vendor_sql = f"""
+            SELECT
+                recipient_legal_name AS vendor,
+                recipient_province AS province,
+                COUNT(*) as grant_count,
+                COUNT(DISTINCT prog_name_en) as program_count,
+                SUM(TRY_CAST(agreement_value AS DOUBLE)) AS total_value,
+                MIN(CAST(agreement_start_date AS VARCHAR)) as first_grant,
+                MAX(CAST(agreement_start_date AS VARCHAR)) as last_grant,
+                COUNT(DISTINCT LEFT(CAST(agreement_start_date AS VARCHAR), 4)) as active_years,
+                ROUND(SUM(TRY_CAST(agreement_value AS DOUBLE)) /
+                    NULLIF((SELECT SUM(TRY_CAST(agreement_value AS DOUBLE))
+                            FROM {grants}
+                            WHERE {group_col} = '{group_key}'
+                              AND TRY_CAST(agreement_value AS DOUBLE) > 0), 0) * 100, 1
+                ) as market_share_pct
+            FROM {grants}
+            WHERE {group_col} = '{group_key}'
+              AND TRY_CAST(agreement_value AS DOUBLE) > 0
+              AND recipient_legal_name IS NOT NULL
+              {_VC_NOISE_FILTER}
+            GROUP BY recipient_legal_name, recipient_province
+            ORDER BY total_value DESC
+            LIMIT {limit}
+        """
+        vendors = query(vendor_sql)
+        for v in vendors:
+            v["total_value"] = float(v.get("total_value") or 0)
+            v["market_share_pct"] = float(v.get("market_share_pct") or 0)
+
+        # Year-over-year trend for top vendor
+        trend_sql = f"""
+            SELECT
+                LEFT(CAST(agreement_start_date AS VARCHAR), 4) as year,
+                COUNT(DISTINCT recipient_legal_name) as vendor_count,
+                SUM(TRY_CAST(agreement_value AS DOUBLE)) as total_value
+            FROM {grants}
+            WHERE {group_col} = '{group_key}'
+              AND TRY_CAST(agreement_value AS DOUBLE) > 0
+              AND agreement_start_date IS NOT NULL
+            GROUP BY LEFT(CAST(agreement_start_date AS VARCHAR), 4)
+            ORDER BY year
+        """
+        trend = query(trend_sql)
+        for t in trend:
+            t["total_value"] = float(t.get("total_value") or 0)
+            t["vendor_count"] = int(t.get("vendor_count") or 0)
+
+        return {
+            "group_key": group_key,
+            "dimension": dimension,
+            "vendors": vendors,
+            "trend": trend,
+        }
+    except Exception as e:
+        print(f"[DuckDB] get_vendor_concentration_detail_live error: {e}")
+        return {"group_key": group_key, "dimension": dimension, "vendors": [], "trend": []}
+
+
+def get_vendor_concentration_analysis_data() -> dict:
+    """Gather data across all 3 dimensions for LLM analysis."""
+    try:
+        dept_data = get_vendor_concentration_live("department", 1_000_000, 10)
+        naics_data = get_vendor_concentration_live("naics", 1_000_000, 10)
+        region_data = get_vendor_concentration_live("region", 1_000_000, 10)
+        stats = get_vendor_concentration_stats_live()
+
+        # Build compact summaries for the LLM
+        def _summarize(rows, dim_label):
+            out = []
+            for r in rows[:7]:
+                label = r.get("naics_label", r["group_key"]) if dim_label == "NAICS" else r["group_key"]
+                out.append({
+                    "name": label,
+                    "hhi": r["hhi"],
+                    "cr3_pct": r["cr3_pct"],
+                    "total_spending": round(r["group_total"] / 1e6, 1),
+                    "vendor_count": r["recipient_count"],
+                    "top3": r.get("top3_names", [])[:3],
+                })
+            return out
+
+        return {
+            "departments": _summarize(dept_data, "Department"),
+            "sectors": _summarize(naics_data, "NAICS"),
+            "regions": _summarize(region_data, "Region"),
+            "stats": stats,
+        }
+    except Exception as e:
+        print(f"[DuckDB] analysis data error: {e}")
+        return {"departments": [], "sectors": [], "regions": [], "stats": {}}
+
+
+# ── END CHALLENGE 5 ──────────────────────────────────────────────────────────

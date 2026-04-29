@@ -206,3 +206,51 @@ export async function fetchFlaggedOrgs(filter = 'all', sort = 'risk_score', limi
   if (!res.ok) throw new Error('Failed to fetch flagged orgs');
   return res.json();
 }
+
+export async function fetchThresholdGaming(limit = 50) {
+  const res = await fetch(`${API_BASE}/api/threshold-gaming?limit=${limit}`);
+  if (!res.ok) throw new Error('Failed to fetch threshold gaming');
+  return res.json();
+}
+
+export const fetchGhostRecipients = (minFunding = 500000, limit = 50) =>
+  fetch(`${API_BASE}/api/ghost-recipients?min_funding=${minFunding}&limit=${limit}`)
+    .then(r => { if (!r.ok) throw new Error('Failed to fetch ghost recipients'); return r.json(); });
+
+// ── CHALLENGE 5 — Vendor Concentration ──────────────────────────────────────
+
+export async function fetchVendorConcentration(dimension = 'department', minSpending = 1000000, limit = 50) {
+  const res = await fetch(`${API_BASE}/api/vendor-concentration?dimension=${dimension}&min_spending=${minSpending}&limit=${limit}`);
+  if (!res.ok) throw new Error('Failed to fetch vendor concentration');
+  return res.json();
+}
+
+export async function fetchVendorConcentrationStats() {
+  const res = await fetch(`${API_BASE}/api/vendor-concentration/stats`);
+  if (!res.ok) return {};
+  return res.json();
+}
+
+export async function fetchVendorConcentrationDetail(groupKey, dimension = 'department', limit = 20) {
+  const res = await fetch(`${API_BASE}/api/vendor-concentration/detail?group_key=${encodeURIComponent(groupKey)}&dimension=${dimension}&limit=${limit}`);
+  if (!res.ok) return { vendors: [], trend: [] };
+  return res.json();
+}
+
+export async function fetchVendorConcentrationBrief(data) {
+  const res = await fetch(`${API_BASE}/api/vendor-concentration/brief`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(data),
+  });
+  if (!res.ok) return { brief: '' };
+  return res.json();
+}
+
+export async function fetchVendorConcentrationAnalysis() {
+  const res = await fetch(`${API_BASE}/api/vendor-concentration/analyze`, { method: 'POST' });
+  if (!res.ok) return { analysis: '', source: 'error' };
+  return res.json();
+}
+
+// ── END CHALLENGE 5 ─────────────────────────────────────────────────────────
