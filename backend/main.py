@@ -845,6 +845,15 @@ async def check_adverse_media(body: dict):
     if not entity_name and not bn:
         raise HTTPException(400, "Provide 'name' or 'bn'")
 
+    if not bn and entity_name and DUCKDB_MODE:
+        try:
+            q = entity_name.lower().replace("'", "")
+            rows = _duck.query(f"SELECT DISTINCT LEFT(bn,9) as bn FROM cra__cra_identification WHERE LOWER(legal_name) LIKE '%{q}%' LIMIT 1")
+            if rows:
+                bn = rows[0]["bn"]
+        except Exception:
+            pass
+
     dossier = {}
     if bn and DUCKDB_MODE:
         try:
@@ -1242,6 +1251,16 @@ async def chat(body: dict):
             return await llm_enhanced_query(message)
         except Exception as e:
             print(f"[WARN] LLM call failed: {e} — falling back to template")
+            err_hint = ""
+            err_str = str(e)
+            if "invalid x-api-key" in err_str or "authentication" in err_str.lower():
+                err_hint = "\n\n_AI credentials invalid. Check ANTHROPIC_API_KEY in backend/.env (must start with sk-ant-)._"
+            elif "model identifier is invalid" in err_str:
+                err_hint = "\n\n_Bedrock model ID invalid. Check BEDROCK_MODEL_ID in backend/.env._"
+            result = template_query(message)
+            if err_hint:
+                result["answer"] = result["answer"] + err_hint
+            return result
 
     return template_query(message)
 
@@ -1467,7 +1486,19 @@ def _execute_tool(name: str, input_data: dict) -> str:
 
     raw = json.dumps(result, default=str)
     if len(raw) > 12000:
-        raw = raw[:12000] + '..."truncated"}'
+        if isinstance(result, list):
+            while len(json.dumps(result, default=str)) > 11000 and len(result) > 1:
+                result = result[:len(result) // 2]
+            result.append({"_note": "results truncated for context window"})
+            raw = json.dumps(result, default=str)
+        elif isinstance(result, dict) and "results" in result and isinstance(result["results"], list):
+            r = result["results"]
+            while len(json.dumps(result, default=str)) > 11000 and len(r) > 1:
+                result["results"] = r[:len(r) // 2]
+                r = result["results"]
+            raw = json.dumps(result, default=str)
+        else:
+            raw = json.dumps({"summary": raw[:8000], "_truncated": True}, default=str)
     return raw
 
 
@@ -1477,6 +1508,11 @@ def _infer_data_type(tools_used: list) -> str:
         "search_funding_loops": "loops",
         "search_governance": "governance",
         "search_sole_source": "sole_source",
+        "search_vendor_concentration": "vendor_concentration",
+        "search_duplicative_funding": "duplicative_funding",
+        "search_threshold_gaming": "threshold_gaming",
+        "get_entity_dossier": "entity",
+        "search_entities": "entity",
         "get_cross_challenge_alerts": "alerts",
         "get_platform_stats": "stats",
     }
@@ -1542,7 +1578,7 @@ async def _call_bedrock_with_tools(system: str, messages: list, tools: list) -> 
         aws_secret_access_key=os.getenv("AWS_SECRET_ACCESS_KEY"),
         aws_session_token=os.getenv("AWS_SESSION_TOKEN") or None,
     )
-    model_id = os.getenv("BEDROCK_MODEL_ID", "us.anthropic.claude-opus-4-6-20251101-v1:0")
+    model_id = os.getenv("BEDROCK_MODEL_ID", "us.anthropic.claude-sonnet-4-6")
 
     bedrock_tools = [
         {
@@ -1732,7 +1768,7 @@ async def _call_llm(system: str, user_content: str) -> str:
 
 async def _call_bedrock(system: str, user_content: str) -> str:
     region = os.getenv("AWS_REGION", "us-east-1")
-    model_id = os.getenv("BEDROCK_MODEL_ID", "us.anthropic.claude-sonnet-4-20250514-v1:0")
+    model_id = os.getenv("BEDROCK_MODEL_ID", "us.anthropic.claude-sonnet-4-6")
     bedrock_api_key = os.getenv("BEDROCK_API_KEY")
 
     if bedrock_api_key:
@@ -1901,11 +1937,30 @@ def template_query(message: str) -> dict:
             "sql_hint": "Aggregated counts across all four datasets",
             "follow_up": ["Show me zombies", "Explore funding loops", "Show multi-flag alerts"],
         }
-    else:
+    elif any(w in msg for w in ["investigate", "risk", "worst", "high", "top", "find", "show", "search"]):
+        data = _data_alerts(min_flags=2, limit=10)
+        stats = _data_stats()
+        top_cases = []
+        for a in (data.get("results") or [])[:5]:
+            name = a.get("canonical_name", "Unknown")
+            funding = float(a.get("total_govt_funding") or 0)
+            flags = ", ".join(a.get("flags") or [])
+            top_cases.append(f"• **{name}** — ${funding:,.0f} govt funding, flagged for: {flags}")
+        cases_text = "\n".join(top_cases) if top_cases else "No multi-flag entities found."
         return {
-            "answer": "I can help you investigate government spending accountability. Try asking about:\n\n• **Zombie recipients** — organizations that vanished after receiving funding\n• **Funding loops** — circular money flows between charities\n• **Governance networks** — directors controlling multiple funded entities\n• **Sole-source contracts** — amendment creep and vendor lock-in\n• **Multi-flag alerts** — entities flagged across multiple challenges\n• **Spending overview** — total funding across all datasets",
+            "answer": f"**Cross-Challenge Investigation** (AI credentials not configured — showing database results directly)\n\nI found **{data['count']} entities** flagged across multiple accountability categories. Here are the highest-risk cases:\n\n{cases_text}\n\n_Configure ANTHROPIC_API_KEY in backend/.env for full agentic AI investigation._",
+            "data_type": "alerts",
+            "data": (data.get("results") or [])[:10],
+            "sql_hint": "Cross-challenge alert query — zombie + loop + governance overlap",
+            "follow_up": ["Show me zombie recipients", "Find funding loops", "Show governance networks"],
+        }
+    else:
+        data = _data_alerts(min_flags=2, limit=5)
+        stats = _data_stats()
+        return {
+            "answer": f"**Platform Overview**: Tracking **{stats.get('total_charities', 0):,}** charities, **{stats.get('total_fed_grants', 0):,}** federal grants, and **{stats.get('total_sole_source', 0):,}** procurement contracts.\n\nTry asking about:\n• **Zombie recipients** — organizations that vanished after receiving funding\n• **Funding loops** — circular money flows between charities\n• **Governance networks** — directors controlling multiple funded entities\n• **Sole-source contracts** — amendment creep and vendor lock-in\n• **Multi-flag alerts** — entities flagged across multiple challenges",
             "data_type": "help",
-            "data": [],
+            "data": (data.get("results") or [])[:5],
             "sql_hint": None,
             "follow_up": ["Show me zombie recipients", "Find funding loops", "Show multi-flag alerts"],
         }
