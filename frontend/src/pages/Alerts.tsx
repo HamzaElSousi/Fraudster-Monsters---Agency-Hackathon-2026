@@ -1,5 +1,7 @@
+// @ts-nocheck
 import { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
+import { Skull, Repeat2, Network, FileSearch, AlertTriangle, Target, ShieldAlert, Search } from 'lucide-react';
 import { fetchAlerts, formatCurrency } from '../api';
 
 function buildNarrative(alert) {
@@ -17,12 +19,12 @@ function buildNarrative(alert) {
 }
 
 const FLAG_META = {
-  zombie: { icon: '', label: 'Zombie Recipient', color: 'var(--status-critical)', bg: 'rgba(239,68,68,0.1)' },
-  loop: { icon: '', label: 'Funding Loop', color: 'var(--accent-purple)', bg: 'rgba(167,139,250,0.1)' },
-  governance: { icon: '', label: 'Governance Risk', color: 'var(--accent-cyan)', bg: 'rgba(6,182,212,0.1)' },
-  sole_source: { icon: '', label: 'Sole Source', color: 'var(--accent-amber)', bg: 'rgba(245,158,11,0.1)' },
-  dependency: { icon: '', label: 'Gov Dependency', color: 'var(--accent-amber)', bg: 'rgba(245,158,11,0.1)' },
-  concentration: { icon: '', label: 'Concentration', color: 'var(--accent-indigo-light)', bg: 'rgba(99,102,241,0.1)' },
+  zombie:        { Icon: Skull,          label: 'Zombie Recipient', color: 'var(--status-critical)', bg: 'rgba(239,68,68,0.1)' },
+  loop:          { Icon: Repeat2,        label: 'Funding Loop',     color: 'var(--accent-purple)',   bg: 'rgba(167,139,250,0.1)' },
+  governance:    { Icon: Network,        label: 'Governance Risk',  color: 'var(--accent-cyan)',     bg: 'rgba(6,182,212,0.1)' },
+  sole_source:   { Icon: FileSearch,     label: 'Sole Source',      color: 'var(--accent-amber)',    bg: 'rgba(245,158,11,0.1)' },
+  dependency:    { Icon: AlertTriangle,  label: 'Gov Dependency',   color: 'var(--accent-amber)',    bg: 'rgba(245,158,11,0.1)' },
+  concentration: { Icon: Target,         label: 'Concentration',    color: 'var(--accent-indigo-light)', bg: 'rgba(99,102,241,0.1)' },
 };
 
 export default function Alerts() {
@@ -105,12 +107,7 @@ export default function Alerts() {
 
         {/* Search input */}
         <div style={{ position: 'relative' }}>
-          <span style={{
-            position: 'absolute', left: 12, top: '50%', transform: 'translateY(-50%)',
-            color: 'var(--text-muted)', pointerEvents: 'none', fontSize: 13,
-          }}>
-            
-          </span>
+          <Search size={13} style={{ position: 'absolute', left: 12, top: '50%', transform: 'translateY(-50%)', color: 'var(--text-muted)', pointerEvents: 'none' }} />
           <input
             type="text"
             placeholder="Search organization..."
@@ -151,7 +148,7 @@ export default function Alerts() {
           background: 'var(--bg-card)', border: '1px solid var(--border-primary)',
           borderRadius: 'var(--radius-lg)',
         }}>
-          <div style={{ fontSize: 40, marginBottom: 12 }}></div>
+          <ShieldAlert size={40} style={{ marginBottom: 12, color: 'var(--text-muted)' }} />
           <div style={{ fontSize: 15, fontWeight: 600, color: 'var(--text-primary)', marginBottom: 6 }}>
             No multi-flag alerts found
           </div>
@@ -227,7 +224,7 @@ export default function Alerts() {
                               fontSize: 11, color: meta.color, fontWeight: 600,
                             }}
                           >
-                            {meta.icon} {meta.label}
+                            <meta.Icon size={11} /> {meta.label}
                           </span>
                         );
                       })}
@@ -276,7 +273,7 @@ export default function Alerts() {
                         return (
                           <div key={flagKey} style={{ padding: '14px 16px', background: meta.bg, border: `1px solid ${meta.color}30`, borderRadius: 'var(--radius-md)', borderLeft: `3px solid ${meta.color}` }}>
                             <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                              <span style={{ fontSize: 16 }}>{meta.icon}</span>
+                              <meta.Icon size={16} style={{ color: meta.color }} />
                               <span style={{ fontSize: 13, fontWeight: 700, color: meta.color }}>{meta.label}</span>
                             </div>
                           </div>

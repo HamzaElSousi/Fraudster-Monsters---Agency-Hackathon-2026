@@ -2029,7 +2029,135 @@ def get_dashboard_featured_cases_live() -> list[dict]:
         return rows
     except Exception as e:
         print(f"[DuckDB] get_dashboard_featured_cases_live error: {e}")
+
+
+def get_flagged_orgs_live(limit: int = 100, filter_flag: str = "all", sort_by: str = "risk_score") -> list[dict]:
+    """
+    Returns risk-scored orgs for the homepage flagged feed.
+    Uses preloaded CRA tables only — avoids entity_golden_records STRUCT accessor issues.
+    Python-side scoring via risk_scorer.calculate_score().
+    """
+    from risk_scorer import calculate_score, get_triggered_flags
+
+    govt_tbl = _read("cra", "govt_funding_by_charity")
+    id_tbl   = _read("cra", "cra_identification")
+    loop_tbl = _read("cra", "loop_participants")
+    dirs_tbl = _read("cra", "cra_directors")
+
+    try:
+        # Step 1: zombie + loop signals — fast, no self-join
+        rows = query(f"""
+            WITH
+            zombie_data AS (
+                SELECT LEFT(bn, 9)                                         as bn9,
+                       ANY_VALUE(legal_name)                               as canonical_name,
+                       MAX(TRY_CAST(govt_share_of_rev AS DOUBLE)) / 100.0 as govt_share,
+                       MAX(TRY_CAST(total_govt AS DOUBLE))                 as total_govt
+                FROM {govt_tbl}
+                WHERE TRY_CAST(total_govt AS DOUBLE) > 0
+                  AND legal_name IS NOT NULL AND legal_name != ''
+                GROUP BY LEFT(bn, 9)
+            ),
+            last_filing AS (
+                SELECT LEFT(bn, 9) as bn9, MAX(fiscal_year) as last_year
+                FROM {id_tbl}
+                GROUP BY LEFT(bn, 9)
+            ),
+            loop_data AS (
+                SELECT LEFT(bn, 9) as bn9, COUNT(DISTINCT loop_id) as loop_count
+                FROM {loop_tbl}
+                GROUP BY LEFT(bn, 9)
+            )
+            SELECT
+                z.bn9                           as bn_root,
+                z.canonical_name,
+                COALESCE(z.govt_share, 0)       as govt_share,
+                COALESCE(f.last_year, 9999)     as last_year,
+                COALESCE(z.total_govt, 0)       as total_govt,
+                COALESCE(l.loop_count, 0)       as loop_count,
+                0                               as max_director_boards,
+                COALESCE(z.total_govt, 0)       as fed_total,
+                0.0                             as ab_total,
+                COALESCE(z.total_govt, 0)       as combined_funding
+            FROM zombie_data z
+            JOIN last_filing f ON f.bn9 = z.bn9
+            LEFT JOIN loop_data l ON l.bn9 = z.bn9
+            WHERE (
+                COALESCE(z.govt_share, 0) >= 0.5
+                OR COALESCE(l.loop_count, 0) > 0
+            )
+            LIMIT {min(limit * 3, 600)}
+        """)
+    except Exception as e:
+        print(f"[DuckDB] get_flagged_orgs_live query error: {e}")
         return []
+
+    if not rows:
+        print("[DuckDB] get_flagged_orgs_live: main query returned 0 rows")
+        return []
+
+    # Step 2: governance signal — efficient GROUP BY, no self-join
+    gov_map: dict[str, int] = {}
+    try:
+        gov_rows = query(f"""
+            WITH dedup AS (
+                SELECT last_name, first_name, LEFT(bn, 9) as bn9
+                FROM {dirs_tbl}
+                WHERE last_name IS NOT NULL AND first_name IS NOT NULL
+                  AND last_name != '' AND first_name != ''
+                  AND LENGTH(last_name) > 1 AND LENGTH(first_name) > 1
+                GROUP BY last_name, first_name, LEFT(bn, 9)
+            ),
+            multi AS (
+                SELECT last_name, first_name, COUNT(DISTINCT bn9) as board_count
+                FROM dedup
+                GROUP BY last_name, first_name
+                HAVING COUNT(DISTINCT bn9) >= 3
+            )
+            SELECT d.bn9, MAX(m.board_count) as max_boards
+            FROM dedup d
+            JOIN multi m ON m.last_name = d.last_name AND m.first_name = d.first_name
+            GROUP BY d.bn9
+        """)
+        gov_map = {r["bn9"]: int(r["max_boards"] or 0) for r in gov_rows if r.get("bn9")}
+    except Exception as e:
+        print(f"[DuckDB] get_flagged_orgs_live governance query error: {e}")
+
+    # Score each org
+    scored = []
+    for r in rows:
+        r.setdefault("city", "")
+        r.setdefault("province", "")
+        r["fed_total"]   = float(r.get("fed_total") or 0)
+        r["ab_total"]    = float(r.get("ab_total") or 0)
+        r["combined_funding"] = float(r.get("combined_funding") or 0)
+        r["govt_share"]  = float(r.get("govt_share") or 0)
+        r["total_govt"]  = float(r.get("total_govt") or 0)
+        r["loop_count"]  = int(r.get("loop_count") or 0)
+        r["max_director_boards"] = gov_map.get(r.get("bn_root", ""), 0)
+        r["last_year"]   = int(r.get("last_year") or 9999)
+        r["last_funded"] = r["last_year"] if r["last_year"] < 9999 else None
+
+        result = calculate_score(r)
+        r["risk_score"]    = result["score"]
+        r["tier"]          = result["tier"]
+        r["risk_breakdown"] = result["breakdown"]
+        r["flags"]         = get_triggered_flags(r, result["breakdown"])
+        scored.append(r)
+
+    # Filter
+    if filter_flag and filter_flag != "all":
+        scored = [r for r in scored if filter_flag in r["flags"]]
+
+    # Sort
+    if sort_by == "funding_amount":
+        scored.sort(key=lambda r: r["combined_funding"], reverse=True)
+    elif sort_by == "recent":
+        scored.sort(key=lambda r: r["last_year"] if r["last_year"] < 9999 else 0, reverse=True)
+    else:
+        scored.sort(key=lambda r: r["risk_score"], reverse=True)
+
+    return scored[:limit]
 
 
 # ── CHALLENGE 5 — Vendor Concentration ────────────────────────────────────────

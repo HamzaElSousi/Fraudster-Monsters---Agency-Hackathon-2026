@@ -1,5 +1,10 @@
 import { useState, useEffect } from 'react';
 import { BrowserRouter, Routes, Route, NavLink, useLocation, useNavigate } from 'react-router-dom';
+import {
+  LayoutDashboard, ShieldAlert, Skull, Repeat2, Network, FileSearch,
+  Shuffle, Bot, BookOpen, AlertTriangle, Zap, Database, Search,
+  Ghost, BarChart3, Package
+} from 'lucide-react';
 import Home from './pages/Home';
 import Dashboard from './pages/Dashboard';
 import GhostRecipients from './pages/GhostRecipients';
@@ -11,8 +16,9 @@ import SoleSource from './pages/SoleSource';
 import Chat from './pages/Chat';
 import EntityCaseFile from './pages/EntityCaseFile';
 import DuplicativeFunding from './pages/DuplicativeFunding';
+import Methodology from './pages/Methodology';
 import ThresholdGaming from './pages/ThresholdGaming';
-import VendorConcentration from './pages/VendorConcentration';  // CHALLENGE 5
+import VendorConcentration from './pages/VendorConcentration';
 import './index.css';
 
 const API_BASE = import.meta.env.VITE_API_URL || '';
@@ -26,8 +32,8 @@ function BackendStatus() {
   }, []);
   if (!down) return null;
   return (
-    <div style={{ background: 'var(--status-critical)', color: '#fff', fontSize: 12, padding: '6px 20px', textAlign: 'center', position: 'sticky', top: 0, zIndex: 200 }}>
-      Backend unavailable — run <code style={{ background: 'rgba(0,0,0,0.2)', padding: '1px 6px', borderRadius: 4 }}>cd backend && python3 main.py</code>
+    <div style={{ background: 'var(--status-critical)', color: '#fff', fontSize: 12, padding: '6px 20px', textAlign: 'center', position: 'sticky', top: 0, zIndex: 200, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8 }}>
+      <AlertTriangle size={13} /> Backend unavailable — run <code style={{ background: 'rgba(0,0,0,0.2)', padding: '1px 6px', borderRadius: 4 }}>cd backend && python3 main.py</code>
     </div>
   );
 }
@@ -94,21 +100,22 @@ function Sidebar() {
         <NavLink to="/" className="sidebar-logo">
           <div className="sidebar-logo-icon" style={{ fontSize: 18, fontWeight: 900, fontFamily: "var(--font-mono)" }}>$</div>
           <div className="sidebar-logo-text">
-            <span className="sidebar-logo-title">Follow The Money</span>
+            <span className="sidebar-logo-title">AuditLens</span>
             <span className="sidebar-logo-subtitle">Agency 2026 Ottawa</span>
           </div>
         </NavLink>
 
         {/* Global Search */}
         <div style={{ marginTop: 16, position: 'relative' }}>
+          <Search size={13} style={{ position: 'absolute', left: 10, top: '50%', transform: 'translateY(-50%)', color: 'var(--text-muted)', pointerEvents: 'none', zIndex: 1 }} />
           <input
             type="text"
-            placeholder=" Search..."
+            placeholder="Search..."
             value={searchQuery}
             onChange={(e) => setSearchQuery(e.target.value)}
             style={{
               width: '100%',
-              padding: '10px 12px',
+              padding: '10px 12px 10px 30px',
               fontSize: 13,
               background: 'var(--bg-tertiary)',
               border: '1px solid var(--border-primary)',
@@ -138,8 +145,8 @@ function Sidebar() {
                   {/* Entities first — PG cross-dataset, confidence-ranked */}
                   {(searchResults.results?.entities || []).length > 0 && (
                     <div>
-                      <div style={{ padding: '8px 12px', fontSize: 11, color: 'var(--accent-cyan)', textTransform: 'uppercase', background: 'var(--bg-tertiary)', fontWeight: 700, letterSpacing: '0.05em' }}>
-                        ✦ Entities ({searchResults.results.entities.length})
+                      <div style={{ padding: '8px 12px', fontSize: 11, color: 'var(--accent-cyan)', textTransform: 'uppercase', background: 'var(--bg-tertiary)', fontWeight: 700, letterSpacing: '0.05em', display: 'flex', alignItems: 'center', gap: 5 }}>
+                        <Database size={10} /> Entities ({searchResults.results.entities.length})
                       </div>
                       {searchResults.results.entities.map((item, i) => (
                         <div
@@ -195,14 +202,17 @@ function Sidebar() {
       <nav className="sidebar-nav">
         <div className="sidebar-section-label">Overview</div>
         <NavLink to="/" end className={({ isActive }) => `nav-link ${isActive ? 'active' : ''}`}>
+          <LayoutDashboard className="nav-link-icon" />
           Home
         </NavLink>
         <NavLink to="/dashboard" className={({ isActive }) => `nav-link ${isActive ? 'active' : ''}`}>
+          <LayoutDashboard className="nav-link-icon" />
           Dashboard
         </NavLink>
 
         <div className="sidebar-section-label">Challenges</div>
         <NavLink to="/alerts" className={({ isActive }) => `nav-link ${isActive ? 'active' : ''}`}>
+          <ShieldAlert className="nav-link-icon" />
           Multi-Flag Alerts
           <span
             className="nav-link-badge"
@@ -215,48 +225,61 @@ function Sidebar() {
           </span>
         </NavLink>
         <NavLink to="/zombies" className={({ isActive }) => `nav-link ${isActive ? 'active' : ''}`}>
+          <Skull className="nav-link-icon" />
           #1 Zombie Recipients
           <span className="nav-link-badge">{navStats?.zombie_count != null ? navStats.zombie_count.toLocaleString() : '...'}</span>
         </NavLink>
         <NavLink to="/ghost-recipients" className={({ isActive }) => `nav-link ${isActive ? 'active' : ''}`}>
+          <Ghost className="nav-link-icon" />
           #2 Ghost Recipients
           <span className="nav-link-badge">{navStats?.ghost_count != null ? navStats.ghost_count.toLocaleString() : '...'}</span>
         </NavLink>
         <NavLink to="/loops" className={({ isActive }) => `nav-link ${isActive ? 'active' : ''}`}>
+          <Repeat2 className="nav-link-icon" />
           #3 Funding Loops
           <span className="nav-link-badge">{navStats?.total_funding_loops != null ? navStats.total_funding_loops.toLocaleString() : '...'}</span>
         </NavLink>
         <NavLink to="/sole-source" className={({ isActive }) => `nav-link ${isActive ? 'active' : ''}`}>
+          <FileSearch className="nav-link-icon" />
           #4 Sole Source
           <span className="nav-link-badge">{navStats?.total_sole_source != null ? (navStats.total_sole_source >= 1000 ? Math.round(navStats.total_sole_source / 1000) + 'K' : navStats.total_sole_source) : '...'}</span>
         </NavLink>
-        {/* CHALLENGE 5 */}
         <NavLink to="/vendor-concentration" className={({ isActive }) => `nav-link ${isActive ? 'active' : ''}`}>
+          <Package className="nav-link-icon" />
           #5 Vendor Concentration
           <span className="nav-link-badge">{navStats?.vendor_concentration_count != null ? navStats.vendor_concentration_count.toLocaleString() : '...'}</span>
         </NavLink>
-        {/* END CHALLENGE 5 */}
         <NavLink to="/governance" className={({ isActive }) => `nav-link ${isActive ? 'active' : ''}`}>
+          <Network className="nav-link-icon" />
           #6 Governance Networks
           <span className="nav-link-badge">{navStats?.multi_board_directors != null ? navStats.multi_board_directors.toLocaleString() : '...'}</span>
         </NavLink>
         <NavLink to="/threshold-gaming" className={({ isActive }) => `nav-link ${isActive ? 'active' : ''}`}>
+          <BarChart3 className="nav-link-icon" />
           #9 Threshold Gaming
           <span className="nav-link-badge">{navStats?.threshold_gaming_count != null ? navStats.threshold_gaming_count.toLocaleString() : '...'}</span>
         </NavLink>
         <NavLink to="/duplicative-funding" className={({ isActive }) => `nav-link ${isActive ? 'active' : ''}`}>
+          <Shuffle className="nav-link-icon" />
           Duplicative Funding
         </NavLink>
 
         <div className="sidebar-section-label">AI Assistant</div>
         <NavLink to="/chat" className={({ isActive }) => `nav-link ${isActive ? 'active' : ''}`}>
+          <Bot className="nav-link-icon" />
           Ask AI
+        </NavLink>
+
+        <div className="sidebar-section-label">About</div>
+        <NavLink to="/about" className={({ isActive }) => `nav-link ${isActive ? 'active' : ''}`}>
+          <BookOpen className="nav-link-icon" />
+          Methodology
         </NavLink>
       </nav>
 
       <div className="sidebar-footer">
         <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
-          <div className="sidebar-mode-badge mock">⚡ Live Data</div>
+          <div className="sidebar-mode-badge mock" style={{ display: 'flex', alignItems: 'center', gap: 5 }}><Zap size={10} /> Live Data</div>
           {pgConnected && (
             <div className="sidebar-mode-badge mock" style={{ background: 'rgba(34,211,238,0.15)', color: 'var(--accent-cyan)', border: '1px solid rgba(34,211,238,0.3)' }}>
               ✓ Dual-DB
@@ -282,10 +305,11 @@ const PAGE_TITLES = {
   '/sole-source': 'Challenge #4 — Sole Source & Amendment Creep',
   '/governance': 'Challenge #6 — Governance Networks',
   '/threshold-gaming': 'Challenge #9 — Threshold Gaming',
-  '/vendor-concentration': 'Challenge #5 — Vendor Concentration',  // CHALLENGE 5
+  '/vendor-concentration': 'Challenge #5 — Vendor Concentration',
   '/chat': 'AI Investigator',
   '/entity': 'Entity Case File',
-  '/duplicative-funding': 'Duplicative Funding',
+  '/duplicative-funding': 'Cross-Government Funding — Challenges #6 + #8',
+  '/about': 'Methodology — How AuditLens Works',
 };
 
 const PAGE_CLASSES = {
@@ -298,7 +322,7 @@ const PAGE_CLASSES = {
   '/governance': 'page-governance',
   '/sole-source': 'page-dashboard',
   '/threshold-gaming': 'page-sole-source',
-  '/vendor-concentration': 'page-dashboard',  // CHALLENGE 5
+  '/vendor-concentration': 'page-dashboard',
   '/chat': 'page-dashboard',
   '/duplicative-funding': 'page-governance',
 };
@@ -335,7 +359,8 @@ function MainLayout() {
             <Route path="/entity/:bn" element={<EntityCaseFile />} />
             <Route path="/threshold-gaming" element={<ThresholdGaming />} />
             <Route path="/duplicative-funding" element={<DuplicativeFunding />} />
-            <Route path="/vendor-concentration" element={<VendorConcentration />} />  {/* CHALLENGE 5 */}
+            <Route path="/about" element={<Methodology />} />
+            <Route path="/vendor-concentration" element={<VendorConcentration />} />
           </Routes>
         </div>
       </main>

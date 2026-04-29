@@ -201,6 +201,12 @@ export async function fetchDuplicativeFundingSummary() {
   return res.json();
 }
 
+export async function fetchFlaggedOrgs(filter = 'all', sort = 'risk_score', limit = 50) {
+  const res = await fetch(`${API_BASE}/api/flagged-orgs?filter=${filter}&sort=${sort}&limit=${limit}`);
+  if (!res.ok) throw new Error('Failed to fetch flagged orgs');
+  return res.json();
+}
+
 export async function fetchThresholdGaming(limit = 50) {
   const res = await fetch(`${API_BASE}/api/threshold-gaming?limit=${limit}`);
   if (!res.ok) throw new Error('Failed to fetch threshold gaming');

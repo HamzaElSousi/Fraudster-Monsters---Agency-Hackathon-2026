@@ -1,4 +1,6 @@
+// @ts-nocheck
 import { useState, useEffect } from 'react';
+import { FileSearch, AlertTriangle, Search } from 'lucide-react';
 import { fetchSoleSource, formatCurrency } from '../api';
 
 function MethodologyPanel() {
@@ -180,12 +182,7 @@ export default function SoleSource() {
         </label>
 
         <div style={{ position: 'relative' }}>
-          <span style={{
-            position: 'absolute', left: 12, top: '50%', transform: 'translateY(-50%)',
-            color: 'var(--text-muted)', pointerEvents: 'none', fontSize: 13,
-          }}>
-            
-          </span>
+          <Search size={13} style={{ position: 'absolute', left: 12, top: '50%', transform: 'translateY(-50%)', color: 'var(--text-muted)', pointerEvents: 'none' }} />
           <input
             type="text"
             placeholder="Search vendor or department..."
@@ -212,7 +209,7 @@ export default function SoleSource() {
       {/* Table */}
       <div className="data-table-container">
         <div className="data-table-header">
-          <span className="data-table-title">📋 All Sole-Source Contracts ({filtered.length})</span>
+          <span className="data-table-title" style={{ display: 'flex', alignItems: 'center', gap: 6 }}><FileSearch size={15} /> All Sole-Source Contracts ({filtered.length})</span>
           <span className="badge info">{data?.query_mode || 'loading'}</span>
         </div>
         {loadError ? (
@@ -287,7 +284,7 @@ export default function SoleSource() {
                     <td style={{ maxWidth: 260 }}>
                       {(c.risk_flags || []).map((flag, fi) => (
                         <div key={fi} className="risk-flag" style={{ marginBottom: 4, fontSize: 11 }}>
-                          <span className="risk-flag-icon"></span>
+                          <AlertTriangle size={13} className="risk-flag-icon" />
                           <span>{flag}</span>
                         </div>
                       ))}

@@ -1,5 +1,7 @@
+// @ts-nocheck
 import { useState, useEffect, useMemo } from 'react';
 import { useNavigate } from 'react-router-dom';
+import { ShieldAlert, AlertTriangle, Bot, Building2, Network, Banknote, Search } from 'lucide-react';
 import {
   fetchDuplicativeFunding,
   fetchDuplicativeFundingStats,
@@ -85,8 +87,8 @@ function SplitBar({ abPct }) {
 
 function FlagItem({ text, severity }) {
   const colors = {
-    critical: { bg: 'rgba(239,68,68,0.08)', border: 'rgba(239,68,68,0.2)', icon: '🚨', text: 'var(--status-critical)' },
-    medium: { bg: 'rgba(234,179,8,0.08)', border: 'rgba(234,179,8,0.2)', icon: '', text: 'var(--status-medium)' },
+    critical: { bg: 'rgba(239,68,68,0.08)', border: 'rgba(239,68,68,0.2)', Icon: ShieldAlert, text: 'var(--status-critical)' },
+    medium: { bg: 'rgba(234,179,8,0.08)', border: 'rgba(234,179,8,0.2)', Icon: AlertTriangle, text: 'var(--status-medium)' },
   };
   const c = colors[severity] || colors.medium;
   return (
@@ -100,7 +102,7 @@ function FlagItem({ text, severity }) {
       color: c.text,
       lineHeight: 1.4,
     }}>
-      <span style={{ flexShrink: 0 }}>{c.icon}</span>
+      <c.Icon size={13} style={{ flexShrink: 0, marginTop: 1 }} />
       <span>{text}</span>
     </div>
   );
@@ -141,16 +143,20 @@ function OrgCard({ row, index }) {
   const handleGenerateAI = async (e) => {
     e.stopPropagation();
     setAiLoading(true);
-    const result = await fetchEntitySummary({
-      name: row.canonical_name,
-      fed_total: row.fed_total,
-      ab_total: row.ab_total,
-      fed_departments: fedDepts,
-      ab_ministries: abMins,
-      entity_type: row.entity_type,
-      city: row.city,
-    });
-    setAiSummary(result.summary || '');
+    try {
+      const result = await fetchEntitySummary({
+        name: row.canonical_name,
+        fed_total: row.fed_total,
+        ab_total: row.ab_total,
+        fed_departments: fedDepts,
+        ab_ministries: abMins,
+        entity_type: row.entity_type,
+        city: row.city,
+      });
+      setAiSummary(result.summary || '⚠ AI analysis unavailable — no response from model.');
+    } catch {
+      setAiSummary('⚠ AI analysis unavailable — request failed.');
+    }
     setAiLoading(false);
   };
 
@@ -309,7 +315,7 @@ function OrgCard({ row, index }) {
                   cursor: 'pointer', fontWeight: 500,
                 }}
               >
-                 Generate AI Analysis
+                <Bot size={14} style={{ display: 'inline', verticalAlign: 'middle', marginRight: 4 }} /> Generate AI Analysis
               </button>
             )}
           </div>
@@ -520,7 +526,7 @@ export default function DuplicativeFunding() {
           gap: 12,
           alignItems: 'flex-start',
         }}>
-          <span style={{ fontSize: 18, flexShrink: 0 }}></span>
+          <Bot size={18} style={{ flexShrink: 0, color: 'var(--accent-purple)' }} />
           <div>
             <div style={{ fontSize: 11, color: 'var(--accent-purple)', fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: 4 }}>
               AI Investigative Summary
@@ -561,7 +567,7 @@ export default function DuplicativeFunding() {
       <div style={{ display: 'flex', gap: 10, marginBottom: 20, flexWrap: 'wrap', alignItems: 'center' }}>
         {/* Tabs */}
         <div style={{ display: 'flex', gap: 2, background: 'var(--bg-tertiary)', borderRadius: 'var(--radius-md)', padding: 2 }}>
-          {[{ id: 'orgs', label: '🏢 Organizations' }, { id: 'directors', label: '🕸️ Related Parties' }].map(t => (
+          {[{ id: 'orgs', label: 'Organizations', Icon: Building2 }, { id: 'directors', label: 'Related Parties', Icon: Network }].map(t => (
             <button key={t.id} onClick={() => setTab(t.id)} style={{
               padding: '6px 14px', fontSize: 13, border: 'none', cursor: 'pointer',
               borderRadius: 'var(--radius-sm)',
@@ -569,13 +575,14 @@ export default function DuplicativeFunding() {
               color: tab === t.id ? '#fff' : 'var(--text-secondary)',
               fontWeight: tab === t.id ? 600 : 400,
               transition: 'all 0.15s',
-            }}>{t.label}</button>
+              display: 'flex', alignItems: 'center', gap: 6,
+            }}><t.Icon size={13} />{t.label}</button>
           ))}
         </div>
 
         {/* Search */}
         <div style={{ position: 'relative', flex: 1, minWidth: 180 }}>
-          <span style={{ position: 'absolute', left: 10, top: '50%', transform: 'translateY(-50%)', color: 'var(--text-muted)', fontSize: 13 }}></span>
+          <Search size={13} style={{ position: 'absolute', left: 10, top: '50%', transform: 'translateY(-50%)', color: 'var(--text-muted)', pointerEvents: 'none' }} />
           <input
             type="text"
             placeholder={tab === 'orgs' ? 'Search org name, city...' : 'Search director name, org...'}
@@ -634,7 +641,7 @@ export default function DuplicativeFunding() {
           </div>
         ) : filteredOrgs.length === 0 ? (
           <div style={{ padding: '48px 24px', textAlign: 'center', background: 'var(--bg-card)', border: '1px solid var(--border-primary)', borderRadius: 'var(--radius-lg)' }}>
-            <div style={{ fontSize: 36, marginBottom: 12 }}>💸</div>
+            <Banknote size={36} style={{ marginBottom: 12, color: 'var(--text-muted)' }} />
             <div style={{ fontSize: 15, fontWeight: 600, marginBottom: 6 }}>No organizations match your filters</div>
             <div style={{ fontSize: 13, color: 'var(--text-muted)' }}>Try lowering the minimum amounts or clearing the search.</div>
           </div>
@@ -655,7 +662,7 @@ export default function DuplicativeFunding() {
           </div>
         ) : filteredDirectors.length === 0 ? (
           <div style={{ padding: '48px 24px', textAlign: 'center', background: 'var(--bg-card)', border: '1px solid var(--border-primary)', borderRadius: 'var(--radius-lg)' }}>
-            <div style={{ fontSize: 36, marginBottom: 12 }}>🕸️</div>
+            <Network size={36} style={{ marginBottom: 12, color: 'var(--text-muted)' }} />
             <div style={{ fontSize: 15, fontWeight: 600, marginBottom: 6 }}>No directors match your filters</div>
             <div style={{ fontSize: 13, color: 'var(--text-muted)' }}>Try lowering the minimum organizations or clearing the search.</div>
           </div>
