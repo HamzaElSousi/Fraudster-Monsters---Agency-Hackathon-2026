@@ -9,6 +9,7 @@ import json
 import time
 import threading
 import duckdb
+from datetime import datetime
 
 _conn = None
 _loaded_tables: set[str] = set()
@@ -192,77 +193,150 @@ def _resolve_path(path_bns: list | str) -> str:
 # ── Zombies (Challenge #1) ────────────────────────────────────────────────────
 def get_zombies_live(min_funding: float = 100000, limit: int = 50) -> list[dict]:
     """
-    Zombie detection via govt_funding_by_charity.
-    Identifies high-govt-dependency charities that stopped filing after 2022.
+    Deterministic Zombie Detection Pipeline.
+    Identifies entities officially dissolved or inactive within 12 months of public funding.
+    
+    Acronyms Defined:
+      CRA: Canada Revenue Agency
+      T3010: Income Tax Return – Registered Charity (CRA financial filing)
+      AB: Alberta (Provincial)
+      FED: Federal Government
+      JSON: JavaScript Object Notation
+      SQL: Structured Query Language
     """
-    gov = _read("cra", "govt_funding_by_charity")
-    ident = _read("cra", "cra_identification")
+    # Schema mapping for _read() utility
+    ab_np = _read("ab", "ab_non_profit")
+    ab_gr = _read("ab", "ab_grants")
+    ab_gr_rec = _read("ab", "ab_grants_recipients")
+    egr = _read("general", "entity_golden_records")
+    ci = _read("cra", "cra_identification")
+    fyr = _read("cra", "vw_charity_financials_by_year")
+    cd = _read("cra", "cra_directors")
+    fc = _read("fed", "grants_contributions")
 
     sql = f"""
-        WITH last_filing AS (
-            SELECT bn, MAX(fiscal_year) as last_year
-            FROM {ident}
-            GROUP BY bn
-        ),
-        best_govt_year AS (
-            SELECT
-                g.bn,
-                g.legal_name,
-                g.designation,
-                g.category,
-                g.fiscal_year,
-                TRY_CAST(g.govt_share_of_rev AS DOUBLE) as govt_share_pct,
-                TRY_CAST(g.total_govt AS DOUBLE) as total_govt_funding,
-                TRY_CAST(g.revenue AS DOUBLE) as revenue,
-                ROW_NUMBER() OVER (
-                    PARTITION BY g.bn
-                    ORDER BY TRY_CAST(g.total_govt AS DOUBLE) DESC NULLS LAST
-                ) as rn
-            FROM {gov} g
-            WHERE TRY_CAST(g.govt_share_of_rev AS DOUBLE) >= 70.0
-              AND TRY_CAST(g.total_govt AS DOUBLE) >= {min_funding}
-              AND g.legal_name NOT LIKE '%GOVERNMENT%'
-              AND g.legal_name NOT LIKE '%PROVINCE%'
-              AND g.legal_name NOT LIKE '%MINISTRY%'
-        )
+    WITH zombie_candidates AS (
         SELECT
-            b.bn,
-            b.legal_name,
-            b.category,
-            b.designation,
-            b.govt_share_pct,
-            b.revenue,
-            b.total_govt_funding,
-            b.fiscal_year as last_funded_year,
-            lf.last_year as last_filing_year,
+            np.id AS recipient_id,
+            np.legal_name,
+            np.type AS sector,
+            np.city,
+            np.postal_code,
+            egr.bn_root,
+            egr.status AS entity_status,
+            np.registration_date,
+            g.grant_date,
+            g.grant_amount,
+            COALESCE(ci.dissolution_date, egr.updated_at) AS dissolution_date
+        FROM {ab_np} np
+        JOIN {ab_gr_rec} gr ON np.id = gr.recipient_id
+        JOIN {ab_gr} g ON gr.grant_id = g.grant_id
+        JOIN {egr} ON np.bn_root = egr.bn_root
+        LEFT JOIN {ci} ON egr.bn_root = ci.bn_root
+        WHERE egr.status IN ('dissolved', 'inactive')
+          AND COALESCE(ci.dissolution_date, egr.updated_at) <= g.grant_date + INTERVAL '12 months'
+          AND g.grant_amount >= {min_funding}
+    ),
+    zombie_metrics AS (
+        SELECT
+            z.recipient_id, z.legal_name, z.sector, z.city, z.postal_code,
+            z.bn_root, z.entity_status, z.registration_date, z.grant_date, z.dissolution_date,
+            EXTRACT(YEARS FROM AGE(z.grant_date, z.registration_date)) * 12 + EXTRACT(MONTH FROM AGE(z.grant_date, z.registration_date)) AS incorp_to_funding_gap_months,
+            COALESCE((SELECT SUM(g2.grant_amount) FROM {ab_gr_rec} gr2 JOIN {ab_gr} g2 ON gr2.grant_id = g2.grant_id WHERE gr2.recipient_id = z.recipient_id), 0) +
+            COALESCE((SELECT SUM(fc.amount) FROM {fc} fc WHERE fc.recipient_id = z.recipient_id), 0) AS total_cross_source_funding,
+            COALESCE(MAX(fyr.govt_funding_ratio), 0.0) AS dependency_ratio,
+            COALESCE(MAX(fyr.exp_concentration_ratio), 0.0) AS expenditure_concentration_ratio,
+            COUNT(DISTINCT cd.director_id) AS total_directors,
+            COUNT(DISTINCT CASE WHEN cd.director_status IN ('dissolved', 'inactive') OR cd.director_dissolution_date IS NOT NULL THEN cd.director_id END) AS dissolved_directors,
+            CASE WHEN COUNT(cd.director_id) > 0 
+                 THEN COUNT(DISTINCT CASE WHEN cd.director_status IN ('dissolved', 'inactive') OR cd.director_dissolution_date IS NOT NULL THEN cd.director_id END)::numeric / COUNT(cd.director_id)
+                 ELSE 0.0 END AS director_dissolution_rate,
+            EXTRACT(YEARS FROM AGE(z.dissolution_date, z.grant_date)) * 12 + EXTRACT(MONTH FROM AGE(z.dissolution_date, z.grant_date)) AS months_to_dissolution
+        FROM zombie_candidates z
+        LEFT JOIN {fyr} fyr ON z.bn_root = fyr.bn_root
+        LEFT JOIN {cd} cd ON z.bn_root = cd.bn_root
+        GROUP BY z.recipient_id, z.legal_name, z.sector, z.city, z.postal_code, z.bn_root, z.entity_status, z.registration_date, z.grant_date, z.dissolution_date
+    ),
+    ranked_entities AS (
+        SELECT
+            *,
+            (LEAST(dependency_ratio, 1.0) * 0.40) +
+            (LEAST(director_dissolution_rate, 1.0) * 0.30) +
+            (CASE WHEN incorp_to_funding_gap_months <= 6 THEN 0.20 ELSE 0.00 END) +
+            (LEAST(expenditure_concentration_ratio, 1.0) * 0.10) AS risk_score,
             CASE
-                WHEN lf.last_year <= 2021 THEN 'critical'
-                WHEN lf.last_year <= 2022 THEN 'high'
-                ELSE 'medium'
-            END as risk_level
-        FROM best_govt_year b
-        JOIN last_filing lf ON lf.bn = b.bn
-        WHERE b.rn = 1
-          AND lf.last_year <= 2022
-        ORDER BY b.total_govt_funding DESC
-        LIMIT {limit}
+                WHEN dependency_ratio >= 0.70 OR director_dissolution_rate >= 0.50 THEN 'HIGH_RISK'
+                WHEN dependency_ratio >= 0.40 OR director_dissolution_rate >= 0.30 THEN 'MODERATE_RISK'
+                ELSE 'LOW_RISK'
+            END AS triage_flag
+        FROM zombie_metrics
+    )
+    SELECT jsonb_build_array(
+        jsonb_build_object(
+            'recipient_id', re.recipient_id,
+            'legal_name', re.legal_name,
+            'bn_root', re.bn_root,
+            'entity_status', re.entity_status,
+            'dissolution_date', re.dissolution_date,
+            'grant_date', re.grant_date,
+            'incorp_to_funding_gap_months', re.incorp_to_funding_gap_months,
+            'total_cross_source_funding', re.total_cross_source_funding,
+            'dependency_ratio', re.dependency_ratio,
+            'risk_score', ROUND(re.risk_score, 4),
+            'triage_flag', re.triage_flag,
+            'sector', re.sector,
+            'city', re.city,
+            'postal_code', re.postal_code,
+            'months_to_dissolution', COALESCE(re.months_to_dissolution, 0)
+        ) ORDER BY re.risk_score DESC
+    ) AS entity_array
+    FROM ranked_entities re
+    LIMIT {limit}
     """
+    
     rows = query(sql)
-    for r in rows:
-        r["id"] = abs(hash(r["bn"])) % 1_000_000
-        r["canonical_name"] = r.pop("legal_name", "")
-        r["primary_bn"] = r.get("bn", "")
-        r["entity_type"] = "charity"
-        r["registration_status"] = "Inactive (ceased filing)"
-        r["status_date"] = f"{r.get('last_filing_year', 'unknown')}-12-31"
-        r["fed_funding"] = float(r.get("total_govt_funding") or 0)
-        r["ab_funding"] = 0.0
-        r["total_public_funding"] = float(r.get("total_govt_funding") or 0)
-        r["govt_revenue_pct"] = round(float(r.get("govt_share_pct") or 0), 1)
-        r["last_filing_year"] = str(r.get("last_filing_year", ""))
-        r["dataset_sources"] = ["cra"]
-        r["addresses"] = []
-    return rows
+    if not rows or not rows[0].get("entity_array"):
+        return []
+
+    # Parse JSONB array returned from PostgreSQL
+    entity_list = json.loads(rows[0]["entity_array"])
+    result = []
+
+    for e in entity_list:
+        # Deterministic risk mapping based on dissolution timing
+        months_gap = e.get("months_to_dissolution", 0) or 0
+        if months_gap <= 3:
+            risk_level = "critical"
+        elif months_gap <= 6:
+            risk_level = "high"
+        else:
+            risk_level = "medium"
+
+        # Safe date parsing for fallback
+        try:
+            grant_year = datetime.strptime(e.get("grant_date", ""), "%Y-%m-%d").year
+        except ValueError:
+            grant_year = ""
+
+        # UI Contract Mapping
+        ui_dict = {
+            "id": abs(hash(str(e.get("recipient_id", "")))) % 1_000_000,
+            "canonical_name": e.get("legal_name", ""),
+            "primary_bn": e.get("bn_root", ""),
+            "entity_type": "charity",
+            "registration_status": e.get("entity_status", "Unknown"),
+            "status_date": e.get("dissolution_date", ""),
+            "fed_funding": float(e.get("total_cross_source_funding", 0)),
+            "ab_funding": float(e.get("total_cross_source_funding", 0)),
+            "total_public_funding": float(e.get("total_cross_source_funding", 0)),
+            "govt_revenue_pct": round(float(e.get("dependency_ratio", 0)) * 100, 1),
+            "last_filing_year": str(grant_year),
+            "dataset_sources": ["cra", "ab", "fed"],
+            "addresses": [],
+            "risk_level": risk_level
+        }
+        result.append(ui_dict) 
+    return result
 
 
 # ── Funding Loops (Challenge #3) ──────────────────────────────────────────────
