@@ -845,6 +845,15 @@ async def check_adverse_media(body: dict):
     if not entity_name and not bn:
         raise HTTPException(400, "Provide 'name' or 'bn'")
 
+    if not bn and entity_name and DUCKDB_MODE:
+        try:
+            q = entity_name.lower().replace("'", "")
+            rows = _duck.query(f"SELECT DISTINCT LEFT(bn,9) as bn FROM cra__cra_identification WHERE LOWER(legal_name) LIKE '%{q}%' LIMIT 1")
+            if rows:
+                bn = rows[0]["bn"]
+        except Exception:
+            pass
+
     dossier = {}
     if bn and DUCKDB_MODE:
         try:
@@ -1263,7 +1272,19 @@ def _execute_tool(name: str, input_data: dict) -> str:
 
     raw = json.dumps(result, default=str)
     if len(raw) > 12000:
-        raw = raw[:12000] + '..."truncated"}'
+        if isinstance(result, list):
+            while len(json.dumps(result, default=str)) > 11000 and len(result) > 1:
+                result = result[:len(result) // 2]
+            result.append({"_note": "results truncated for context window"})
+            raw = json.dumps(result, default=str)
+        elif isinstance(result, dict) and "results" in result and isinstance(result["results"], list):
+            r = result["results"]
+            while len(json.dumps(result, default=str)) > 11000 and len(r) > 1:
+                result["results"] = r[:len(r) // 2]
+                r = result["results"]
+            raw = json.dumps(result, default=str)
+        else:
+            raw = json.dumps({"summary": raw[:8000], "_truncated": True}, default=str)
     return raw
 
 
@@ -1273,6 +1294,11 @@ def _infer_data_type(tools_used: list) -> str:
         "search_funding_loops": "loops",
         "search_governance": "governance",
         "search_sole_source": "sole_source",
+        "search_vendor_concentration": "vendor_concentration",
+        "search_duplicative_funding": "duplicative_funding",
+        "search_threshold_gaming": "threshold_gaming",
+        "get_entity_dossier": "entity",
+        "search_entities": "entity",
         "get_cross_challenge_alerts": "alerts",
         "get_platform_stats": "stats",
     }

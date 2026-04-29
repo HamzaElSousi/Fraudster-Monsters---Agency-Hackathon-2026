@@ -131,7 +131,13 @@ function DataCard({ item, dataType, index, msgId, expandedCards, toggleCard, nav
       </div>
     );
   } else {
-    return null;
+    const name = item.canonical_name || item.legal_name || item.recipient_legal_name || item.vendor || item.department || item.name || item.group_key || '';
+    const funding = item.total_govt_funding || item.total_spending || item.total_value || item.total_received || item.fed_total || 0;
+    title = name || `${dataType} result`;
+    amount = funding ? formatCurrency(parseFloat(funding)) : '';
+    subtitle = Object.entries(item).filter(([k, v]) => v && !['canonical_name','legal_name','total_govt_funding','total_spending','bn','primary_bn'].includes(k)).slice(0, 3).map(([k, v]) => `${k.replace(/_/g, ' ')}: ${v}`).join(' · ');
+    badge = dataType;
+    badgeClass = 'info';
   }
 
   return (
@@ -180,6 +186,55 @@ function DataCard({ item, dataType, index, msgId, expandedCards, toggleCard, nav
       )}
     </div>
   );
+}
+
+function renderMarkdown(md) {
+  if (!md) return '';
+  const lines = md.split('\n');
+  const out = [];
+  let i = 0;
+  while (i < lines.length) {
+    if (lines[i].trim().startsWith('|') && i + 1 < lines.length && /^\|[\s\-:|]+\|/.test(lines[i + 1].trim())) {
+      const headerCells = lines[i].split('|').filter(c => c.trim()).map(c => c.trim());
+      i += 2;
+      const rows = [];
+      while (i < lines.length && lines[i].trim().startsWith('|')) {
+        rows.push(lines[i].split('|').filter(c => c.trim()).map(c => c.trim()));
+        i++;
+      }
+      let html = '<div style="overflow-x:auto;margin:12px 0"><table class="data-table" style="font-size:12px;width:100%"><thead><tr>';
+      headerCells.forEach(h => { html += `<th style="padding:8px 12px;text-align:left;white-space:nowrap">${h}</th>`; });
+      html += '</tr></thead><tbody>';
+      rows.forEach(row => {
+        html += '<tr>';
+        row.forEach(cell => {
+          const styled = cell.replace(/\*\*(.*?)\*\*/g, '<strong>$1</strong>');
+          html += `<td style="padding:6px 12px">${styled}</td>`;
+        });
+        html += '</tr>';
+      });
+      html += '</tbody></table></div>';
+      out.push(html);
+    } else {
+      let line = lines[i];
+      if (/^#{1,4}\s+/.test(line)) {
+        const level = line.match(/^(#+)/)[1].length;
+        const text = line.replace(/^#+\s+/, '');
+        const sizes = { 1: 18, 2: 16, 3: 14, 4: 13 };
+        out.push(`<div style="font-size:${sizes[level] || 14}px;font-weight:700;margin:12px 0 6px;color:var(--text-primary)">${text}</div>`);
+      } else {
+        line = line
+          .replace(/\*\*(.*?)\*\*/g, '<strong>$1</strong>')
+          .replace(/`(.*?)`/g, '<code style="background:rgba(99,102,241,0.15);padding:2px 6px;border-radius:4px;font-family:var(--font-mono);font-size:12px">$1</code>')
+          .replace(/^• /, '&bull; ')
+          .replace(/^- /, '&bull; ')
+          .replace(/^\d+\.\s/, (m) => `<span style="color:var(--accent-indigo-light);font-weight:700">${m}</span>`);
+        out.push(line || '<br />');
+      }
+      i++;
+    }
+  }
+  return out.join('<br />');
 }
 
 export default function Chat() {
@@ -254,13 +309,7 @@ export default function Chat() {
       <div className="chat-messages">
         {messages.map((msg, i) => (
           <div key={msg.id ?? i} className={`chat-message ${msg.role}`}>
-            <div dangerouslySetInnerHTML={{
-              __html: msg.content
-                .replace(/\*\*(.*?)\*\*/g, '<strong>$1</strong>')
-                .replace(/\n/g, '<br />')
-                .replace(/`(.*?)`/g, '<code style="background:rgba(99,102,241,0.15);padding:2px 6px;border-radius:4px;font-family:var(--font-mono);font-size:12px">$1</code>')
-                .replace(/• /g, '&bull; ')
-            }} />
+            <div dangerouslySetInnerHTML={{ __html: renderMarkdown(msg.content) }} />
 
             {msg.sql_hint && (
               <div style={{ fontSize: 10, color: 'var(--text-muted)', marginTop: 8, display: 'flex', alignItems: 'center', gap: 4 }}>

@@ -1977,6 +1977,7 @@ def get_ghost_capacity_live(min_funding: float = 500000, limit: int = 50) -> lis
            AND AVG(TRY_CAST(g.govt_share_of_rev AS DOUBLE)) >= 80
     ),
     emp AS (
+        -- CRA T3010 compensation: field_300=perm FT, field_305=perm PT, field_370=total positions, field_390=total compensation
         SELECT LEFT(bn, 9) as bn9,
                MAX(COALESCE(TRY_CAST(field_300 AS INT), 0) + COALESCE(TRY_CAST(field_305 AS INT), 0)) as max_employees,
                AVG(COALESCE(TRY_CAST(field_370 AS INT), 0)) as avg_compensated_positions,
