@@ -793,10 +793,10 @@ def get_ghost_recipients(
     min_funding: float = Query(default=500000, ge=0),
     limit: int = Query(default=50, ge=1, le=200),
 ):
-    """Challenge #2: Ghost Capacity — persistent orgs with no delivery capability."""
+    """Challenge #2: Ghost Recipients — federal grant recipients who went silent."""
     return _duck.cached(
-        f"ghost_capacity:{min_funding}:{limit}",
-        _duck.get_ghost_capacity_live, min_funding, limit
+        f"ghost_recipients:{min_funding}:{limit}",
+        _duck.get_ghost_recipients_live, min_funding, limit
     ) or []
 
 
@@ -901,6 +901,206 @@ async def check_adverse_media(body: dict):
         "bn": bn,
         "analysis": analysis,
         "has_dossier": bool(dossier),
+    }
+
+
+# ── OSINT Investigation Report ──────────────────────────────────────────────
+@app.post("/api/investigate")
+async def generate_investigation(body: dict):
+    """OSINT/WEBINT investigation: internal dossier + web search + AI synthesis."""
+    entity_name = body.get("name", "")
+    bn = body.get("bn", "")
+
+    if not entity_name and not bn:
+        raise HTTPException(400, "Provide 'name' or 'bn'")
+
+    # Phase A: Internal data
+    internal = {}
+    if bn and DUCKDB_MODE:
+        try:
+            internal = _duck.cached(f"entity:{bn[:9]}", _duck.get_entity_case_file_live, bn)
+        except Exception as e:
+            print(f"[OSINT] internal dossier failed: {e}")
+    if not entity_name and internal:
+        entity_name = internal.get("name", "")
+
+    # Phase B: External data (parallel web searches)
+    search_queries = []
+    if entity_name:
+        search_queries = [
+            f'"{entity_name}" Canada charity CRA',
+            f'"{entity_name}" fraud investigation audit',
+            f'{entity_name} Canada',
+        ]
+    elif bn:
+        search_queries = [
+            f'{bn} CRA charity Canada',
+            f'{bn} fraud investigation',
+            f'{bn} Canada',
+        ]
+
+    def _run_all_searches(queries):
+        """Run searches sequentially with small delay to avoid rate limiting."""
+        r1 = _web_search(queries[0], 5)
+        _time.sleep(1)
+        r2 = _web_search(queries[1], 5)
+        _time.sleep(1)
+        r3 = _web_news(queries[2], 5)
+        return r1, r2, r3
+
+    try:
+        web_regulatory, web_adverse, news_results = await asyncio.to_thread(
+            _run_all_searches, search_queries
+        )
+    except Exception as e:
+        print(f"[OSINT] search batch failed: {e}")
+        web_regulatory, web_adverse, news_results = [], [], []
+
+    print(f"[OSINT] Results: {len(web_regulatory)} regulatory, {len(web_adverse)} adverse, {len(news_results)} news")
+
+    all_external = []
+    for r in web_regulatory + web_adverse:
+        all_external.append({"title": r.get("title", ""), "url": r.get("href", ""), "snippet": r.get("body", "")})
+    for r in news_results:
+        all_external.append({"title": r.get("title", ""), "url": r.get("url", r.get("link", "")), "snippet": r.get("body", ""), "date": r.get("date", ""), "source": r.get("source", "")})
+
+    seen_urls = set()
+    deduped_external = []
+    for src in all_external:
+        u = src.get("url", "")
+        if u and u not in seen_urls:
+            seen_urls.add(u)
+            deduped_external.append(src)
+
+    # Phase C: LLM synthesis
+    report = {"internal_summary": "", "external_findings": "", "sentiment_analysis": "", "action_items": []}
+
+    has_ai = bool(os.getenv("AWS_ACCESS_KEY_ID") or os.getenv("ANTHROPIC_API_KEY") or os.getenv("BEDROCK_API_KEY"))
+    if has_ai:
+        internal_ctx = ""
+        if internal:
+            flags = internal.get("flags", [])
+            zombie = internal.get("zombie_status", {})
+            loops = internal.get("loops", [])
+            directors = internal.get("directors", [])
+            fed_grants = internal.get("federal_grants", [])
+            funding_hist = internal.get("funding_history", [])
+            total_govt = sum(float(y.get("total_govt", 0) or 0) for y in funding_hist)
+            internal_ctx = (
+                f"INTERNAL DOSSIER (from government databases):\n"
+                f"- Entity: {internal.get('name', entity_name)}\n"
+                f"- BN: {bn}\n"
+                f"- Designation: {internal.get('designation', 'Unknown')}\n"
+                f"- Category: {internal.get('category', 'Unknown')}\n"
+                f"- Red flags: {', '.join(str(f) for f in flags) if flags else 'none'}\n"
+                f"- Zombie status: {'YES — revoked/ceased' if zombie.get('is_zombie') else 'No'}\n"
+                f"- Total govt funding: ${total_govt:,.0f}\n"
+                f"- Funding loops: {len(loops)} loops\n"
+                f"- Directors: {len(directors)} on record\n"
+                f"- Federal grants: {len(fed_grants)} records\n"
+            )
+            if zombie.get("is_zombie"):
+                internal_ctx += f"- Last filing year: {zombie.get('last_filing_year')}\n"
+                internal_ctx += f"- Govt dependency: {zombie.get('govt_share_pct', 0):.0f}%\n"
+            multi_board = [d for d in directors if (d.get("board_count") or 0) >= 3]
+            if multi_board:
+                internal_ctx += f"- Multi-board directors (3+ boards): {len(multi_board)}\n"
+
+        external_ctx = "EXTERNAL WEB SEARCH RESULTS:\n"
+        for i, src in enumerate(deduped_external[:15], 1):
+            external_ctx += f"\n[{i}] {src.get('title', 'Untitled')}\n"
+            external_ctx += f"    URL: {src.get('url', 'N/A')}\n"
+            if src.get("date"):
+                external_ctx += f"    Date: {src['date']}\n"
+            if src.get("source"):
+                external_ctx += f"    Source: {src['source']}\n"
+            external_ctx += f"    Snippet: {src.get('snippet', '')[:300]}\n"
+
+        system_prompt = (
+            "You are an OSINT investigator for 'Follow The Money' — a Canadian government accountability platform. "
+            "You are presenting to Ministers, Deputy Ministers, and senior public officials.\n"
+            "Generate a comprehensive investigation report based on internal government data AND external web findings.\n\n"
+            "Return ONLY valid JSON with these exact 4 keys:\n"
+            "{\n"
+            '  "internal_summary": "2-3 paragraphs summarizing the entity\'s internal risk profile: funding patterns, red flags, loop participation, zombie status, filing anomalies, director network. Cite dollar amounts and years.",\n'
+            '  "external_findings": "2-3 paragraphs analyzing external web/news results. Note discrepancies between public info and filings. Flag missing web presence, dead websites, or concerning coverage. Cite specific URLs.",\n'
+            '  "sentiment_analysis": "1-2 paragraphs on public/media perception. If no news found, note that absence of media scrutiny may itself be notable. Classify overall sentiment as POSITIVE, NEGATIVE, MIXED, or NEUTRAL.",\n'
+            '  "action_items": [\n'
+            '    "IMMEDIATE: <concrete step — name the specific federal department or agency that should act, e.g. CRA Charities Directorate, TBS, PSPC, and what specifically they should do: audit T3010 filings, freeze grant disbursements, revoke charitable status, refer to RCMP, etc.>",\n'
+            '    "HIGH: <next priority step — e.g. cross-reference directors against other flagged orgs, subpoena bank records for circular flows, request explanation of filing gaps>",\n'
+            '    "HIGH: <another step — e.g. notify granting departments (name them) to flag future applications from this entity and related BNs>",\n'
+            '    "MEDIUM: <longer-term step — e.g. policy recommendation, systemic fix, inter-departmental coordination>",\n'
+            '    "MEDIUM: <monitoring step — e.g. add to watchlist, schedule follow-up audit in 12 months, flag related entities>"\n'
+            "  ]\n"
+            "}\n\n"
+            "ACTION ITEMS MUST be specific to THIS entity — name the org, cite dollar amounts at risk, reference specific red flags found. "
+            "Each item should answer: WHO should act, WHAT they should do, and WHY (citing evidence from the data). "
+            "Do not give generic advice. Be specific. Reference real data. Do not invent facts."
+        )
+
+        user_content = f"Generate an OSINT investigation report for: {entity_name or bn}\n\n{internal_ctx}\n{external_ctx}"
+
+        try:
+            raw = await _call_llm(system_prompt, user_content)
+            cleaned = raw.strip()
+            if cleaned.startswith("```"):
+                cleaned = cleaned.split("\n", 1)[-1]
+            if cleaned.endswith("```"):
+                cleaned = cleaned.rsplit("```", 1)[0]
+            report = json.loads(cleaned)
+        except json.JSONDecodeError:
+            report["internal_summary"] = raw if internal else "Unable to parse AI response."
+        except Exception as e:
+            print(f"[OSINT] LLM synthesis failed: {e}")
+
+    if not report.get("internal_summary") and not report.get("external_findings"):
+        if internal:
+            flags = internal.get("flags", [])
+            total_govt = sum(float(y.get("total_govt", 0) or 0) for y in internal.get("funding_history", []))
+            report["internal_summary"] = (
+                f"**{internal.get('name', entity_name)}** has {len(internal.get('loops', []))} funding loop participations, "
+                f"{len(internal.get('directors', []))} directors on record, and {len(internal.get('federal_grants', []))} federal grants. "
+                f"Total government funding: ${total_govt:,.0f}. "
+                f"Red flags: {', '.join(flags) if flags else 'none detected'}."
+            )
+        if deduped_external:
+            sources_text = "\n".join(f"- [{s['title']}]({s['url']})" for s in deduped_external[:10] if s.get("url"))
+            report["external_findings"] = f"Found {len(deduped_external)} external sources:\n\n{sources_text}"
+        if not report.get("sentiment_analysis") and deduped_external:
+            report["sentiment_analysis"] = f"NEUTRAL — {len(deduped_external)} external source(s) found. Manual review recommended."
+        if not report.get("action_items"):
+            items = []
+            if internal:
+                name = internal.get("name", entity_name)
+                if internal.get("zombie_status", {}).get("is_zombie"):
+                    items.append(f"IMMEDIATE: CRA Charities Directorate should audit {name} — charitable status revoked but received ${total_govt:,.0f} in government funding")
+                if internal.get("loops"):
+                    items.append(f"HIGH: Investigate {len(internal.get('loops', []))} funding loops involving {name} for potential circular receipt inflation — refer to CRA Audit Division")
+                multi_board = [d for d in internal.get("directors", []) if (d.get("board_count") or 0) >= 3]
+                if multi_board:
+                    items.append(f"HIGH: Cross-reference {len(multi_board)} multi-board director(s) at {name} against other flagged organizations for governance network analysis")
+                if internal.get("federal_grants"):
+                    items.append(f"MEDIUM: Notify granting departments to flag future applications from {name} (BN: {bn}) pending investigation outcome")
+            items.append("MEDIUM: Review external web sources for adverse media, court records, and regulatory enforcement actions")
+            items.append("MEDIUM: Verify current CRA filing status and cross-reference with T3010 anomaly data")
+            report["action_items"] = items
+
+    return {
+        "entity": entity_name,
+        "bn": bn,
+        "internal_record": {
+            "name": internal.get("name", entity_name),
+            "flags": internal.get("flags", []),
+            "zombie_status": internal.get("zombie_status", {}),
+            "loop_count": len(internal.get("loops", [])),
+            "director_count": len(internal.get("directors", [])),
+            "federal_grant_count": len(internal.get("federal_grants", [])),
+            "funding_history": internal.get("funding_history", [])[:5],
+        } if internal else None,
+        "external_sources": deduped_external[:15],
+        "report": report,
+        "search_queries_used": search_queries,
+        "generated_at": datetime.utcnow().isoformat() + "Z",
     }
 
 
@@ -1211,6 +1411,18 @@ INVESTIGATOR_TOOLS = [
             "properties": {}
         }
     },
+    {
+        "name": "web_search",
+        "description": "Search the open web via DuckDuckGo for external information — news articles, court records, CRA registry pages, media coverage. Use for OSINT, adverse media checks, or when internal data alone isn't enough to assess an entity.",
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "query": {"type": "string", "description": "Search query (e.g. '\"Salvation Army\" Canada CRA fraud')"},
+                "max_results": {"type": "integer", "description": "Number of results", "default": 5}
+            },
+            "required": ["query"]
+        }
+    },
 ]
 
 
@@ -1265,6 +1477,8 @@ def _execute_tool(name: str, input_data: dict) -> str:
             result = _data_alerts(input_data.get("min_flags", 2), input_data.get("limit", 15))
         elif name == "get_platform_stats":
             result = _data_stats()
+        elif name == "web_search":
+            result = _web_search(input_data.get("query", ""), input_data.get("max_results", 5))
         else:
             result = {"error": f"Unknown tool: {name}"}
     except Exception as e:
@@ -1488,6 +1702,56 @@ async def llm_enhanced_query(message: str) -> dict:
     }
 
 
+# ── OSINT / Web Search Helpers ──────────────────────────────────────────────
+import time as _time
+
+_DDGS_AVAILABLE = False
+try:
+    from ddgs import DDGS
+    _DDGS_AVAILABLE = True
+except ImportError:
+    try:
+        from duckduckgo_search import DDGS
+        _DDGS_AVAILABLE = True
+    except ImportError:
+        pass
+
+
+def _web_search(query: str, max_results: int = 5) -> list[dict]:
+    if not _DDGS_AVAILABLE:
+        return []
+    for attempt in range(2):
+        try:
+            results = list(DDGS().text(query, max_results=max_results))
+            print(f"[OSINT] web search '{query[:50]}' → {len(results)} results")
+            return results
+        except Exception as e:
+            if "Ratelimit" in str(e) and attempt == 0:
+                _time.sleep(2)
+                continue
+            print(f"[OSINT] web search failed: {e}")
+            return []
+    return []
+
+
+def _web_news(query: str, max_results: int = 5) -> list[dict]:
+    if not _DDGS_AVAILABLE:
+        return []
+    for attempt in range(2):
+        try:
+            results = list(DDGS().news(query, max_results=max_results))
+            print(f"[OSINT] news search '{query[:50]}' → {len(results)} results")
+            return results
+        except Exception as e:
+            if "Ratelimit" in str(e) and attempt == 0:
+                _time.sleep(2)
+                continue
+            print(f"[OSINT] news search failed: {e}")
+            return []
+    return []
+
+
+# ── LLM Helpers ─────────────────────────────────────────────────────────────
 async def _call_llm(system: str, user_content: str) -> str:
     """Call Claude via AWS Bedrock (primary on event day) or Anthropic API (fallback)."""
     bedrock_api_key = os.getenv("BEDROCK_API_KEY")
@@ -1705,47 +1969,103 @@ def template_query(message: str) -> dict:
 # ── Global Search ─────────────────────────────────────────────────────────────
 @app.get("/api/search")
 def global_search(q: str = Query(...), limit: int = Query(10)):
-    """Full-text search across all challenge datasets."""
+    """Full-text search across all challenge datasets + charities + federal grants."""
     if not DUCKDB_MODE or not q.strip():
         return {"results": {}, "total": 0, "query": q}
 
-    q_lower = q.lower()
-    results = {"entities": [], "zombies": [], "loops": [], "governance": [], "sole_source": [], "alerts": []}
+    q_safe = q.replace("'", "").replace(";", "").replace("--", "").strip()
+    q_lower = q_safe.lower()
+    results = {
+        "entities": [], "charities": [], "zombies": [], "loops": [],
+        "governance": [], "sole_source": [], "alerts": [],
+        "federal_grants": [], "ghost_recipients": [], "threshold_gaming": [],
+    }
 
-    # PostgreSQL cross-dataset entity search (confidence-ranked, alias-aware)
+    # 1. PostgreSQL cross-dataset entity search (confidence-ranked)
     results["entities"] = _pg_entity_search(q, limit=limit)
-    fetch = limit * 8  # over-fetch then filter in Python
 
+    # 2. Direct DuckDB charity name/BN search (covers ALL 91K charities)
     try:
-        rows = _duck.cached(f"zombies:0:{fetch}", _duck.get_zombies_live, 0, fetch)
+        rows = _duck.query(
+            f"SELECT DISTINCT LEFT(bn,9) AS bn, legal_name AS canonical_name "
+            f"FROM cra__cra_identification "
+            f"WHERE LOWER(legal_name) LIKE '%{q_lower}%' OR LEFT(bn,9) LIKE '{q_safe}%' "
+            f"LIMIT {limit}"
+        )
+        # Deduplicate against PG entities
+        pg_bns = {(e.get("bn_root") or e.get("bn", ""))[:9] for e in results["entities"]}
+        results["charities"] = [r for r in rows if r.get("bn", "")[:9] not in pg_bns][:limit]
+    except Exception as e:
+        print(f"[Search] charity lookup failed: {e}")
+
+    fetch = limit * 8
+
+    # 3. Zombies
+    try:
+        rows = _duck.cached(f"zombies:100000:{fetch}", _duck.get_zombies_live, 100000, fetch)
         results["zombies"] = [r for r in rows if q_lower in (r.get("canonical_name") or "").lower() or q_lower in (r.get("bn") or "").lower()][:limit]
     except Exception:
         pass
 
+    # 4. Loops
     try:
         rows = _duck.cached(f"loops:2:6:0:0:False:::{fetch}", _duck.get_loops_live, 2, 6, 0, 0, False, "", fetch)
         results["loops"] = [r for r in rows if q_lower in (r.get("path_display") or "").lower()][:limit]
     except Exception:
         pass
 
+    # 5. Governance (directors)
     try:
         rows = _duck.cached(f"governance:2:{fetch}", _duck.get_governance_live, 2, fetch)
-        results["governance"] = [r for r in rows if q_lower in (r.get("first_name") or "").lower() or q_lower in (r.get("last_name") or "").lower()][:limit]
+        results["governance"] = [r for r in rows if q_lower in (r.get("first_name") or "").lower() or q_lower in (r.get("last_name") or "").lower() or q_lower in f"{r.get('first_name', '')} {r.get('last_name', '')}".lower()][:limit]
     except Exception:
         pass
 
+    # 6. Sole source (vendor + department)
     try:
         rows = _duck.cached(f"sole_source:1.0:{fetch}", _duck.get_sole_source_live, 1.0, fetch)
         results["sole_source"] = [r for r in rows if q_lower in (r.get("vendor") or "").lower() or q_lower in (r.get("department") or "").lower()][:limit]
     except Exception:
         pass
 
+    # 7. Alerts
     try:
         rows = _duck.cached(f"alerts:1:{fetch}", _duck.get_alerts_live, 1, fetch)
         results["alerts"] = [r for r in rows if q_lower in (r.get("canonical_name") or "").lower()][:limit]
     except Exception:
         pass
 
+    # 8. Federal grants (recipient name + department)
+    try:
+        rows = _duck.query(
+            f"SELECT recipient_name, owner_org AS department, "
+            f"TRY_CAST(value AS DOUBLE) AS amount, fiscal_year, "
+            f"LEFT(recipient_business_number, 9) AS bn "
+            f"FROM fed__grants_contributions "
+            f"WHERE LOWER(recipient_name) LIKE '%{q_lower}%' OR LOWER(owner_org) LIKE '%{q_lower}%' "
+            f"ORDER BY TRY_CAST(value AS DOUBLE) DESC NULLS LAST "
+            f"LIMIT {limit}"
+        )
+        results["federal_grants"] = rows
+    except Exception as e:
+        print(f"[Search] federal grants search failed: {e}")
+
+    # 9. Ghost recipients
+    try:
+        rows = _duck.cached(f"ghost:500000:{fetch}", _duck.get_ghost_recipients_live, 500000, fetch)
+        results["ghost_recipients"] = [r for r in rows if q_lower in (r.get("recipient_name") or r.get("canonical_name") or "").lower()][:limit]
+    except Exception:
+        pass
+
+    # 10. Vendor concentration
+    try:
+        rows = _duck.cached(f"vc:department:1000000:{fetch}", _duck.get_vendor_concentration_live, "department", 1_000_000, fetch)
+        results["threshold_gaming"] = []  # vendor concentration results don't have searchable names in the same way
+    except Exception:
+        pass
+
+    # Strip empty categories
+    results = {k: v for k, v in results.items() if v}
     total = sum(len(v) for v in results.values())
     return {"results": results, "total": total, "query": q}
 

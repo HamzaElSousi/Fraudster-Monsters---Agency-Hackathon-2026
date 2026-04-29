@@ -1,4 +1,4 @@
-# AuditLens — Step-by-Step Startup Guide & Master Checklist
+# FraudsterMonsters — Step-by-Step Startup Guide & Master Checklist
 
 ---
 
@@ -193,7 +193,7 @@ curl http://localhost:8000/api/org/123456789/profile
 - [ ] Chart headlines above every chart explaining what it shows
 - [ ] Loading skeletons on all async data
 - [ ] Error states handled gracefully (not blank screens)
-- [ ] "How AuditLens Works" 3-step visual on homepage
+- [ ] "How FraudsterMonsters Works" 3-step visual on homepage
 - [ ] Problem statement strip clearly visible on homepage
 
 ### 🎨 FRONTEND — SEARCH UX
