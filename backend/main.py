@@ -106,9 +106,6 @@ async def lifespan(app: FastAPI):
     global _pg_connected, _pg_tables
     if DUCKDB_MODE:
         print(f"[START] DuckDB mode — loading tables from {_duck._base()}")
-        # Run synchronous preload in a thread so the event loop stays responsive,
-        # but DO NOT yield until it's done — this prevents any request from being
-        # served before all tables are ready.
         await asyncio.to_thread(_duck.preload_tables_sync)
     else:
         pg = os.getenv("DB_CONNECTION_STRING", "")
@@ -116,7 +113,6 @@ async def lifespan(app: FastAPI):
             print("[START] PostgreSQL mode — using shared DB")
         else:
             print("[START] WARNING: no data source configured")
-    # Non-blocking PostgreSQL probe (always, even in DuckDB mode — cross-reference value)
     conn_str = os.getenv("DB_CONNECTION_STRING", "")
     if conn_str and "PASSWORD" not in conn_str:
         try:
@@ -166,9 +162,6 @@ def debug_golden_records():
 @app.get("/api/stats")
 def get_stats():
     if DUCKDB_MODE:
-        # Always return DuckDB result — never fall through to PG fallback, which uses
-        # different query definitions (old threshold, no govt-funded filter) and produces
-        # inconsistent numbers.
         return _duck.cached("stats", _duck.get_stats_live) or {}
 
     results = {}
@@ -234,7 +227,13 @@ def get_zombies(
     limit: int = Query(50),
 ):
     if DUCKDB_MODE:
-        results = _duck.cached(f"zombies:{min_funding}:{limit}", _duck.get_zombies_live, min_funding, limit)
+        # Updated call to use the refactored get_zombies_live function directly
+        results = _duck.cached(
+            f"zombies:{min_funding}:{limit}",
+            _duck.get_zombies_live,
+            min_funding=min_funding,
+            limit=limit
+        )
         return {"results": results, "count": len(results), "query_mode": "duckdb-live"}
 
     sql = """
@@ -1547,7 +1546,8 @@ async def _call_llm_simple(prompt: str) -> str:
 
 # ── Internal data helpers (plain Python types — safe to call from non-route code) ─
 def _data_zombies(min_funding: float = 100000, limit: int = 20) -> dict:
-    results = _duck.cached(f"zombies:{min_funding}:{limit}", _duck.get_zombies_live, min_funding, limit)
+    # Updated to use keyword args matching the refactored get_zombies_live signature
+    results = _duck.cached(f"zombies:{min_funding}:{limit}", _duck.get_zombies_live, min_funding=min_funding, limit=limit)
     return {"results": results, "count": len(results)}
 
 def _data_loops(min_hops: int = 2, max_hops: int = 6, limit: int = 20) -> dict:
@@ -1796,3 +1796,4 @@ if __name__ == "__main__":
 
     server = uvicorn.Server(config)
     server.run()
+
