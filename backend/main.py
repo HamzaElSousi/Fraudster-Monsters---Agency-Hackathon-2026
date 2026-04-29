@@ -1042,6 +1042,16 @@ async def chat(body: dict):
             return await llm_enhanced_query(message)
         except Exception as e:
             print(f"[WARN] LLM call failed: {e} — falling back to template")
+            err_hint = ""
+            err_str = str(e)
+            if "invalid x-api-key" in err_str or "authentication" in err_str.lower():
+                err_hint = "\n\n_AI credentials invalid. Check ANTHROPIC_API_KEY in backend/.env (must start with sk-ant-)._"
+            elif "model identifier is invalid" in err_str:
+                err_hint = "\n\n_Bedrock model ID invalid. Check BEDROCK_MODEL_ID in backend/.env._"
+            result = template_query(message)
+            if err_hint:
+                result["answer"] = result["answer"] + err_hint
+            return result
 
     return template_query(message)
 
@@ -1637,11 +1647,30 @@ def template_query(message: str) -> dict:
             "sql_hint": "Aggregated counts across all four datasets",
             "follow_up": ["Show me zombies", "Explore funding loops", "Show multi-flag alerts"],
         }
-    else:
+    elif any(w in msg for w in ["investigate", "risk", "worst", "high", "top", "find", "show", "search"]):
+        data = _data_alerts(min_flags=2, limit=10)
+        stats = _data_stats()
+        top_cases = []
+        for a in (data.get("results") or [])[:5]:
+            name = a.get("canonical_name", "Unknown")
+            funding = float(a.get("total_govt_funding") or 0)
+            flags = ", ".join(a.get("flags") or [])
+            top_cases.append(f"• **{name}** — ${funding:,.0f} govt funding, flagged for: {flags}")
+        cases_text = "\n".join(top_cases) if top_cases else "No multi-flag entities found."
         return {
-            "answer": "I can help you investigate government spending accountability. Try asking about:\n\n• **Zombie recipients** — organizations that vanished after receiving funding\n• **Funding loops** — circular money flows between charities\n• **Governance networks** — directors controlling multiple funded entities\n• **Sole-source contracts** — amendment creep and vendor lock-in\n• **Multi-flag alerts** — entities flagged across multiple challenges\n• **Spending overview** — total funding across all datasets",
+            "answer": f"**Cross-Challenge Investigation** (AI credentials not configured — showing database results directly)\n\nI found **{data['count']} entities** flagged across multiple accountability categories. Here are the highest-risk cases:\n\n{cases_text}\n\n_Configure ANTHROPIC_API_KEY in backend/.env for full agentic AI investigation._",
+            "data_type": "alerts",
+            "data": (data.get("results") or [])[:10],
+            "sql_hint": "Cross-challenge alert query — zombie + loop + governance overlap",
+            "follow_up": ["Show me zombie recipients", "Find funding loops", "Show governance networks"],
+        }
+    else:
+        data = _data_alerts(min_flags=2, limit=5)
+        stats = _data_stats()
+        return {
+            "answer": f"**Platform Overview**: Tracking **{stats.get('total_charities', 0):,}** charities, **{stats.get('total_fed_grants', 0):,}** federal grants, and **{stats.get('total_sole_source', 0):,}** procurement contracts.\n\nTry asking about:\n• **Zombie recipients** — organizations that vanished after receiving funding\n• **Funding loops** — circular money flows between charities\n• **Governance networks** — directors controlling multiple funded entities\n• **Sole-source contracts** — amendment creep and vendor lock-in\n• **Multi-flag alerts** — entities flagged across multiple challenges",
             "data_type": "help",
-            "data": [],
+            "data": (data.get("results") or [])[:5],
             "sql_hint": None,
             "follow_up": ["Show me zombie recipients", "Find funding loops", "Show multi-flag alerts"],
         }

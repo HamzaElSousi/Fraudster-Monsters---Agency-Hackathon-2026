@@ -1956,11 +1956,11 @@ def get_ghost_capacity_live(min_funding: float = 500000, limit: int = 50) -> lis
     sql = f"""
     WITH active_charities AS (
         SELECT LEFT(bn, 9) as bn9,
-               MAX(TRY_CAST(LEFT(CAST(fpe AS VARCHAR), 4) AS INT)) as last_year,
+               MAX(TRY_CAST(fiscal_year AS INT)) as last_year,
                COUNT(*) as filing_count
         FROM {ident}
         GROUP BY LEFT(bn, 9)
-        HAVING MAX(TRY_CAST(LEFT(CAST(fpe AS VARCHAR), 4) AS INT)) >= 2022
+        HAVING MAX(TRY_CAST(fiscal_year AS INT)) >= 2022
     ),
     govt_dep AS (
         SELECT LEFT(g.bn, 9) as bn9,

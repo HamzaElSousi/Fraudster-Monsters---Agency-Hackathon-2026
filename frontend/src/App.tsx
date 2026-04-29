@@ -3,7 +3,7 @@ import { BrowserRouter, Routes, Route, NavLink, useLocation, useNavigate } from 
 import {
   LayoutDashboard, ShieldAlert, Skull, Repeat2, Network, FileSearch,
   Shuffle, Bot, BookOpen, AlertTriangle, Zap, Database, Search,
-  Ghost, BarChart3, Package
+  Ghost, BarChart3, Package, Scale, Layers, Newspaper
 } from 'lucide-react';
 import Home from './pages/Home';
 import Dashboard from './pages/Dashboard';
@@ -213,19 +213,6 @@ function Sidebar() {
         </NavLink>
 
         <div className="sidebar-section-label">Challenges</div>
-        <NavLink to="/alerts" className={({ isActive }) => `nav-link ${isActive ? 'active' : ''}`}>
-          <ShieldAlert className="nav-link-icon" />
-          Multi-Flag Alerts
-          <span
-            className="nav-link-badge"
-            style={{
-              background: 'var(--status-critical)',
-              animation: alertCount > 0 ? 'pulse-glow 2s infinite' : 'none',
-            }}
-          >
-            {alertCount !== null ? alertCount.toLocaleString() : '...'}
-          </span>
-        </NavLink>
         <NavLink to="/zombies" className={({ isActive }) => `nav-link ${isActive ? 'active' : ''}`}>
           <Skull className="nav-link-icon" />
           #1 Zombie Recipients
@@ -234,7 +221,6 @@ function Sidebar() {
         <NavLink to="/ghost-recipients" className={({ isActive }) => `nav-link ${isActive ? 'active' : ''}`}>
           <Ghost className="nav-link-icon" />
           #2 Ghost Capacity
-          <span className="nav-link-badge">{navStats?.ghost_count != null ? navStats.ghost_count.toLocaleString() : '...'}</span>
         </NavLink>
         <NavLink to="/loops" className={({ isActive }) => `nav-link ${isActive ? 'active' : ''}`}>
           <Repeat2 className="nav-link-icon" />
@@ -249,26 +235,42 @@ function Sidebar() {
         <NavLink to="/vendor-concentration" className={({ isActive }) => `nav-link ${isActive ? 'active' : ''}`}>
           <Package className="nav-link-icon" />
           #5 Vendor Concentration
-          <span className="nav-link-badge">{navStats?.vendor_concentration_count != null ? navStats.vendor_concentration_count.toLocaleString() : '...'}</span>
         </NavLink>
         <NavLink to="/governance" className={({ isActive }) => `nav-link ${isActive ? 'active' : ''}`}>
           <Network className="nav-link-icon" />
           #6 Governance Networks
           <span className="nav-link-badge">{navStats?.multi_board_directors != null ? navStats.multi_board_directors.toLocaleString() : '...'}</span>
         </NavLink>
+        <NavLink to="/policy-misalignment" className={({ isActive }) => `nav-link ${isActive ? 'active' : ''}`}>
+          <Scale className="nav-link-icon" />
+          #7 Policy Misalignment
+        </NavLink>
         <NavLink to="/duplicative-funding" className={({ isActive }) => `nav-link ${isActive ? 'active' : ''}`}>
+          <Layers className="nav-link-icon" />
           #8 Duplicative Funding
         </NavLink>
         <NavLink to="/threshold-gaming" className={({ isActive }) => `nav-link ${isActive ? 'active' : ''}`}>
           <BarChart3 className="nav-link-icon" />
           #9 Threshold Gaming
-          <span className="nav-link-badge">{navStats?.threshold_gaming_count != null ? navStats.threshold_gaming_count.toLocaleString() : '...'}</span>
-        </NavLink>
-        <NavLink to="/policy-misalignment" className={({ isActive }) => `nav-link ${isActive ? 'active' : ''}`}>
-          #7 Policy Misalignment
         </NavLink>
         <NavLink to="/adverse-media" className={({ isActive }) => `nav-link ${isActive ? 'active' : ''}`}>
+          <Newspaper className="nav-link-icon" />
           #10 Adverse Media
+        </NavLink>
+
+        <div className="sidebar-section-label">Cross-Challenge</div>
+        <NavLink to="/alerts" className={({ isActive }) => `nav-link ${isActive ? 'active' : ''}`}>
+          <ShieldAlert className="nav-link-icon" />
+          Multi-Flag Alerts
+          <span
+            className="nav-link-badge"
+            style={{
+              background: 'var(--status-critical)',
+              animation: alertCount > 0 ? 'pulse-glow 2s infinite' : 'none',
+            }}
+          >
+            {alertCount !== null ? alertCount.toLocaleString() : '...'}
+          </span>
         </NavLink>
 
         <div className="sidebar-section-label">AI Assistant</div>
