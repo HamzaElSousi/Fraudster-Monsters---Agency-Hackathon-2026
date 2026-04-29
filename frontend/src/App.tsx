@@ -3,7 +3,7 @@ import { BrowserRouter, Routes, Route, NavLink, useLocation, useNavigate } from 
 import {
   LayoutDashboard, ShieldAlert, Skull, Repeat2, Network, FileSearch,
   Shuffle, Bot, BookOpen, AlertTriangle, Zap, Database, Search,
-  Ghost, BarChart3, Package
+  Ghost, BarChart3, Package, Globe
 } from 'lucide-react';
 import Home from './pages/Home';
 import Dashboard from './pages/Dashboard';
@@ -21,6 +21,7 @@ import ThresholdGaming from './pages/ThresholdGaming';
 import VendorConcentration from './pages/VendorConcentration';
 import PolicyMisalignment from './pages/PolicyMisalignment';
 import AdverseMedia from './pages/AdverseMedia';
+import Investigations from './pages/Investigations';
 import './index.css';
 
 const API_BASE = import.meta.env.VITE_API_URL || '';
@@ -89,11 +90,15 @@ function Sidebar() {
     setSearchQuery('');
     setSearchResults(null);
     if (item.bn) navigate(`/entity/${encodeURIComponent(item.bn)}`);
+    else if (type === 'charities' && item.bn) navigate(`/entity/${encodeURIComponent(item.bn)}`);
+    else if (type === 'federal_grants' && item.bn) navigate(`/entity/${encodeURIComponent(item.bn)}`);
+    else if (type === 'ghost_recipients') navigate('/ghost-recipients');
     else if (type === 'loops') navigate('/loops');
     else if (type === 'governance') navigate('/governance');
     else if (type === 'sole_source') navigate('/sole-source');
     else if (type === 'alerts') navigate('/alerts');
-    else navigate('/zombies');
+    else if (type === 'zombies') navigate('/zombies');
+    else navigate('/');
   };
 
   return (
@@ -102,7 +107,7 @@ function Sidebar() {
         <NavLink to="/" className="sidebar-logo">
           <div className="sidebar-logo-icon" style={{ fontSize: 18, fontWeight: 900, fontFamily: "var(--font-mono)" }}>$</div>
           <div className="sidebar-logo-text">
-            <span className="sidebar-logo-title">AuditLens</span>
+            <span className="sidebar-logo-title">FraudsterMonsters</span>
             <span className="sidebar-logo-subtitle">Agency 2026 Ottawa</span>
           </div>
         </NavLink>
@@ -140,7 +145,7 @@ function Sidebar() {
               zIndex: 100,
               marginTop: 4,
             }}>
-              {searchResults.total === 0 && !(searchResults.results?.entities?.length > 0) ? (
+              {searchResults.total === 0 ? (
                 <div style={{ padding: 12, fontSize: 13, color: 'var(--text-muted)' }}>No results found</div>
               ) : (
                 <>
@@ -177,7 +182,16 @@ function Sidebar() {
                     items.length > 0 && (
                       <div key={type}>
                         <div style={{ padding: '8px 12px', fontSize: 11, color: 'var(--text-muted)', textTransform: 'uppercase', background: 'var(--bg-tertiary)' }}>
-                          {type.replace('_', ' ')} ({items.length})
+                          {({
+                            charities: 'CRA Charities',
+                            federal_grants: 'Federal Grants',
+                            ghost_recipients: 'Ghost Recipients',
+                            sole_source: 'Sole Source Contracts',
+                            zombies: 'Zombie Recipients',
+                            loops: 'Funding Loops',
+                            governance: 'Directors',
+                            alerts: 'Multi-Flag Alerts',
+                          })[type] || type.replace('_', ' ')} ({items.length})
                         </div>
                         {items.map((item, i) => (
                           <div
@@ -187,8 +201,15 @@ function Sidebar() {
                             onMouseEnter={(e) => e.currentTarget.style.background = 'var(--bg-tertiary)'}
                             onMouseLeave={(e) => e.currentTarget.style.background = 'transparent'}
                           >
-                            <div>{item.canonical_name || item.vendor || item.path_display?.slice(0, 50) || `${item.first_name} ${item.last_name}`}</div>
-                            {item.bn && <div style={{ fontSize: 11, color: 'var(--text-muted)', fontFamily: 'var(--font-mono)', marginTop: 1 }}>{item.bn} · View Case File →</div>}
+                            <div style={{ fontWeight: 500 }}>
+                              {item.canonical_name || item.recipient_name || item.vendor || item.path_display?.slice(0, 50) || (item.first_name ? `${item.first_name} ${item.last_name}` : 'Unknown')}
+                            </div>
+                            <div style={{ display: 'flex', gap: 6, alignItems: 'center', marginTop: 2 }}>
+                              {item.bn && <span style={{ fontSize: 10, color: 'var(--text-muted)', fontFamily: 'var(--font-mono)' }}>{item.bn}</span>}
+                              {item.department && <span style={{ fontSize: 10, color: 'var(--text-muted)' }}>{item.department}</span>}
+                              {item.amount && <span style={{ fontSize: 10, color: 'var(--accent-amber)' }}>${Number(item.amount).toLocaleString()}</span>}
+                              {item.bn && <span style={{ fontSize: 10, color: 'var(--accent-cyan)', marginLeft: 'auto' }}>View Case File →</span>}
+                            </div>
                           </div>
                         ))}
                       </div>
@@ -212,69 +233,59 @@ function Sidebar() {
           Dashboard
         </NavLink>
 
+        <div className="sidebar-section-label">AI Assistant</div>
+        <NavLink to="/chat" className={({ isActive }) => `nav-link ${isActive ? 'active' : ''}`}>
+          <Bot className="nav-link-icon" />
+          Ask AI
+        </NavLink>
+        <NavLink to="/investigations" className={({ isActive }) => `nav-link ${isActive ? 'active' : ''}`}>
+          <Globe className="nav-link-icon" />
+          OSINT Investigations
+        </NavLink>
+
         <div className="sidebar-section-label">Challenges</div>
         <NavLink to="/alerts" className={({ isActive }) => `nav-link ${isActive ? 'active' : ''}`}>
           <ShieldAlert className="nav-link-icon" />
           Multi-Flag Alerts
-          <span
-            className="nav-link-badge"
-            style={{
-              background: 'var(--status-critical)',
-              animation: alertCount > 0 ? 'pulse-glow 2s infinite' : 'none',
-            }}
-          >
-            {alertCount !== null ? alertCount.toLocaleString() : '...'}
-          </span>
         </NavLink>
         <NavLink to="/zombies" className={({ isActive }) => `nav-link ${isActive ? 'active' : ''}`}>
           <Skull className="nav-link-icon" />
           #1 Zombie Recipients
-          <span className="nav-link-badge">{navStats?.zombie_count != null ? navStats.zombie_count.toLocaleString() : '...'}</span>
         </NavLink>
         <NavLink to="/ghost-recipients" className={({ isActive }) => `nav-link ${isActive ? 'active' : ''}`}>
           <Ghost className="nav-link-icon" />
-          #2 Ghost Capacity
-          <span className="nav-link-badge">{navStats?.ghost_count != null ? navStats.ghost_count.toLocaleString() : '...'}</span>
+          #2 Ghost Recipients
         </NavLink>
         <NavLink to="/loops" className={({ isActive }) => `nav-link ${isActive ? 'active' : ''}`}>
           <Repeat2 className="nav-link-icon" />
           #3 Funding Loops
-          <span className="nav-link-badge">{navStats?.total_funding_loops != null ? navStats.total_funding_loops.toLocaleString() : '...'}</span>
         </NavLink>
         <NavLink to="/sole-source" className={({ isActive }) => `nav-link ${isActive ? 'active' : ''}`}>
           <FileSearch className="nav-link-icon" />
           #4 Sole Source
-          <span className="nav-link-badge">{navStats?.total_sole_source != null ? (navStats.total_sole_source >= 1000 ? Math.round(navStats.total_sole_source / 1000) + 'K' : navStats.total_sole_source) : '...'}</span>
         </NavLink>
         <NavLink to="/vendor-concentration" className={({ isActive }) => `nav-link ${isActive ? 'active' : ''}`}>
           <Package className="nav-link-icon" />
           #5 Vendor Concentration
-          <span className="nav-link-badge">{navStats?.vendor_concentration_count != null ? navStats.vendor_concentration_count.toLocaleString() : '...'}</span>
         </NavLink>
         <NavLink to="/governance" className={({ isActive }) => `nav-link ${isActive ? 'active' : ''}`}>
           <Network className="nav-link-icon" />
           #6 Governance Networks
-          <span className="nav-link-badge">{navStats?.multi_board_directors != null ? navStats.multi_board_directors.toLocaleString() : '...'}</span>
+        </NavLink>
+        <NavLink to="/policy-misalignment" className={({ isActive }) => `nav-link ${isActive ? 'active' : ''}`}>
+          #7 Policy Misalignment
         </NavLink>
         <NavLink to="/duplicative-funding" className={({ isActive }) => `nav-link ${isActive ? 'active' : ''}`}>
+          <Shuffle className="nav-link-icon" />
           #8 Duplicative Funding
         </NavLink>
         <NavLink to="/threshold-gaming" className={({ isActive }) => `nav-link ${isActive ? 'active' : ''}`}>
           <BarChart3 className="nav-link-icon" />
           #9 Threshold Gaming
-          <span className="nav-link-badge">{navStats?.threshold_gaming_count != null ? navStats.threshold_gaming_count.toLocaleString() : '...'}</span>
-        </NavLink>
-        <NavLink to="/policy-misalignment" className={({ isActive }) => `nav-link ${isActive ? 'active' : ''}`}>
-          #7 Policy Misalignment
         </NavLink>
         <NavLink to="/adverse-media" className={({ isActive }) => `nav-link ${isActive ? 'active' : ''}`}>
+          <Globe className="nav-link-icon" />
           #10 Adverse Media
-        </NavLink>
-
-        <div className="sidebar-section-label">AI Assistant</div>
-        <NavLink to="/chat" className={({ isActive }) => `nav-link ${isActive ? 'active' : ''}`}>
-          <Bot className="nav-link-icon" />
-          Ask AI
         </NavLink>
 
         <div className="sidebar-section-label">About</div>
@@ -316,9 +327,10 @@ const PAGE_TITLES = {
   '/policy-misalignment': 'Challenge #7 — Policy Misalignment',
   '/adverse-media': 'Challenge #10 — Adverse Media',
   '/chat': 'AI Investigator',
+  '/investigations': 'OSINT & WEBINT Investigations',
   '/entity': 'Entity Case File',
   '/duplicative-funding': 'Cross-Government Funding — Challenges #6 + #8',
-  '/about': 'Methodology — How AuditLens Works',
+  '/about': 'Methodology — How FraudsterMonsters Works',
 };
 
 const PAGE_CLASSES = {
@@ -335,6 +347,7 @@ const PAGE_CLASSES = {
   '/policy-misalignment': 'page-dashboard',
   '/adverse-media': 'page-zombies',
   '/chat': 'page-dashboard',
+  '/investigations': 'page-dashboard',
   '/duplicative-funding': 'page-governance',
 };
 
@@ -374,6 +387,7 @@ function MainLayout() {
             <Route path="/vendor-concentration" element={<VendorConcentration />} />
             <Route path="/policy-misalignment" element={<PolicyMisalignment />} />
             <Route path="/adverse-media" element={<AdverseMedia />} />
+            <Route path="/investigations" element={<Investigations />} />
           </Routes>
         </div>
       </main>

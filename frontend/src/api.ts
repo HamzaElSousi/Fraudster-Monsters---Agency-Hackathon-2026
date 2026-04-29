@@ -262,6 +262,17 @@ export async function fetchPolicyMisalignment(limit = 20) {
   return res.json();
 }
 
+// ── OSINT Investigation ────────────────────────────────────────────────────
+export async function fetchInvestigation(name: string, bn: string) {
+  const res = await fetch(`${API_BASE}/api/investigate`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ name, bn }),
+  });
+  if (!res.ok) throw new Error('Failed to generate investigation report');
+  return res.json();
+}
+
 // ── CHALLENGE 10: Adverse Media ─────────────────────────────────────────────
 export async function fetchAdverseMedia(name, bn) {
   const res = await fetch(`${API_BASE}/api/adverse-media`, {
