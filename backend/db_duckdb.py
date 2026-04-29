@@ -580,6 +580,9 @@ def get_governance_live(min_boards: int = 3, limit: int = 50) -> list[dict]:
             LIST(DISTINCT bn_root ORDER BY bn_root) as bn_roots,
             MIN(first_yr) as earliest_year,
             MAX(last_yr) as latest_year
+        FROM director_boards
+        GROUP BY last_name, first_name
+        HAVING COUNT(DISTINCT bn_root) >= {min_boards}
         ORDER BY board_count DESC
         LIMIT {limit}
     """

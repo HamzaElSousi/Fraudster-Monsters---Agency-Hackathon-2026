@@ -231,8 +231,7 @@ def get_zombies(
         results = _duck.cached(
             f"zombies:{min_funding}:{limit}",
             _duck.get_zombies_live,
-            min_funding=min_funding,
-            limit=limit
+            min_funding, limit
         )
         return {"results": results, "count": len(results), "query_mode": "duckdb-live"}
 
