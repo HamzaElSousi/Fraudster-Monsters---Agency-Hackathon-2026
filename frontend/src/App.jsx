@@ -12,6 +12,7 @@ import Chat from './pages/Chat';
 import EntityCaseFile from './pages/EntityCaseFile';
 import DuplicativeFunding from './pages/DuplicativeFunding';
 import ThresholdGaming from './pages/ThresholdGaming';
+import VendorConcentration from './pages/VendorConcentration';  // CHALLENGE 5
 import './index.css';
 
 const API_BASE = import.meta.env.VITE_API_URL || '';
@@ -229,6 +230,12 @@ function Sidebar() {
           #4 Sole Source
           <span className="nav-link-badge">{navStats?.total_sole_source != null ? (navStats.total_sole_source >= 1000 ? Math.round(navStats.total_sole_source / 1000) + 'K' : navStats.total_sole_source) : '...'}</span>
         </NavLink>
+        {/* CHALLENGE 5 */}
+        <NavLink to="/vendor-concentration" className={({ isActive }) => `nav-link ${isActive ? 'active' : ''}`}>
+          #5 Vendor Concentration
+          <span className="nav-link-badge">{navStats?.vendor_concentration_count != null ? navStats.vendor_concentration_count.toLocaleString() : '...'}</span>
+        </NavLink>
+        {/* END CHALLENGE 5 */}
         <NavLink to="/governance" className={({ isActive }) => `nav-link ${isActive ? 'active' : ''}`}>
           #6 Governance Networks
           <span className="nav-link-badge">{navStats?.multi_board_directors != null ? navStats.multi_board_directors.toLocaleString() : '...'}</span>
@@ -275,6 +282,7 @@ const PAGE_TITLES = {
   '/sole-source': 'Challenge #4 — Sole Source & Amendment Creep',
   '/governance': 'Challenge #6 — Governance Networks',
   '/threshold-gaming': 'Challenge #9 — Threshold Gaming',
+  '/vendor-concentration': 'Challenge #5 — Vendor Concentration',  // CHALLENGE 5
   '/chat': 'AI Investigator',
   '/entity': 'Entity Case File',
   '/duplicative-funding': 'Duplicative Funding',
@@ -290,6 +298,7 @@ const PAGE_CLASSES = {
   '/governance': 'page-governance',
   '/sole-source': 'page-dashboard',
   '/threshold-gaming': 'page-sole-source',
+  '/vendor-concentration': 'page-dashboard',  // CHALLENGE 5
   '/chat': 'page-dashboard',
   '/duplicative-funding': 'page-governance',
 };
@@ -326,6 +335,7 @@ function MainLayout() {
             <Route path="/entity/:bn" element={<EntityCaseFile />} />
             <Route path="/threshold-gaming" element={<ThresholdGaming />} />
             <Route path="/duplicative-funding" element={<DuplicativeFunding />} />
+            <Route path="/vendor-concentration" element={<VendorConcentration />} />  {/* CHALLENGE 5 */}
           </Routes>
         </div>
       </main>
