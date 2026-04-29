@@ -1338,7 +1338,7 @@ async def _call_bedrock_with_tools(system: str, messages: list, tools: list) -> 
         aws_secret_access_key=os.getenv("AWS_SECRET_ACCESS_KEY"),
         aws_session_token=os.getenv("AWS_SESSION_TOKEN") or None,
     )
-    model_id = os.getenv("BEDROCK_MODEL_ID", "us.anthropic.claude-opus-4-6-20251101-v1:0")
+    model_id = os.getenv("BEDROCK_MODEL_ID", "us.anthropic.claude-sonnet-4-6")
 
     bedrock_tools = [
         {
@@ -1478,7 +1478,7 @@ async def _call_llm(system: str, user_content: str) -> str:
 
 async def _call_bedrock(system: str, user_content: str) -> str:
     region = os.getenv("AWS_REGION", "us-east-1")
-    model_id = os.getenv("BEDROCK_MODEL_ID", "us.anthropic.claude-sonnet-4-20250514-v1:0")
+    model_id = os.getenv("BEDROCK_MODEL_ID", "us.anthropic.claude-sonnet-4-6")
     bedrock_api_key = os.getenv("BEDROCK_API_KEY")
 
     if bedrock_api_key:
