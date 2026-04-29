@@ -1024,7 +1024,7 @@ async def generate_investigation(body: dict):
             "{\n"
             '  "internal_summary": "2-3 paragraphs summarizing the entity\'s internal risk profile: funding patterns, red flags, loop participation, zombie status, filing anomalies, director network. Cite dollar amounts and years.",\n'
             '  "external_findings": "2-3 paragraphs analyzing external web/news results. Note discrepancies between public info and filings. Flag missing web presence, dead websites, or concerning coverage. Cite specific URLs.",\n'
-            '  "sentiment_analysis": "1-2 paragraphs on public/media perception. If no news found, note that absence of media scrutiny may itself be notable. Classify overall sentiment as POSITIVE, NEGATIVE, MIXED, or NEUTRAL.",\n'
+            '  "sentiment_analysis": "MUST start with exactly one of these words on its own line: POSITIVE, NEGATIVE, MIXED, or NEUTRAL. Then 1-2 paragraphs on public/media perception. If no news found, note that absence of media scrutiny may itself be notable.",\n'
             '  "action_items": [\n'
             '    "IMMEDIATE: <concrete step — name the specific federal department or agency that should act, e.g. CRA Charities Directorate, TBS, PSPC, and what specifically they should do: audit T3010 filings, freeze grant disbursements, revoke charitable status, refer to RCMP, etc.>",\n'
             '    "HIGH: <next priority step — e.g. cross-reference directors against other flagged orgs, subpoena bank records for circular flows, request explanation of filing gaps>",\n'
