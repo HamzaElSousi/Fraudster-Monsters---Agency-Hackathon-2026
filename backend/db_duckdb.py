@@ -145,8 +145,43 @@ def query(sql: str) -> list[dict]:
         return []
 
 
+def _sync_from_s3():
+    """Download missing data files from S3 bucket if S3_DATA_BUCKET is configured."""
+    bucket = os.getenv("S3_DATA_BUCKET", "").strip()
+    if not bucket:
+        return
+    base = _base()
+    missing = [(s, t) for s, t in _PRELOAD_TABLES if not _available(s, t)]
+    if not missing:
+        print(f"[S3] All preload files present locally — skipping S3 sync", flush=True)
+        return
+    print(f"[S3] {len(missing)} files missing locally — syncing from s3://{bucket}/", flush=True)
+    try:
+        import boto3
+        s3 = boto3.client("s3",
+            region_name=os.getenv("AWS_REGION", "us-west-2"),
+            aws_access_key_id=os.getenv("AWS_ACCESS_KEY_ID"),
+            aws_secret_access_key=os.getenv("AWS_SECRET_ACCESS_KEY"),
+            aws_session_token=os.getenv("AWS_SESSION_TOKEN") or None,
+        )
+        for schema, table in missing:
+            s3_key = f"{schema}/{table}.jsonl"
+            local_path = _path(schema, table)
+            os.makedirs(os.path.dirname(local_path), exist_ok=True)
+            print(f"[S3] Downloading {s3_key} → {local_path}", flush=True)
+            try:
+                s3.download_file(bucket, s3_key, local_path)
+                size_mb = os.path.getsize(local_path) / 1_000_000
+                print(f"[S3] {s3_key} downloaded ({size_mb:.1f} MB)", flush=True)
+            except Exception as e:
+                print(f"[S3] Failed to download {s3_key}: {e}", flush=True)
+    except Exception as e:
+        print(f"[S3] Sync error: {e}", flush=True)
+
+
 def preload_tables_sync():
     """Sync-load fast tables before server accepts requests."""
+    _sync_from_s3()
     print("[DuckDB] Loading fast tables…", flush=True)
     for schema, table in _PRELOAD_TABLES:
         if not _available(schema, table):
