@@ -170,18 +170,32 @@ function DataCard({ item, dataType, index, msgId, expandedCards, toggleCard, nav
       {isExpanded && (
         <div onClick={e => e.stopPropagation()}>
           {details}
-          {navPath && (
-            <button
-              onClick={(e) => { e.stopPropagation(); navigate(navPath); }}
-              style={{
-                marginTop: 10, padding: '5px 14px', fontSize: 11, fontWeight: 600,
-                background: 'var(--gradient-primary)', color: '#fff', border: 'none',
-                borderRadius: 'var(--radius-sm)', cursor: 'pointer',
-              }}
-            >
-              {navLabel} →
-            </button>
-          )}
+          <div style={{ display: 'flex', gap: 8, marginTop: 10 }}>
+            {(item.primary_bn || item.bn || item.bn9) && (
+              <button
+                onClick={(e) => { e.stopPropagation(); navigate(`/entity/${encodeURIComponent(item.primary_bn || item.bn || item.bn9)}`); }}
+                style={{
+                  padding: '5px 14px', fontSize: 11, fontWeight: 600,
+                  background: 'rgba(99,102,241,0.15)', color: 'var(--accent-indigo-light)', border: '1px solid rgba(99,102,241,0.3)',
+                  borderRadius: 'var(--radius-sm)', cursor: 'pointer',
+                }}
+              >
+                Investigate Entity →
+              </button>
+            )}
+            {navPath && (
+              <button
+                onClick={(e) => { e.stopPropagation(); navigate(navPath); }}
+                style={{
+                  padding: '5px 14px', fontSize: 11, fontWeight: 600,
+                  background: 'var(--gradient-primary)', color: '#fff', border: 'none',
+                  borderRadius: 'var(--radius-sm)', cursor: 'pointer',
+                }}
+              >
+                {navLabel} →
+              </button>
+            )}
+          </div>
         </div>
       )}
     </div>

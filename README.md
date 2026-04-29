@@ -2,77 +2,95 @@
 
 > **Fraudster Monsters · Agency 2026 · Ottawa · April 29, 2026**
 
+An AI-powered investigative platform that ingests **10GB of official Canadian government records** and uses **agentic AI with autonomous tool use** to surface accountability failures no human could trace by hand.
+
+---
+
 ## The Team
 
-**Fraudster Monsters** — Agency 2026 Hackathon, Ottawa
-
-| Name | Email |
-|------|-------|
-| Team Member 1 | member1@example.com |
-| Team Member 2 | member2@example.com |
-| Team Member 3 | member3@example.com |
-| Team Member 4 | member4@example.com |
+| Name | Role | GitHub |
+|------|------|--------|
+| **Hamza El Sousi** | Lead SWE / AI | [github.com/HamzaElSousi](https://github.com/HamzaElSousi) |
+| **Mansi Joshi** | Frontend SWE / AI | [github.com/mansijoshi04](https://github.com/mansijoshi04) |
+| **Farah Mohammed** | Data / AI | [github.com/FaraDuMatin](https://github.com/FaraDuMatin) |
+| **Keena Swanson** | SWE / AI | [github.com/k334a](https://github.com/k334a) |
 
 ---
 
 ## What We Found
 
-> **219 zombie charities** received public money after going dark · **5,808 circular funding loops** may have inflated charitable tax receipts · **2,841 directors** each sit on 5+ government-funded charity boards · **15,533 no-bid contracts** worth $18.2B in Alberta alone
+> **219 zombie charities** received public money after going dark · **5,808 circular funding loops** may inflate charitable tax receipts · **Thousands of directors** each sit on 5+ government-funded charity boards · **15,533 no-bid contracts** worth $18.2B in Alberta alone
 
-An AI-powered investigative dashboard exposing patterns in Canadian government spending that no human could trace by hand. We ingested **10GB of public records** and surfaced six categories of accountability failure:
+---
 
-## What It Does
+## All 10 Challenges Implemented
 
-This tool ingests **10GB of public government records** and surfaces accountability failures across six challenge categories:
+| # | Challenge | What We Find |
+|---|-----------|-------------|
+| 1 | **Zombie Recipients** | Charities with 70%+ govt dependency that stopped filing — includes temporal analysis showing years inactive |
+| 2 | **Ghost Capacity** | Persistent orgs with 0–3 employees, 80%+ govt revenue, near-zero program spending — the money enters but nothing comes out |
+| 3 | **Funding Loops** | Circular gift flows with suspicion scoring, phantom receipt estimates, and **board overlap detection** (shared directors across loop participants) |
+| 4 | **Sole Source & Amendment Creep** | No-bid Alberta contracts with escalation trend detection and near-threshold splitting analysis |
+| 5 | **Vendor Concentration** | HHI + CR-3 analysis by department, NAICS sector, and region — surfaces monopoly-level vendor lock-in |
+| 6 | **Governance Networks** | Multi-board directors with **tenure tracking** (flags 15+ year entrenchment) and loop exposure detection |
+| 7 | **Policy Misalignment** | Federal spending by department vs stated priorities (climate, housing, healthcare, reconciliation) with AI analysis + program-level drill-down |
+| 8 | **Duplicative Funding** | Organizations funded by both federal and Alberta governments — with **purpose overlap scoring** across policy domains |
+| 9 | **Threshold Gaming** | Grants clustered 85–99.99% below $25K/$100K/$1M thresholds — weighted risk score by proximity, not just count |
+| 10 | **Adverse Media** | AI-powered entity risk assessment generating targeted search queries for media databases and regulatory enforcement records |
 
-| Challenge | What We Find |
-|-----------|-------------|
-| **Zombie Recipients** | Charities with 70%+ government revenue dependency that stopped filing tax returns — public money sent into the void |
-| **Ghost Recipients** | Federal grant recipients who received $500K+ and then went silent for 4+ years, with no traceable business number |
-| **Funding Loops** | Circular money flows between charities where the same dollar passes through multiple organizations, each issuing its own charitable tax receipt |
-| **Governance Networks** | Directors who simultaneously control multiple government-funded charities, concentrating oversight of public money in few hands |
-| **Sole-Source Contracts** | Alberta procurement contracts awarded without competitive bidding, showing amendment creep and vendor concentration |
-| **Threshold Gaming** | Federal grant recipients who repeatedly receive grants clustered just below the $25K, $100K, and $1M proactive disclosure thresholds — the same structuring tactic used in financial crime |
+**Cross-Challenge Alerts** identify entities flagged across multiple categories simultaneously — the highest-priority accountability failures.
 
-The **Cross-Challenge Alerts** page identifies organizations flagged simultaneously across multiple categories — the highest-priority accountability failures.
+**OSINT Investigations** provide deep-dive reports combining internal dossier data with external intelligence synthesis.
+
+---
+
+## Agentic AI Investigator
+
+The `/chat` page is not a chatbot — it's an **autonomous AI investigator** with 12 database tools:
+
+```
+search_zombies · search_funding_loops · search_governance · search_sole_source
+search_vendor_concentration · search_duplicative_funding · search_threshold_gaming
+get_entity_dossier · search_entities · get_cross_challenge_alerts · get_platform_stats
+```
+
+**How it works:**
+1. User asks an investigative question
+2. Claude (via AWS Bedrock) decides which tools to call
+3. Backend executes queries against the live database
+4. Claude reasons over the results, may call more tools (up to 6 turns)
+5. Returns a narrative with citations, markdown tables, and tool badges
+
+Built with **Anthropic SDK tool_use** + **AWS Bedrock Converse API** with `toolConfig`. Falls back to data-driven template responses when AI is unavailable.
 
 ---
 
 ## Data Sources
 
-All data is from **official Canadian government open data portals** — nothing scraped, nothing estimated (except phantom receipt upper bounds).
+All data from **official Canadian government open data portals** — nothing scraped, nothing estimated.
 
-| Source | What It Contains | Size |
-|--------|-----------------|------|
-| CRA T3010 Charity Filings | Annual financials, directors, govt funding, loops | ~6GB |
-| Federal Proactive Disclosure | 1.27M grant & contribution records (51+ depts) | ~3GB |
-| Alberta Open Data | 15,533 sole-source procurement contracts | ~1GB |
+| Source | Records | Size |
+|--------|---------|------|
+| CRA T3010 Charity Filings | 91,129 charities, annual filings 2020–2024 | ~6GB |
+| Federal Proactive Disclosure | 1,275,521 grant records from 51+ departments | ~3GB |
+| Alberta Open Data | 15,533 sole-source contracts + grants | ~1GB |
+| Entity Resolution | 851,000 golden records linking all three sources | included |
 
 ### Getting the Data
 
-The `data/` directory is **not committed** (10GB — too large for git). You need it to run the app.
-
-**Hackathon shared drive**: The pre-processed dataset is available via the Agency 2026 group chat link:
+The `data/` directory is **not in git** (10GB). Download from the hackathon shared drive:
 
 > **[Download data folder from Google Drive](https://drive.google.com/file/d/1D3vb9x7WF2cEtt44n70nzHGXsAbLtaFQ/view)**
 
-Download it and extract/place the contents so your project root has a `data/` folder structured as:
-
+Extract so your project root has:
 ```
 data/
-├── cra/        # CRA T3010 JSONL files
-├── fed/        # Federal grants JSONL
-└── ab/         # Alberta procurement JSONL
+├── hackathon.duckdb     # Pre-built DuckDB (~768MB)
+├── cra/                 # CRA T3010 JSONL files
+├── fed/                 # Federal grants JSONL
+├── ab/                  # Alberta procurement JSONL
+└── general/             # Entity resolution JSONL
 ```
-
-`data/hackathon.duckdb` is a **pre-built file** included in the shared drive download. It is used as a read-only source — the backend copies it to an isolated cache on first run. Do not delete it from `data/`.
-
-**Raw sources (if needed)**:
-- CRA T3010: [open.canada.ca](https://open.canada.ca)
-- Federal grants: [search.open.canada.ca/grants/](https://search.open.canada.ca/grants/)
-- Alberta contracts: [open.alberta.ca](https://open.alberta.ca)
-
-> The app expects JSONL files at `data/cra/`, `data/fed/`, `data/ab/`. `data/hackathon.duckdb` must be present — it is included in the shared drive download.
 
 ---
 
@@ -81,50 +99,35 @@ data/
 ### Prerequisites
 - Python 3.10+
 - Node.js 18+
-- WSL (Windows) or any Linux/Mac terminal
+- 10GB data files (see above)
 
-### 1. Clone and set up
+### Setup
 
 ```bash
 git clone https://github.com/HamzaElSousi/Fraudster-Monsters---Agency-Hackathon-2026.git
 cd Fraudster-Monsters---Agency-Hackathon-2026
-```
 
-### 2. Configure environment
-
-```bash
+# Configure AI credentials
 cp backend/.env.example backend/.env
-# Edit backend/.env — add AWS Bedrock keys or Anthropic API key for AI chat
-```
+# Edit backend/.env — add AWS Bedrock keys for agentic AI
 
-### 3. Place data files
+# Install dependencies
+cd backend && pip install -r requirements.txt && cd ..
+cd frontend && npm install && cd ..
 
-```bash
-# Download from the Google Drive link above and extract into the project root
-# Then verify:
-ls data/cra/loops.jsonl    # spot check — should exist before first run
-ls data/hackathon.duckdb   # pre-built DuckDB — must be present
-```
-
-### 4. Start everything
-
-```bash
+# Start everything
 bash start.sh
-# Opens backend on :8000 and frontend on :5173
-# First run takes ~2 min to load DuckDB tables; instant after that
-```
-
-Or run individually:
-
-```bash
-# Terminal 1 — backend
-cd backend && pip install -r requirements.txt && python3 main.py
-
-# Terminal 2 — frontend
-cd frontend && npm install && npm run dev
 ```
 
 Visit **http://localhost:5173**
+
+### Docker Alternative
+
+```bash
+bash docker-rebuild.sh clean -d
+# Backend on :8000, frontend on :3000 via nginx
+# First run copies DuckDB to isolated volume (~30s)
+```
 
 ---
 
@@ -132,27 +135,13 @@ Visit **http://localhost:5173**
 
 | Layer | Technology |
 |-------|-----------|
-| Backend | Python · FastAPI · DuckDB (embedded, queries JSONL directly) |
-| Frontend | React 19 · Vite · React Router |
-| Visualization | Apache ECharts · D3 |
-| AI | AWS Bedrock Converse API (primary) · Anthropic SDK (fallback) |
-| Deploy | Docker · nginx (optional) |
-
-**Dual database support**: DuckDB reads the JSONL files directly and caches them in `data/hackathon.duckdb` on first run. PostgreSQL integration via shared Render.com database provides dual-verification (see [PostgreSQL Connection](#postgresql-connection) below).
-
----
-
-## PostgreSQL Connection
-
-The shared Render.com PostgreSQL database is now connected and verified at startup:
-
-| Component | Details |
-|-----------|---------|
-| **Connection** | Real Render.com connection string loaded from `backend/.env` |
-| **Tables** | 89 tables across 4 schemas: `cra`, `ab`, `fed`, `general` |
-| **Entity resolution** | `general.entity_golden_records` and `general.vw_entity_search` enable cross-dataset matching |
-| **Backend behavior** | `.env` loaded from both root AND `backend/` directory (backend-specific vars override root) |
-| **Health check** | `GET /api/health` returns `pg_connected: true/false` + `pg_table_count` to verify connection |
+| Backend | Python · FastAPI · DuckDB (embedded, queries 10GB JSONL directly) |
+| Frontend | React 19 · TypeScript · Vite · React Router 7 |
+| Visualization | Apache ECharts · D3 · React Force Graph |
+| AI | AWS Bedrock Converse API with tool_use (Claude Sonnet 4.6) |
+| Entity Resolution | 851K golden records via DuckDB + PostgreSQL dual-DB |
+| Icons | Lucide React |
+| Deploy | Docker Compose · nginx reverse proxy |
 
 ---
 
@@ -160,35 +149,38 @@ The shared Render.com PostgreSQL database is now connected and verified at start
 
 ```
 ├── backend/
-│   ├── main.py              # FastAPI routes + AI chat logic
+│   ├── main.py              # FastAPI routes + agentic AI chat (12 tools)
 │   ├── db_duckdb.py         # All DuckDB queries (get_*_live functions)
-│   ├── requirements.txt
-│   └── .env.example         # Copy to .env, fill in API keys
+│   ├── risk_scorer.py       # Risk scoring utilities
+│   └── .env.example         # Copy to .env, add API keys
 │
-├── frontend/
-│   └── src/
-│       ├── api.js            # All fetch functions
-│       ├── App.jsx           # Router + sidebar
-│       └── pages/
-│           ├── Dashboard.jsx
-│           ├── Zombies.jsx
-│           ├── FundingLoops.jsx
-│           ├── Governance.jsx
-│           ├── SoleSource.jsx
-│           ├── Alerts.jsx
-│           ├── Chat.jsx
-│           ├── ThresholdGaming.jsx
-│           └── EntityCaseFile.jsx
+├── frontend/src/
+│   ├── App.tsx              # Router + sidebar with 10 challenge nav
+│   ├── api.ts               # All fetch functions
+│   └── pages/
+│       ├── Home.jsx          # Landing page with team + all 10 challenges
+│       ├── Dashboard.jsx     # 6 finding cards + investigation start
+│       ├── Zombies.tsx       # Challenge #1 — clickable entity rows
+│       ├── GhostRecipients.jsx # Challenge #2 — ghost capacity analysis
+│       ├── FundingLoops.tsx  # Challenge #3 — graph + table + board overlap
+│       ├── SoleSource.tsx    # Challenge #4 — amendment creep + trends
+│       ├── VendorConcentration.jsx # Challenge #5 — HHI gauge + AI briefs
+│       ├── Governance.tsx    # Challenge #6 — director cards + tenure
+│       ├── PolicyMisalignment.jsx # Challenge #7 — dept spending + AI analysis
+│       ├── DuplicativeFunding.tsx # Challenge #8 — overlap scoring
+│       ├── ThresholdGaming.jsx # Challenge #9 — weighted risk scores
+│       ├── AdverseMedia.jsx  # Challenge #10 — AI risk assessment
+│       ├── Alerts.tsx        # Cross-challenge multi-flag intersections
+│       ├── Investigations.tsx # OSINT/WEBINT deep investigations
+│       ├── Chat.tsx          # Agentic AI with markdown tables + tool badges
+│       ├── EntityCaseFile.jsx # Full entity dossier (flags, charts, loops, AI)
+│       └── Methodology.tsx   # How the platform works
 │
-├── data/                    # ← NOT in git (10GB). Get from shared drive.
-│   ├── hackathon.duckdb     # Auto-created on first run
-│   ├── cra/                 # CRA T3010 JSONL files
-│   ├── fed/                 # Federal grants JSONL
-│   └── ab/                  # Alberta procurement JSONL
-│
-├── start.sh                 # One-command startup
-├── docker-compose.yml       # Docker alternative
-└── CLAUDE.md                # Technical reference (architecture, bugs, gotchas)
+├── data/                    # NOT in git (10GB) — download from shared drive
+├── start.sh                 # One-command local startup
+├── docker-compose.yml       # Docker deployment
+├── TO_DEMO.md               # Demo script + presentation guide
+└── CLAUDE.md                # Full technical reference
 ```
 
 ---
@@ -196,114 +188,71 @@ The shared Render.com PostgreSQL database is now connected and verified at start
 ## Key API Endpoints
 
 ```
-GET  /api/stats                         — Dashboard headline numbers
-GET  /api/zombies?min_funding=100000    — Zombie recipients
-GET  /api/loops?min_hops=2&max_hops=6  — Funding loops (with suspicion scoring)
-GET  /api/loops/stats                   — Loop stats incl. phantom receipt totals
-GET  /api/governance?min_boards=3       — Multi-board directors
-GET  /api/alerts?min_flags=2            — Cross-challenge intersections
-GET  /api/sole-source?min_ratio=3       — Sole-source concentration
-GET  /api/threshold-gaming?limit=50     — Grants clustered 85–99.9% below disclosure thresholds
-GET  /api/ghost-recipients?min_funding=500000 — Federal recipients silent 4+ years
-GET  /api/entity/{bn}                   — Full entity case file
-GET  /api/dashboard/featured            — Top 5 high-risk entities
-GET  /api/health
-POST /api/chat                          — AI investigator (body: {message: string})
+GET  /api/stats                              Dashboard headline numbers
+GET  /api/zombies?min_funding=100000         Zombie recipients (temporal analysis)
+GET  /api/ghost-recipients?min_funding=500000 Ghost capacity (employee + program spending)
+GET  /api/loops?min_hops=2&max_hops=6        Funding loops (board overlap enrichment)
+GET  /api/sole-source?min_ratio=3             Sole-source (trend detection)
+GET  /api/vendor-concentration?dimension=dept  HHI + CR-3 analysis
+GET  /api/governance?min_boards=3             Multi-board directors (tenure)
+GET  /api/policy-misalignment?limit=20        Dept spending + AI analysis
+GET  /api/policy-misalignment/programs?dept=X  Program-level drill-down
+GET  /api/duplicative-funding                 Dual-funded orgs (overlap scoring)
+GET  /api/threshold-gaming?limit=50           Weighted risk scores
+POST /api/adverse-media                       AI entity risk assessment
+GET  /api/adverse-media/top-flagged           Top 5 cross-flagged entities
+GET  /api/alerts?min_flags=2                  Cross-challenge intersections
+POST /api/investigate                         OSINT/WEBINT deep investigation
+GET  /api/entity/{bn}                         Full entity case file
+POST /api/chat                                Agentic AI investigator (12 tools)
 ```
 
-Full API docs at **http://localhost:8000/docs** when backend is running.
-
----
-
-## AI Chat
-
-The `/chat` page lets you ask natural-language questions about the data. It routes to:
-- **AWS Bedrock** (Claude) — requires `AWS_ACCESS_KEY_ID` / `AWS_SECRET_ACCESS_KEY` / `AWS_SESSION_TOKEN` in `.env`
-- **Anthropic direct** — requires `ANTHROPIC_API_KEY` in `.env`
-- **Template fallback** — works without any API keys; returns structured data cards
-
-Check `GET /api/health` → `ai_enabled: true/false` to see which mode is active.
-
----
-
-## Docker (Alternative)
-
-Docker and `start.sh` can now run **simultaneously** without conflict — the backend container copies `data/hackathon.duckdb` to an isolated Docker volume (`duckdb_vol`) on first start, so there is no file-lock collision with any local process.
-
-### First-time / clean start
-
-```bash
-# If you ran Docker before this fix, remove the old empty volume first:
-docker compose down -v
-
-# Rebuild images (picks up entrypoint.sh and Dockerfile changes):
-docker compose build
-
-# Start — first run copies hackathon.duckdb to isolated cache (~30s), then loads:
-docker compose up
-```
-
-Backend on **:8000**, frontend on **:3000** via nginx.
-
-### Subsequent starts
-
-```bash
-docker compose up
-# Uses cached duckdb_vol — starts in seconds
-```
-
-### How it works
-
-- `entrypoint.sh` checks if `/app/duckdb_cache/hackathon.duckdb` exists in the volume
-- If not, it copies from `/data/hackathon.duckdb` (read-only bind mount of `data/`)
-- Then starts uvicorn — single worker, DuckDB is single-writer
-- The `duckdb_vol` volume is completely isolated from `data/hackathon.duckdb` on the host
-
----
-
-## Environment Variables
-
-See `backend/.env.example` for the full list. Key ones:
-
-| Variable | Required | Description |
-|----------|----------|-------------|
-| `AWS_ACCESS_KEY_ID` | For AI chat | Bedrock access |
-| `AWS_SECRET_ACCESS_KEY` | For AI chat | Bedrock secret |
-| `AWS_SESSION_TOKEN` | For AI chat | Session token (event-day credentials) |
-| `ANTHROPIC_API_KEY` | Alt. for AI | Direct Anthropic API |
-| `DATA_DIR` | Optional | Override data path (default: `../data`) |
+Full interactive API docs at **http://localhost:8000/docs**
 
 ---
 
 ## What the Numbers Mean
 
-| Metric | Value | Definition |
-|--------|-------|------------|
+| Metric | Value | How It's Computed |
+|--------|-------|-------------------|
 | Registered charities | 91,129 | COUNT DISTINCT BN from CRA identification |
-| Govt-funded charities | 45,933 | Charities with any govt revenue in any year |
 | Zombie recipients | 219 | ≥70% govt revenue + ≥$100K + stopped filing by 2022 |
-| Funding loops | 5,808 | Confirmed circular gift cycles in CRA T3010 |
-| Multi-board directors | 3,444 | Directors on 5+ distinct govt-funded charity boards (name-matched, approx.) |
-| Federal grant records | 1,275,521 | Rows in federal proactive disclosure dataset |
-| AB sole-source records | 15,533 | Alberta no-bid contracts |
-| AB contract value | $18.2B | Total value of sole-source contracts |
+| Funding loops | 5,808 | SCC-detected circular gift cycles in CRA T3010 |
+| Multi-board directors | ~3,400 | Directors on 5+ distinct govt-funded charity boards (name-matched) |
+| Federal grant records | 1,275,521 | Federal proactive disclosure dataset |
+| AB sole-source contracts | 15,533 | Alberta no-bid procurement records |
+| AB contract value | $18.2B | Total sole-source contract value |
 
-**Phantom receipts** = `total_flow × hops` for same-year loops — an upper-bound estimate of tax receipt inflation. Labelled as such everywhere in the UI.
-
----
-
-## For New Team Members
-
-1. **Read `CLAUDE.md`** — it has the full technical reference: every bug fixed, every gotcha, all SQL patterns, data schema notes.
-2. **The backend is single-writer** — DuckDB holds an exclusive lock. Don't try to open `data/hackathon.duckdb` directly while the server is running. Docker uses a separate isolated copy in `duckdb_vol` — safe to run both simultaneously.
-3. **Cache TTL is 10 minutes** — restart backend after any backend code change to bust the cache.
-4. **BN format** — CRA uses 9-char roots (`107951618`) and 15-char program accounts (`107951618RR0001`). Always normalize with `LEFT(bn, 9)` when joining across tables.
-5. **Frontend env** — use `import.meta.env.VITE_*`, never `process.env.*` (Vite, not CRA).
+**Phantom receipts** = `total_flow x hops` for same-year loops — an upper-bound estimate of tax receipt inflation. Labelled as such in the UI.
 
 ---
 
-## Hackathon Notes
+## Environment Variables
 
-- **Code freeze**: 2PM April 29, 2026
-- **Judging criteria**: Impact of finding · Technical depth · AI integration · Presentation
-- **Data provenance**: All findings from official government open data. Nothing fabricated.
+See `backend/.env.example`. Key variables:
+
+| Variable | Required | Description |
+|----------|----------|-------------|
+| `AWS_ACCESS_KEY_ID` | For AI | Bedrock access key |
+| `AWS_SECRET_ACCESS_KEY` | For AI | Bedrock secret key |
+| `AWS_SESSION_TOKEN` | For AI | Session token (event-day credentials) |
+| `AWS_REGION` | For AI | e.g. `us-west-2` |
+| `BEDROCK_MODEL_ID` | Optional | Default: `us.anthropic.claude-sonnet-4-6` |
+| `DB_CONNECTION_STRING` | Optional | PostgreSQL for dual-DB verification |
+| `DATA_DIR` | Optional | Override data path (default: `../data`) |
+
+---
+
+## Hackathon Context
+
+- **Event**: Agency 2026, Ottawa, April 29, 2026
+- **Code freeze**: 2PM
+- **Judging**: Impact of finding · Technical depth · AI integration · Presentation
+- **Key narrative**: All 10 challenges implemented with agentic AI, cross-challenge intersection analysis, and real government data at 10GB scale
+- **Data provenance**: CRA T3010, Federal Proactive Disclosure (51+ depts), Alberta Open Data — all public records
+
+---
+
+## License
+
+Built for the Agency 2026 AI Accountability Hackathon. All data sourced from Canadian government open data portals.

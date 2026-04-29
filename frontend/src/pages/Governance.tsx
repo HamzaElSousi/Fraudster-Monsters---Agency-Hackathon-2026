@@ -1,5 +1,6 @@
 // @ts-nocheck
 import { useState, useEffect } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { Network, Repeat2, AlertTriangle, Search } from 'lucide-react';
 import { fetchGovernance, fetchSelfDealingDirectors, formatCurrency, fmtDollars } from '../api';
 
@@ -25,6 +26,7 @@ function MethodologyPanel() {
 }
 
 export default function Governance() {
+  const navigate = useNavigate();
   const [data, setData] = useState(null);
   const [selfDealingData, setSelfDealingData] = useState(null);
   const [loading, setLoading] = useState(true);
@@ -283,9 +285,9 @@ export default function Governance() {
                     </thead>
                     <tbody>
                       {(dir.organizations || []).map((org, oi) => (
-                        <tr key={org.bn_root || org.bn || oi}>
+                        <tr key={org.bn_root || org.bn || oi} onClick={() => navigate(`/entity/${encodeURIComponent(org.bn_root || org.bn)}`)} style={{ cursor: 'pointer' }}>
                           <td>
-                            <div style={{ fontWeight: 600, fontSize: 14, maxWidth: 260, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }} title={org.name}>{org.name}</div>
+                            <div style={{ fontWeight: 600, fontSize: 14, maxWidth: 260, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', color: 'var(--accent-indigo-light)' }} title={org.name}>{org.name}</div>
                             <div style={{ fontSize: 12, color: 'var(--text-muted)', fontFamily: 'var(--font-mono)' }}>BN: {org.bn_root || org.bn}</div>
                           </td>
                           <td><span className="funding-amount medium-val">{formatCurrency(org.fed_funding)}</span></td>

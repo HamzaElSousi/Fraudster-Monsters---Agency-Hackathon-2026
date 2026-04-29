@@ -1,4 +1,5 @@
 import { useState, useEffect, useMemo } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { fetchGhostRecipients, fmtDollars } from '../api';
 
 const CRA_STATUS_META = {
@@ -81,6 +82,7 @@ function MethodologyPanel() {
 }
 
 export default function GhostRecipients() {
+  const navigate = useNavigate();
   const [data, setData] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
@@ -272,7 +274,7 @@ export default function GhostRecipients() {
                 const silent = r.years_silent || 0;
                 const silentColor = silent >= 8 ? 'var(--status-critical)' : silent >= 5 ? 'var(--status-medium)' : 'var(--text-secondary)';
                 return (
-                  <tr key={i}>
+                  <tr key={i} onClick={() => r.bn9 && r.bn9.length >= 9 && navigate(`/entity/${encodeURIComponent(r.bn9)}`)} style={{ cursor: r.bn9 && r.bn9.length >= 9 ? 'pointer' : 'default' }}>
                     <td><SuspicionBadge score={r.suspicion_score || 0} /></td>
                     <td>
                       <div style={{ fontWeight: 600, fontSize: 13 }}>{r.recipient_legal_name || '—'}</div>
